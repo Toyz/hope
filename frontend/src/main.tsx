@@ -7,9 +7,11 @@ import { RpcTransport } from "@toyz/loom-rpc";
 import { AuthStore } from "./auth-store";
 import { HopeTransport } from "./transport";
 import { ConfirmService } from "./confirm";
+import { ProcService } from "./proc";
 
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
+import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./app";
 import "./pages/login";
 import "./pages/dashboard";
@@ -19,6 +21,7 @@ import "./pages/images";
 
 app.use(AuthStore);
 app.use(ConfirmService);
+app.use(ProcService);
 
 // Register the transport under both its concrete class (so components inject a
 // typed HopeTransport, incl. streamWithSignal) and the abstract RpcTransport

@@ -6,6 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
+import { ProcService } from "../proc";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
@@ -228,6 +229,7 @@ export class StackPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -465,43 +467,47 @@ export class StackPage extends LoomElement {
     }
   };
 
-  // Redeploy a specific set of containers, streaming each into the output panel.
+  // Redeploy a specific set of containers, streaming each into the dialog.
   private runRedeployList = async (ids: string[], label: string) => {
     this.busy = "stack:redeploy";
-    this.opLog = "";
-    this.opCtrl = new AbortController();
-    this.showToast(`redeploy ${label}…`, "", true);
     try {
-      for (const id of ids) {
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id], this.opCtrl.signal)) {
-          if (f.type === "log") this.opLog += (this.opLog ? "\n" : "") + f.data;
-          else if (f.type === "done" && !f.ok) this.showToast(`redeploy — ${f.error}`, "bad");
+      await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
+        let ok = true;
+        for (const id of ids) {
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id], signal)) {
+            if (f.type === "log" && f.data) emit(f.data);
+            else if (f.type === "done" && !f.ok) {
+              ok = false;
+              emit("failed: " + (f.error ?? ""));
+            }
+          }
         }
-      }
-      this.showToast(`redeploy ${label} — done`);
+        emit("done");
+        return ok;
+      });
       await this.load();
-    } catch (err: any) {
-      if (!this.opCtrl?.signal.aborted) this.showToast(`redeploy ${label} — ${err?.message ?? "failed"}`, "bad");
     } finally {
       this.busy = "";
     }
   };
 
-  // Redeploy with live output: stream pull/recreate progress into the output
-  // panel instead of blocking on a single RPC.
+  // Redeploy with live output streamed into the shared processing dialog.
   private runRedeploy = async (method: "redeploy" | "redeployStack", args: string[], label: string, busyKey: string) => {
     this.busy = busyKey;
-    this.opLog = "";
-    this.opCtrl = new AbortController();
-    this.showToast(`redeploy ${label}…`, "", true);
     try {
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, this.opCtrl.signal)) {
-        if (f.type === "log") this.opLog += (this.opLog ? "\n" : "") + f.data;
-        else if (f.type === "done") this.showToast(f.ok ? `redeploy ${label} — done` : `redeploy ${label} — ${f.error}`, f.ok ? "" : "bad");
-      }
+      await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
+        let ok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) {
+            ok = false;
+            emit("failed: " + (f.error ?? ""));
+          }
+        }
+        emit("done");
+        return ok;
+      });
       await this.load();
-    } catch (err: any) {
-      if (!this.opCtrl?.signal.aborted) this.showToast(`redeploy ${label} — ${err?.message ?? "failed"}`, "bad");
     } finally {
       this.busy = "";
     }

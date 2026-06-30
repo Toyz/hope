@@ -6,6 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
+import { ProcService } from "../proc";
 import type { ImageInfo, PruneResult, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
@@ -62,17 +63,6 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .toast { position: fixed; right: 22px; bottom: 22px; z-index: 60; background: var(--raised);
     border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px; max-width: 420px; }
   .toast.bad { border-color: var(--bad); color: var(--bad); }
-
-  .proc { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
-  .pbox { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
-  .phead { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-  .phead .pt { font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--hi); }
-  .phead .grow { flex: 1; }
-  .phead .pn { font: 600 12px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
-  .plog { height: 320px; border: 0; border-bottom: 1px solid var(--line); background: #070a0f;
-    overflow: auto; white-space: pre-wrap; word-break: break-all; font: 12px/1.6 var(--mono); color: #bfc9d8; }
-  .pacts { display: flex; justify-content: flex-end; padding: 13px 16px; }
 
   .search { position: relative; margin-bottom: 18px; }
   .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
@@ -159,6 +149,7 @@ export class ImagesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -171,12 +162,6 @@ export class ImagesPage extends LoomElement {
   @reactive accessor filter: Filter = "all";
   @reactive accessor toast = "";
   @reactive accessor toastKind = "";
-  @reactive accessor procOpen = false;
-  @reactive accessor procTitle = "";
-  @reactive accessor procLines: string[] = [];
-  @reactive accessor procDone = false;
-  @reactive accessor procOk = true;
-  private procCtrl?: AbortController;
   @reactive accessor detail: ImageInfo | null = null;
   @reactive accessor selected: string[] = [];
 
@@ -261,41 +246,29 @@ export class ImagesPage extends LoomElement {
       ],
     });
     if (!ok) return;
-    // Live processing dialog: remove one at a time, streaming progress.
-    this.procTitle = all ? "pruning unused images" : "pruning dangling images";
-    this.procLines = [];
-    this.procDone = false;
-    this.procOk = true;
-    this.procOpen = true;
-    this.procCtrl = new AbortController();
-    try {
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], this.procCtrl.signal)) {
-        if (f.type === "log" && f.data) this.appendProc(f.data);
-        else if (f.type === "done") this.procOk = f.ok;
+    await this.proc.run(all ? "pruning unused images" : "pruning dangling images", async (emit, signal) => {
+      let okv = true;
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal)) {
+        if (f.type === "log" && f.data) emit(f.data);
+        else if (f.type === "done") okv = f.ok;
       }
-    } catch (err: any) {
-      if (!this.procCtrl?.signal.aborted) {
-        this.appendProc("error: " + (err?.message ?? "failed"));
-        this.procOk = false;
-      }
-    } finally {
-      this.procDone = true;
-      await this.load();
-    }
-  };
-
-  private appendProc(line: string) {
-    this.procLines = [...this.procLines, line];
-    requestAnimationFrame(() => {
-      const el = this.shadowRoot?.querySelector(".plog") as HTMLElement | null;
-      if (el) el.scrollTop = el.scrollHeight;
+      return okv;
     });
-  }
-
-  private procClose = () => {
-    this.procCtrl?.abort();
-    this.procOpen = false;
+    await this.load();
   };
+
+  // Consume a redeploy stream into the proc dialog (shared by the cleanup ops).
+  private async pipeStream(emit: (l: string) => void, signal: AbortSignal, method: string, args: string[]): Promise<boolean> {
+    let ok = true;
+    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
+      if (f.type === "log" && f.data) emit("  " + f.data);
+      else if (f.type === "done" && !f.ok) {
+        ok = false;
+        emit("  failed: " + (f.error ?? ""));
+      }
+    }
+    return ok;
+  }
 
   // ---- selection ----
   private toggleSel = (id: string, e: Event) => {
@@ -313,15 +286,6 @@ export class ImagesPage extends LoomElement {
     return this.images.filter((i) => this.selected.includes(i.id));
   }
 
-  private openProc(title: string) {
-    this.procTitle = title;
-    this.procLines = [];
-    this.procDone = false;
-    this.procOk = true;
-    this.procOpen = true;
-    this.procCtrl = new AbortController();
-  }
-
   private removeSelected = async () => {
     const imgs = this.selImages();
     if (!imgs.length) return;
@@ -337,19 +301,21 @@ export class ImagesPage extends LoomElement {
       ],
     });
     if (!ok) return;
-    this.openProc("removing selected images");
-    for (const i of imgs) {
-      const label = i.tags[0] || shortId(i.id);
-      try {
-        await this.rpc.call("System", "removeImage", [i.id, true]);
-        this.appendProc("removed " + label);
-      } catch (err: any) {
-        this.appendProc("skip " + label + " — " + (err?.message ?? "failed"));
-        this.procOk = false;
+    await this.proc.run("removing selected images", async (emit) => {
+      let okv = true;
+      for (const i of imgs) {
+        const label = i.tags[0] || shortId(i.id);
+        try {
+          await this.rpc.call("System", "removeImage", [i.id, true]);
+          emit("removed " + label);
+        } catch (err: any) {
+          emit("skip " + label + " — " + (err?.message ?? "failed"));
+          okv = false;
+        }
       }
-    }
-    this.appendProc("done");
-    this.procDone = true;
+      emit("done");
+      return okv;
+    });
     this.selected = [];
     await this.load();
   };
@@ -372,43 +338,27 @@ export class ImagesPage extends LoomElement {
       ],
     });
     if (!ok) return;
-    this.openProc("redeploy & free selected");
-    try {
+    await this.proc.run("redeploy & free selected", async (emit, signal) => {
+      let okv = true;
       for (const u of users) {
-        this.appendProc("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
-        await this.streamIntoProc("redeploy", [u.id]);
+        emit("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
       }
       for (const i of imgs) {
         const label = i.tags[0] || shortId(i.id);
         try {
           await this.rpc.call("System", "removeImage", [i.id, false]);
-          this.appendProc("removed " + label);
+          emit("removed " + label);
         } catch (err: any) {
-          this.appendProc("skip " + label + " — " + (err?.message ?? "still referenced"));
+          emit("skip " + label + " — " + (err?.message ?? "still referenced"));
         }
       }
-      this.appendProc("done");
-    } catch (err: any) {
-      if (!this.procCtrl?.signal.aborted) {
-        this.appendProc("error: " + (err?.message ?? "failed"));
-        this.procOk = false;
-      }
-    } finally {
-      this.procDone = true;
-      this.selected = [];
-      await this.load();
-    }
+      emit("done");
+      return okv;
+    });
+    this.selected = [];
+    await this.load();
   };
-
-  private async streamIntoProc(method: string, args: string[]) {
-    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, this.procCtrl!.signal)) {
-      if (f.type === "log" && f.data) this.appendProc("  " + f.data);
-      else if (f.type === "done" && !f.ok) {
-        this.procOk = false;
-        this.appendProc("  failed: " + (f.error ?? ""));
-      }
-    }
-  }
 
   // One-shot cleanup: redeploy every container pinning a dangling image (moves
   // them onto current tags), then prune all dangling images — freeing the ones
@@ -430,29 +380,18 @@ export class ImagesPage extends LoomElement {
       ],
     });
     if (!ok) return;
-    this.procTitle = "redeploy & prune";
-    this.procLines = [];
-    this.procDone = false;
-    this.procOk = true;
-    this.procOpen = true;
-    this.procCtrl = new AbortController();
-    try {
+    await this.proc.run("redeploy & prune", async (emit, signal) => {
+      let okv = true;
       for (const u of users) {
-        this.appendProc("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
-        await this.streamIntoProc("redeploy", [u.id]);
+        emit("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
       }
-      this.appendProc("> prune dangling");
-      await this.streamIntoProc("pruneImages", ["false"]);
-      this.appendProc("done");
-    } catch (err: any) {
-      if (!this.procCtrl?.signal.aborted) {
-        this.appendProc("error: " + (err?.message ?? "failed"));
-        this.procOk = false;
-      }
-    } finally {
-      this.procDone = true;
-      await this.load();
-    }
+      emit("> prune dangling");
+      if (!(await this.pipeStream(emit, signal, "pruneImages", ["false"]))) okv = false;
+      emit("done");
+      return okv;
+    });
+    await this.load();
   };
 
   // Redeploy every container using this image so they move onto their current
@@ -469,33 +408,16 @@ export class ImagesPage extends LoomElement {
     });
     if (!ok) return;
     this.detail = null;
-    this.procTitle = "redeploying containers";
-    this.procLines = [];
-    this.procDone = false;
-    this.procOk = true;
-    this.procOpen = true;
-    this.procCtrl = new AbortController();
-    try {
+    await this.proc.run("redeploying containers", async (emit, signal) => {
+      let okv = true;
       for (const u of users) {
-        this.appendProc("> " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [u.id], this.procCtrl.signal)) {
-          if (f.type === "log" && f.data) this.appendProc("  " + f.data);
-          else if (f.type === "done" && !f.ok) {
-            this.procOk = false;
-            this.appendProc("  failed: " + (f.error ?? ""));
-          }
-        }
+        emit("> " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
       }
-      this.appendProc("done — the old image is now free; remove it from the list");
-    } catch (err: any) {
-      if (!this.procCtrl?.signal.aborted) {
-        this.appendProc("error: " + (err?.message ?? "failed"));
-        this.procOk = false;
-      }
-    } finally {
-      this.procDone = true;
-      await this.load();
-    }
+      emit("done — the old image is now free; remove it from the list");
+      return okv;
+    });
+    await this.load();
   };
 
   private renderDetail(i: ImageInfo) {
@@ -680,22 +602,6 @@ export class ImagesPage extends LoomElement {
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.detail ? this.renderDetail(this.detail) : null}
-        {this.procOpen ? (
-          <div class="proc">
-            <div class="pbox">
-              <div class="phead">
-                <span class={"mark " + (this.procDone ? (this.procOk ? "ok" : "bad") : "loop")}></span>
-                <span class="pt">{this.procTitle}</span>
-                <span class="grow"></span>
-                <span class="pn">{this.procLines.length}</span>
-              </div>
-              <pre class="plog">{this.procLines.join("\n") || "starting…"}</pre>
-              <div class="pacts">
-                <button class="btn" disabled={!this.procDone} onClick={this.procClose}>{this.procDone ? "Close" : "Working…"}</button>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     );
   }
