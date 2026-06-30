@@ -7,7 +7,7 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
-import type { ImageInfo, PruneResult, OpFrame } from "../contracts";
+import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
 
 type Filter = "all" | "used" | "unused" | "dangling";
@@ -38,6 +38,23 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .summary .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
   .summary .v.warnv { color: var(--warn); }
   .summary .v .t { color: var(--dim); font-weight: 400; }
+
+  /* cross-fleet images overview */
+  .fimg { margin-bottom: 14px; }
+  .fimg .fhead { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); padding: 12px 16px; }
+  .fimg .fhead .grow { flex: 1; }
+  .fimg .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .fimg .hdot.local { background: var(--upd); }
+  .fimg .hdot.agent { background: var(--ok); }
+  .fimg .hname { font: 600 13px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
+  .fimg .fstats { display: flex; align-items: center; gap: 0; }
+  .fimg .fstats .stat { display: flex; flex-direction: column; gap: 5px; padding: 2px 16px; border-left: 1px solid var(--line); }
+  .fimg .fstats .stat:first-child { border-left: 0; padding-left: 8px; }
+  .fimg .fstats .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+  .fimg .fstats .v { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
+  .fimg .fstats .v.warnv { color: var(--warn); }
+  .fimg .fstats .v .t { color: var(--dim); font-weight: 400; }
+  .fimg .foff { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--bad); }
 
   .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
   .toolbar .grow { flex: 1; }
@@ -164,6 +181,12 @@ export class ImagesPage extends LoomElement {
   @reactive accessor toastKind = "";
   @reactive accessor detail: ImageInfo | null = null;
   @reactive accessor selected: string[] = [];
+  @reactive accessor fleet: FleetImagesHost[] | null = null; // cross-host images ("all hosts")
+
+  // "all hosts" is the same client-side view flag the dashboard uses.
+  get fleetMode() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
 
   @mount
   onMount() {
@@ -174,7 +197,34 @@ export class ImagesPage extends LoomElement {
     this.load();
   }
 
+  private loadFleet = async () => {
+    this.busy = true;
+    try {
+      const hosts = (await this.rpc.call<FleetImagesHost[]>("System", "fleetImages", [])) || [];
+      this.fleet = hosts.map((h) => ({ ...h, images: (h.images || []).map((i) => ({ ...i, tags: i.tags || [], used_by: i.used_by || [] })) }));
+      this.error = "";
+      this.loaded = true;
+    } catch (err: any) {
+      this.error = err?.message ?? "Can't list images.";
+    } finally {
+      this.busy = false;
+    }
+  };
+
+  // Drill into one host's full images page (with all the actions).
+  private manageHost = async (host: string) => {
+    try {
+      await this.rpc.call("System", "setActiveHost", [host]);
+    } catch {
+      /* ignore */
+    }
+    localStorage.removeItem("hope.fleet");
+    this.fleet = null;
+    this.load();
+  };
+
   private load = async () => {
+    if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
       const list = await this.rpc.call<ImageInfo[]>("System", "images", []);
@@ -472,7 +522,54 @@ export class ImagesPage extends LoomElement {
     this.router.navigate("/login");
   };
 
+  // Cross-fleet images overview: a section per host with its counts; "manage"
+  // drills into that host's full images page (filters, prune, selection).
+  private renderFleet() {
+    const f = this.fleet ?? [];
+    return (
+      <div>
+        <div class="bar">
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> all hosts</span></div>
+          <div class="s"><span class="crumb">images</span></div>
+          <div class="grow"></div>
+          <div class="s act"><button disabled={this.busy} onClick={this.loadFleet}>{this.busy ? "…" : "refresh"}</button></div>
+          <div class="s act"><button onClick={this.logout}>exit</button></div>
+        </div>
+        <main>
+          {this.error ? <div class="empty">{this.error}</div> : null}
+          {f.map((h) => {
+            const imgs = h.images ?? [];
+            const total = imgs.reduce((a, i) => a + i.size, 0);
+            const unused = imgs.filter((i) => !i.in_use);
+            const dangling = imgs.filter((i) => i.dangling);
+            return (
+              <section class="fimg">
+                <div class="fhead">
+                  <span class={"hdot " + h.kind}></span>
+                  <span class="hname">{h.id}</span>
+                  {h.online ? (
+                    <div class="fstats">
+                      <span class="stat"><i class="k">images</i><i class="v">{imgs.length}</i></span>
+                      <span class="stat"><i class="k">size</i><i class="v">{bytes(total)}</i></span>
+                      {unused.length > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused.length}<i class="t"> · {bytes(unused.reduce((a, i) => a + i.size, 0))}</i></i></span> : null}
+                      {dangling.length > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling.length}<i class="t"> · {bytes(dangling.reduce((a, i) => a + i.size, 0))}</i></i></span> : null}
+                    </div>
+                  ) : (
+                    <span class="foff">{h.error ? "unreachable" : "offline"}</span>
+                  )}
+                  <div class="grow"></div>
+                  {h.online ? <button class="pbtn" onClick={() => this.manageHost(h.id)}>manage</button> : null}
+                </div>
+              </section>
+            );
+          })}
+        </main>
+      </div>
+    );
+  }
+
   update() {
+    if (this.fleetMode) return this.renderFleet();
     const vis = this.visible();
     const total = this.images.reduce((a, i) => a + i.size, 0);
     const danglingImgs = this.images.filter((i) => i.dangling);

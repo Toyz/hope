@@ -224,6 +224,18 @@ export class System {
   refreshFleetUpdates(): FleetHost[] {
     return undefined!;
   }
+  fleetImages(): FleetImagesHost[] {
+    return undefined!;
+  }
+}
+
+// FleetImagesHost is one host's images for the cross-fleet images view.
+export interface FleetImagesHost {
+  id: string;
+  kind: "local" | "agent";
+  online: boolean;
+  error?: string;
+  images: ImageInfo[];
 }
 
 // FleetHost is one host's slice of the cross-fleet overview.

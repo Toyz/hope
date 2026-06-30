@@ -467,6 +467,47 @@ export class DashboardPage extends LoomElement {
     return oldest;
   }
 
+  // Shared Updates row, used by the single-host and all-hosts views so their
+  // contents are identical (the all view just adds a host tag).
+  private updateRow(
+    g: { project: string; services: { service: string; count: number }[]; count: number },
+    opts: { host?: string; onClick: () => void; linkable?: boolean },
+  ) {
+    const linkable = opts.linkable ?? true;
+    return (
+      <div class={"row urow" + (opts.host ? " xrow" : "") + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
+        <span class="mark upd"></span>
+        {opts.host ? <span class="htag">{opts.host}</span> : null}
+        <span class="name">{g.project}</span>
+        <span class="svcs">
+          {g.services.map((s) => (
+            <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
+          ))}
+        </span>
+        <span class="why upd">{g.count}</span>
+        {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
+      </div>
+    );
+  }
+
+  // Shared Attention row (single-host + all-hosts).
+  private attentionRow(s: any, opts: { host?: string; onClick: () => void }) {
+    return (
+      <div class={"row" + (opts.host ? " xrow" : "")} onClick={opts.onClick}>
+        <span class={"mark " + s.sev}></span>
+        {opts.host ? <span class="htag">{opts.host}</span> : null}
+        <span class="name">{s.project}</span>
+        <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
+          {s.sev === "loop"
+            ? `${s.containers.filter((c: any) => c.state === "restarting").length} restarting`
+            : `${s.total - s.running} down`}
+        </span>
+        <span class="count">{s.running}<span class="t">/{s.total}</span></span>
+        <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
+      </div>
+    );
+  }
+
   private openContainer(id: string) {
     this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
@@ -615,20 +656,7 @@ export class DashboardPage extends LoomElement {
                 <span class="n">{problems.length}</span>
               </div>
               <div class="rows">
-                {problems.map((p) => (
-                  <div class="row xrow" onClick={() => this.goCross(p.host, p.s.project)}>
-                    <span class={"mark " + p.s.sev}></span>
-                    <span class="htag">{p.host}</span>
-                    <span class="name">{p.s.project}</span>
-                    <span class={"why " + (p.s.sev === "loop" ? "bad" : "warn")}>
-                      {p.s.sev === "loop"
-                        ? `${p.s.containers.filter((c: any) => c.state === "restarting").length} restarting`
-                        : `${p.s.total - p.s.running} down`}
-                    </span>
-                    <span class="count">{p.s.running}<span class="t">/{p.s.total}</span></span>
-                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
-                  </div>
-                ))}
+                {problems.map((p) => this.attentionRow(p.s, { host: p.host, onClick: () => this.goCross(p.host, p.s.project) }))}
               </div>
             </section>
           ) : null}
@@ -645,20 +673,9 @@ export class DashboardPage extends LoomElement {
                 <span class="n upd">{fupdates.length}</span>
               </div>
               <div class="rows">
-                {this.fleetUpdateGroups(f).map((g) => (
-                  <div class="row urow xrow" onClick={() => this.goCross(g.host, g.project)}>
-                    <span class="mark upd"></span>
-                    <span class="htag">{g.host}</span>
-                    <span class="name">{g.project}</span>
-                    <span class="svcs">
-                      {g.services.map((s) => (
-                        <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
-                      ))}
-                    </span>
-                    <span class="why upd">{g.count}</span>
-                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
-                  </div>
-                ))}
+                {this.fleetUpdateGroups(f).map((g) =>
+                  this.updateRow(g, { host: g.host, onClick: () => this.goCross(g.host, g.project) }),
+                )}
               </div>
             </section>
           ) : null}
@@ -809,22 +826,7 @@ export class DashboardPage extends LoomElement {
                 <span class="n">{issues.length}</span>
               </div>
               <div class="rows">
-                {issues.map((s) => (
-                  <div class="row" onClick={() => this.go(s.project)}>
-                    <span class={"mark " + s.sev}></span>
-                    <span class="name">{s.project}</span>
-                    <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
-                      {s.sev === "loop"
-                        ? `${s.containers.filter((c) => c.state === "restarting").length} restarting`
-                        : `${s.total - s.running} down`}
-                    </span>
-                    <span class="count">
-                      {s.running}
-                      <span class="t">/{s.total}</span>
-                    </span>
-                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
-                  </div>
-                ))}
+                {issues.map((s) => this.attentionRow(s, { onClick: () => this.go(s.project) }))}
               </div>
             </section>
           ) : null}
@@ -841,22 +843,9 @@ export class DashboardPage extends LoomElement {
                 <span class="n">{this.outdated().length}</span>
               </div>
               <div class="rows">
-                {this.updateGroups().map((g) => {
-                  const linkable = g.project !== UNGROUPED;
-                  return (
-                    <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? this.go(g.project) : null)}>
-                      <span class="mark upd"></span>
-                      <span class="name">{g.project}</span>
-                      <span class="svcs">
-                        {g.services.map((s) => (
-                          <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
-                        ))}
-                      </span>
-                      <span class="why upd">{g.count}</span>
-                      {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
-                    </div>
-                  );
-                })}
+                {this.updateGroups().map((g) =>
+                  this.updateRow(g, { onClick: () => this.go(g.project), linkable: g.project !== UNGROUPED }),
+                )}
               </div>
             </section>
           ) : null}

@@ -184,6 +184,47 @@ func (r *SystemRouter) collectUpdates(ctx context.Context) (*UpdatesResult, erro
 	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: stamp(at)}, nil
 }
 
+// FleetImagesHost is one host's images for the cross-fleet images view.
+type FleetImagesHost struct {
+	ID     string             `json:"id"`
+	Kind   string             `json:"kind"`
+	Online bool               `json:"online"`
+	Error  string             `json:"error,omitempty"`
+	Images []docker.ImageInfo `json:"images"`
+}
+
+// FleetImages lists every host's images for the "all hosts" images view. Hosts
+// are queried concurrently; one that errors is returned offline with its message.
+func (r *SystemRouter) FleetImages(ctx *rpc.Context) ([]FleetImagesHost, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	hcs := r.hosts.All()
+	out := make([]FleetImagesHost, len(hcs))
+	var wg sync.WaitGroup
+	for i, h := range hcs {
+		out[i] = FleetImagesHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Images: []docker.ImageInfo{}}
+		if !h.Online || h.Client == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, c *docker.Client) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			imgs, err := c.Images(cctx)
+			if err != nil {
+				out[i].Online = false
+				out[i].Error = err.Error()
+				return
+			}
+			out[i].Images = imgs
+		}(i, h.Client)
+	}
+	wg.Wait()
+	return out, nil
+}
+
 // Images lists the local images for the images page.
 func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
