@@ -603,15 +603,40 @@ export class StackPage extends LoomElement {
     this.runContainerOp(id, op, label);
   };
 
-  private runContainerOp = async (id: string, op: ContainerOp, label: string) => {
-    this.busy = `${id}:${op}`;
-    this.showToast(`${op} ${label}…`, "", true);
+  private runContainerOp = (id: string, op: ContainerOp, label: string) => this.runContainerOps([id], op, label, `${id}:${op}`);
+
+  // Universal op runner: every container/group action streams into the shared
+  // processing dialog. pull rides the NDJSON Stream/pull (live registry output);
+  // the rest are one RPC per id, each reporting its own line.
+  private runContainerOps = async (ids: string[], op: ContainerOp, label: string, busyKey: string) => {
+    if (!ids.length) return;
+    this.busy = busyKey;
     try {
-      await this.rpc.call<OpResult>("Containers", op, [id]);
-      this.showToast(`${op} ${label} — done`);
+      await this.proc.run(`${op} ${label}`, async (emit, signal) => {
+        let ok = true;
+        if (op === "pull") {
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pull", ids, signal)) {
+            if (f.type === "log" && f.data) emit(f.data);
+            else if (f.type === "done" && !f.ok) {
+              ok = false;
+              emit("failed: " + (f.error ?? ""));
+            }
+          }
+        } else {
+          for (const id of ids) {
+            try {
+              await this.rpc.call<OpResult>("Containers", op, [id]);
+              emit(`${op} ${id.slice(0, 12)} — ok`);
+            } catch (e: any) {
+              ok = false;
+              emit(`${op} ${id.slice(0, 12)} — ${e?.message ?? "failed"}`);
+            }
+          }
+        }
+        emit("done");
+        return ok;
+      });
       await this.load();
-    } catch (err: any) {
-      this.showToast(`${op} ${label} — ${err?.message ?? "failed"}`, "bad");
     } finally {
       this.busy = "";
     }
@@ -647,19 +672,7 @@ export class StackPage extends LoomElement {
     this.runGroupOp(g, op);
   };
 
-  private runGroupOp = async (g: Group, op: ContainerOp) => {
-    this.busy = `grp:${g.service}:${op}`;
-    this.showToast(`${op} ${g.service} (${g.items.length})…`, "", true);
-    try {
-      for (const c of g.items) await this.rpc.call<OpResult>("Containers", op, [c.id]);
-      this.showToast(`${op} ${g.service} (${g.items.length}) — done`);
-      await this.load();
-    } catch (err: any) {
-      this.showToast(`${op} ${g.service} — ${err?.message ?? "failed"}`, "bad");
-    } finally {
-      this.busy = "";
-    }
-  };
+  private runGroupOp = (g: Group, op: ContainerOp) => this.runContainerOps(g.items.map((c) => c.id), op, g.service, `grp:${g.service}:${op}`);
 
   private toggle = (service: string) => {
     this.expanded = { ...this.expanded, [service]: !this.expanded[service] };
@@ -1141,26 +1154,8 @@ export class StackPage extends LoomElement {
     if (!s) return;
     const svcName = (c: ContainerSummary) => c.service || c.name;
     const ids = s.containers.filter((c) => !this.pullExcluded.includes(svcName(c))).map((c) => c.id);
-    if (!ids.length) return;
     this.pullOpen = false;
-    this.busy = "stack:pull";
-    try {
-      await this.proc.run(`pull ${this.project}`, async (emit, signal) => {
-        let ok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pull", ids, signal)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) {
-            ok = false;
-            emit("failed: " + (f.error ?? ""));
-          }
-        }
-        emit("done");
-        return ok;
-      });
-      await this.load();
-    } finally {
-      this.busy = "";
-    }
+    await this.runContainerOps(ids, "pull", this.project, "stack:pull");
   };
 
   // Pull picker: choose which services' images to pull. No recreate — just
