@@ -7,7 +7,8 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult } from "../contracts";
+import { ProcService } from "../proc";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame } from "../contracts";
 import { theme, markClass } from "../styles";
 
 type Tab = "logs" | "stats" | "inspect";
@@ -170,6 +171,7 @@ export class ContainerPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -221,40 +223,71 @@ export class ContainerPage extends LoomElement {
   };
 
   private containerOp = async (op: ContainerOp) => {
-    if (op === "stop" || op === "kill" || op === "redeploy") {
+    // Redeploy streams its pull/recreate output into the shared processing
+    // dialog (same modal as the stack page), so it gets its own path.
+    if (op === "redeploy") {
+      this.actOpen = false;
+      const ok = await this.confirm.ask({
+        title: "redeploy",
+        warn: true,
+        confirmLabel: "Redeploy",
+        message: `Redeploy "${this.service()}"? Pulls the latest image and recreates the container.`,
+      });
+      if (!ok) return;
+      return this.redeployStreaming();
+    }
+    if (op === "stop" || op === "kill") {
       const ok = await this.confirm.ask({
         title: op,
-        danger: op !== "redeploy",
-        warn: op === "redeploy",
-        confirmLabel: op === "kill" ? "Kill" : op === "stop" ? "Stop" : "Redeploy",
-        message:
-          op === "redeploy"
-            ? `Redeploy "${this.service()}"? Pulls the latest image and recreates the container.`
-            : `${op === "kill" ? "Kill" : "Stop"} "${this.service()}"?`,
+        danger: true,
+        confirmLabel: op === "kill" ? "Kill" : "Stop",
+        message: `${op === "kill" ? "Kill" : "Stop"} "${this.service()}"?`,
       });
       if (!ok) return;
     }
     this.actOpen = false;
     this.cbusy = op;
     this.error = "";
-    const verb = op === "pull" ? "pulling" : op === "redeploy" ? "redeploying" : op;
+    const verb = op === "pull" ? "pulling" : op;
     this.showToast(`${verb} ${this.service()}…`, "", true);
     try {
       await this.rpc.call("Containers", op, [this.id]);
-      // Redeploy recreates the container under a new id — hop to it.
-      if (op === "redeploy") {
-        const newId = await this.findRecreated();
-        this.showToast(`redeployed ${this.service()}`);
-        if (newId && newId !== this.id) {
-          this.router.navigate(`/container/${encodeURIComponent(newId)}`);
-          return;
-        }
-      } else {
-        this.showToast(`${op} ${this.service()} — done`);
-      }
+      this.showToast(`${op} ${this.service()} — done`);
       await this.loadInfo();
     } catch (err: any) {
       this.showToast(`${op} ${this.service()} — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.cbusy = "";
+    }
+  };
+
+  // Redeploy this container with live pull/recreate output in the processing
+  // dialog (the redeploy-style modal used across hope), then hop to the new id.
+  private redeployStreaming = async () => {
+    this.cbusy = "redeploy";
+    this.error = "";
+    try {
+      await this.proc.run(`redeploy ${this.service()}`, async (emit, signal) => {
+        let ok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [this.id], signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) {
+            ok = false;
+            emit("failed: " + (f.error ?? ""));
+          }
+        }
+        emit("done");
+        return ok;
+      });
+      // Recreate gives the container a new id — hop to it.
+      const newId = await this.findRecreated();
+      if (newId && newId !== this.id) {
+        this.router.navigate(`/container/${encodeURIComponent(newId)}`);
+        return;
+      }
+      await this.loadInfo();
+    } catch (err: any) {
+      this.showToast(`redeploy ${this.service()} — ${err?.message ?? "failed"}`, "bad");
     } finally {
       this.cbusy = "";
     }
