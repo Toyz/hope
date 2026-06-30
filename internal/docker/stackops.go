@@ -237,6 +237,30 @@ func (c *Client) RedeployProject(ctx context.Context, project string, pull, forc
 	return nil
 }
 
+// PullContainers pulls the images backing the given containers (deduped),
+// streaming progress to emit. It does not recreate anything.
+func (c *Client) PullContainers(ctx context.Context, ids []string, emit func(string)) error {
+	seen := map[string]bool{}
+	for _, id := range ids {
+		info, err := c.sdk().ContainerInspect(ctx, id)
+		if err != nil {
+			emit("skip " + id + " — " + err.Error())
+			continue
+		}
+		img := info.Config.Image
+		if img == "" || seen[img] {
+			continue
+		}
+		seen[img] = true
+		emit("pull " + img)
+		if err := c.PullImageStream(ctx, img, emit); err != nil {
+			return err
+		}
+		c.RefreshImageStatus(ctx, img)
+	}
+	return nil
+}
+
 // onCurrentImage reports whether a container's running image id already matches
 // the local image the ref now resolves to (so a redeploy would be a no-op).
 func (c *Client) onCurrentImage(ctx context.Context, runningImageID, ref string) bool {

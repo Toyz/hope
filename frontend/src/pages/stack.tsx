@@ -228,6 +228,9 @@ function aggMark(items: ContainerSummary[]): string {
   .tbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .tbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
   .tbtn.danger:disabled { opacity: .4; cursor: not-allowed; color: var(--bad); background: transparent; }
+  .tbtn.updbtn { color: #06080d; border-color: var(--upd); background: color-mix(in srgb, var(--upd) 85%, #000); }
+  .tbtn.updbtn:hover { background: var(--upd); }
+  .tbtn.updbtn:disabled { opacity: .4; cursor: not-allowed; }
   .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
     padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; }
   .rmtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;
@@ -278,6 +281,8 @@ export class StackPage extends LoomElement {
   @reactive accessor stopOpen = false; // stop/remove picker dialog
   @reactive accessor stopExcluded: string[] = []; // services excluded from the stop
   @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
+  @reactive accessor pullOpen = false; // pull-images picker dialog
+  @reactive accessor pullExcluded: string[] = []; // services excluded from the pull
 
   // The "(ungrouped)" project isn't a real compose stack — it's free-floating
   // containers, so compose-level actions (redeploy/pull/compose file) don't apply.
@@ -830,7 +835,7 @@ export class StackPage extends LoomElement {
                             <div class="menu">
                               <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
                               <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
-                              <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
+                              <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                               <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
                               {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
                             </div>
@@ -976,6 +981,7 @@ export class StackPage extends LoomElement {
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
+        {this.pullOpen && s ? this.renderPull(s) : null}
       </div>
     );
   }
@@ -1118,6 +1124,79 @@ export class StackPage extends LoomElement {
             <button class="tbtn danger" disabled={count === 0} onClick={() => this.runStop(this.stopRemove ? "remove" : "stop")}>
               {this.stopRemove ? "stop & remove" : "stop"} {count}
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  private pullToggle = (service: string) => {
+    this.pullExcluded = this.pullExcluded.includes(service) ? this.pullExcluded.filter((s) => s !== service) : [...this.pullExcluded, service];
+  };
+
+  // Pull the latest images for the picked containers, streaming progress into
+  // the processing dialog. Does not recreate anything.
+  private runPull = async () => {
+    const s = this.stack;
+    if (!s) return;
+    const svcName = (c: ContainerSummary) => c.service || c.name;
+    const ids = s.containers.filter((c) => !this.pullExcluded.includes(svcName(c))).map((c) => c.id);
+    if (!ids.length) return;
+    this.pullOpen = false;
+    this.busy = "stack:pull";
+    try {
+      await this.proc.run(`pull ${this.project}`, async (emit, signal) => {
+        let ok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pull", ids, signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) {
+            ok = false;
+            emit("failed: " + (f.error ?? ""));
+          }
+        }
+        emit("done");
+        return ok;
+      });
+      await this.load();
+    } finally {
+      this.busy = "";
+    }
+  };
+
+  // Pull picker: choose which services' images to pull. No recreate — just
+  // freshen the local images.
+  private renderPull(s: StackSummary) {
+    const groups = this.groups(s);
+    const count = groups.filter((g) => !this.pullExcluded.includes(g.service)).reduce((a, g) => a + g.items.length, 0);
+    return (
+      <div class="rdmodal" onClick={() => (this.pullOpen = false)}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name="download" size={15} color="var(--upd)"></loom-icon>
+            <span class="rdt">pull {s.project}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.pullOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <p class="rdmsg">Pulls the latest image for each checked service. Containers keep running — nothing is recreated.</p>
+          <div class="rdbody">
+            {groups.map((g) => {
+              const on = !this.pullExcluded.includes(g.service);
+              return (
+                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.pullToggle(g.service)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class={"mark " + aggMark(g.items)}></span>
+                  <span class="rdname">{g.service}</span>
+                  <span class="grow"></span>
+                  {this.groupUpdate(g.items) === "outdated" ? <span class="upd static">update</span> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div class="rdacts">
+            <span class="rdnote">{count} of {s.total}</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.pullOpen = false)}>cancel</button>
+            <button class="tbtn updbtn" disabled={count === 0} onClick={this.runPull}>pull {count}</button>
           </div>
         </div>
       </div>

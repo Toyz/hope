@@ -33,8 +33,9 @@ const (
 	pathStats         = "/rpc/Stream/stats"
 	pathStackLogs     = "/rpc/Stream/stackLogs"     // args: [project]
 	pathServiceLogs   = "/rpc/Stream/serviceLogs"   // args: [project, service]
-	pathRedeploy      = "/rpc/Stream/redeploy"      // args: [container id]
-	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project]
+	pathRedeploy      = "/rpc/Stream/redeploy"      // args: [container id, pull?, force?]
+	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project, pull?, force?]
+	pathPull          = "/rpc/Stream/pull"          // args: [container id, ...] (pull their images, no recreate)
 	pathPruneImages   = "/rpc/Stream/pruneImages"   // args: ["true"|"false"]  (all unused vs dangling)
 )
 
@@ -73,7 +74,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPruneImages}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -141,6 +142,13 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		pull := !(len(args) > 1 && args[1] == "false")
 		force := len(args) > 2 && args[2] == "true"
 		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployProject(ctx, project, pull, force, emit) })
+
+	case pathPull:
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "container id required")
+		}
+		ids := append([]string(nil), args...)
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().PullContainers(ctx, ids, emit) })
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
