@@ -82,12 +82,25 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .search .ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
 
   table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
-  colgroup col.c-repo { width: 31%; }
-  colgroup col.c-id { width: 13%; }
+  colgroup col.c-sel { width: 40px; }
+  colgroup col.c-repo { width: 29%; }
+  colgroup col.c-id { width: 12%; }
   colgroup col.c-size { width: 9%; }
   colgroup col.c-age { width: 9%; }
-  colgroup col.c-use { width: 30%; }
-  colgroup col.c-act { width: 8%; }
+  colgroup col.c-use { width: 29%; }
+  colgroup col.c-act { width: 7%; }
+  th.sel, td.sel { padding-left: 16px; padding-right: 0; }
+  .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
+  .ck:hover { border-color: var(--mid); }
+  .ck.on { background: var(--upd); border-color: var(--upd);
+    -webkit-mask: none; box-shadow: inset 0 0 0 3px var(--panel); }
+  tr.irow.sel td { background: color-mix(in srgb, var(--upd) 8%, transparent); }
+
+  .selbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 14px;
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); background: color-mix(in srgb, var(--upd) 7%, var(--panel)); }
+  .selbar .seln { font: 600 12px/1 var(--mono); color: var(--upd); }
+  .selbar .selsz { font: 12px/1 var(--mono); color: var(--dim); }
+  .selbar .grow { flex: 1; }
   thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
   th.r, td.r { text-align: right; }
@@ -162,6 +175,7 @@ export class ImagesPage extends LoomElement {
   @reactive accessor procOk = true;
   private procCtrl?: AbortController;
   @reactive accessor detail: ImageInfo | null = null;
+  @reactive accessor selected: string[] = [];
 
   @mount
   onMount() {
@@ -278,6 +292,109 @@ export class ImagesPage extends LoomElement {
   private procClose = () => {
     this.procCtrl?.abort();
     this.procOpen = false;
+  };
+
+  // ---- selection ----
+  private toggleSel = (id: string, e: Event) => {
+    e.stopPropagation();
+    this.selected = this.selected.includes(id) ? this.selected.filter((x) => x !== id) : [...this.selected, id];
+  };
+  private clearSel = () => (this.selected = []);
+  private selectAllVisible = (e: Event) => {
+    e.stopPropagation();
+    const vis = this.visible().map((i) => i.id);
+    const allSel = vis.length > 0 && vis.every((id) => this.selected.includes(id));
+    this.selected = allSel ? this.selected.filter((id) => !vis.includes(id)) : Array.from(new Set([...this.selected, ...vis]));
+  };
+  private selImages(): ImageInfo[] {
+    return this.images.filter((i) => this.selected.includes(i.id));
+  }
+
+  private openProc(title: string) {
+    this.procTitle = title;
+    this.procLines = [];
+    this.procDone = false;
+    this.procOk = true;
+    this.procOpen = true;
+    this.procCtrl = new AbortController();
+  }
+
+  private removeSelected = async () => {
+    const imgs = this.selImages();
+    if (!imgs.length) return;
+    const free = imgs.reduce((a, i) => a + i.size, 0);
+    const ok = await this.confirm.ask({
+      title: "remove selected",
+      danger: true,
+      confirmLabel: "Remove",
+      message: "Force-remove the selected images. In-use ones are deleted from under their containers.",
+      stats: [
+        { label: "images", value: String(imgs.length) },
+        { label: "frees up to", value: "~" + bytes(free) },
+      ],
+    });
+    if (!ok) return;
+    this.openProc("removing selected images");
+    for (const i of imgs) {
+      const label = i.tags[0] || shortId(i.id);
+      try {
+        await this.rpc.call("System", "removeImage", [i.id, true]);
+        this.appendProc("removed " + label);
+      } catch (err: any) {
+        this.appendProc("skip " + label + " — " + (err?.message ?? "failed"));
+        this.procOk = false;
+      }
+    }
+    this.appendProc("done");
+    this.procDone = true;
+    this.selected = [];
+    await this.load();
+  };
+
+  private redeployFreeSelected = async () => {
+    const imgs = this.selImages();
+    const users = [...new Map(imgs.flatMap((i) => i.used_by).map((u) => [u.id, u])).values()];
+    if (!users.length) {
+      this.removeSelected();
+      return;
+    }
+    const ok = await this.confirm.ask({
+      title: "redeploy & free selected",
+      warn: true,
+      confirmLabel: "Run",
+      message: "Redeploy the containers using the selected images onto their current tags, then remove the freed images.",
+      stats: [
+        { label: "redeploys", value: String(users.length) },
+        { label: "images", value: String(imgs.length) },
+      ],
+    });
+    if (!ok) return;
+    this.openProc("redeploy & free selected");
+    try {
+      for (const u of users) {
+        this.appendProc("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        await this.streamIntoProc("redeploy", [u.id]);
+      }
+      for (const i of imgs) {
+        const label = i.tags[0] || shortId(i.id);
+        try {
+          await this.rpc.call("System", "removeImage", [i.id, false]);
+          this.appendProc("removed " + label);
+        } catch (err: any) {
+          this.appendProc("skip " + label + " — " + (err?.message ?? "still referenced"));
+        }
+      }
+      this.appendProc("done");
+    } catch (err: any) {
+      if (!this.procCtrl?.signal.aborted) {
+        this.appendProc("error: " + (err?.message ?? "failed"));
+        this.procOk = false;
+      }
+    } finally {
+      this.procDone = true;
+      this.selected = [];
+      await this.load();
+    }
   };
 
   private async streamIntoProc(method: string, args: string[]) {
@@ -479,6 +596,17 @@ export class ImagesPage extends LoomElement {
             </div>
           ) : null}
 
+          {this.selected.length > 0 ? (
+            <div class="selbar">
+              <span class="seln">{this.selected.length} selected</span>
+              <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
+              <span class="grow"></span>
+              {this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
+              <button class="pbtn danger" onClick={this.removeSelected}>remove</button>
+              <button class="pbtn" onClick={this.clearSel}>clear</button>
+            </div>
+          ) : null}
+
           {this.images.length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
@@ -489,6 +617,7 @@ export class ImagesPage extends LoomElement {
           {vis.length > 0 ? (
             <table>
               <colgroup>
+                <col class="c-sel" />
                 <col class="c-repo" />
                 <col class="c-id" />
                 <col class="c-size" />
@@ -498,6 +627,7 @@ export class ImagesPage extends LoomElement {
               </colgroup>
               <thead>
                 <tr>
+                  <th class="sel"><span class={"ck" + (vis.length > 0 && vis.every((i) => this.selected.includes(i.id)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
                   <th>Repository</th>
                   <th>Image ID</th>
                   <th class="r">Size</th>
@@ -508,7 +638,10 @@ export class ImagesPage extends LoomElement {
               </thead>
               <tbody>
                 {vis.map((i) => (
-                  <tr class="irow" onClick={() => (this.detail = i)}>
+                  <tr class={"irow" + (this.selected.includes(i.id) ? " sel" : "")} onClick={() => (this.detail = i)}>
+                    <td class="sel" onClick={(e: Event) => e.stopPropagation()}>
+                      <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")} onClick={(e: Event) => this.toggleSel(i.id, e)}></span>
+                    </td>
                     <td class="repo" title={i.tags.join(", ")}>
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
                       {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
