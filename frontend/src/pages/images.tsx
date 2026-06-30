@@ -163,6 +163,9 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .chip.use { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
   .chip.dang { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
+  .repo .htag { display: inline-block; margin-right: 9px; vertical-align: middle;
+    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+    padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
 `)
 export class ImagesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -173,7 +176,7 @@ export class ImagesPage extends LoomElement {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor images: ImageInfo[] = [];
+  @reactive accessor images: (ImageInfo & { host?: string })[] = [];
   @reactive accessor loaded = false;
   @reactive accessor error = "";
   @reactive accessor query = "";
@@ -199,11 +202,18 @@ export class ImagesPage extends LoomElement {
     this.load();
   }
 
+  // All hosts' images flattened into one combined, host-tagged list, so the
+  // normal table + filters + search work across the whole fleet.
   private loadFleet = async () => {
     this.busy = true;
     try {
       const hosts = (await this.rpc.call<FleetImagesHost[]>("System", "fleetImages", [])) || [];
-      this.fleet = hosts.map((h) => ({ ...h, images: (h.images || []).map((i) => ({ ...i, tags: i.tags || [], used_by: i.used_by || [] })) }));
+      const combined: (ImageInfo & { host?: string })[] = [];
+      for (const h of hosts) {
+        if (!h.online) continue;
+        for (const i of h.images || []) combined.push({ ...i, tags: i.tags || [], used_by: i.used_by || [], host: h.id });
+      }
+      this.images = combined;
       this.error = "";
       this.loaded = true;
     } catch (err: any) {
@@ -211,18 +221,6 @@ export class ImagesPage extends LoomElement {
     } finally {
       this.busy = false;
     }
-  };
-
-  // Drill into one host's full images page (with all the actions).
-  private manageHost = async (host: string) => {
-    try {
-      await this.rpc.call("System", "setActiveHost", [host]);
-    } catch {
-      /* ignore */
-    }
-    localStorage.removeItem("hope.fleet");
-    this.fleet = null;
-    this.load();
   };
 
   private load = async () => {
@@ -241,7 +239,7 @@ export class ImagesPage extends LoomElement {
     }
   };
 
-  private visible(): ImageInfo[] {
+  private visible(): (ImageInfo & { host?: string })[] {
     const q = this.query.trim().toLowerCase();
     return this.images.filter((i) => {
       if (this.filter === "used" && !i.in_use) return false;
@@ -260,7 +258,7 @@ export class ImagesPage extends LoomElement {
   }
   private toastTimer: any = 0;
 
-  private removeImg = async (i: ImageInfo) => {
+  private removeImg = async (i: ImageInfo & { host?: string }) => {
     const label = i.tags[0] || shortId(i.id);
     const ok = await this.confirm.ask({
       title: "remove image",
@@ -269,11 +267,14 @@ export class ImagesPage extends LoomElement {
       message: i.in_use ? `${label} is referenced by a container — it'll be force-removed.` : `Remove ${label}.`,
       stats: [
         { label: "image", value: label },
+        ...(i.host ? [{ label: "host", value: i.host }] : []),
         { label: "frees", value: bytes(i.size) },
       ],
     });
     if (!ok) return;
     try {
+      // In the all-hosts view the row belongs to a specific host — target it.
+      if (i.host) await this.rpc.call("System", "setActiveHost", [i.host]);
       await this.rpc.call("System", "removeImage", [i.id, true]);
       this.showToast(`removed ${label}`);
       await this.load();
@@ -526,55 +527,7 @@ export class ImagesPage extends LoomElement {
 
   // Cross-fleet images overview: a section per host with its counts; "manage"
   // drills into that host's full images page (filters, prune, selection).
-  private renderFleet() {
-    const f = this.fleet ?? [];
-    return (
-      <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> all hosts</span></div>
-          <div class="s"><span class="crumb">images</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
-          <div class="grow"></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.loadFleet}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
-        <main>
-          {this.error ? <div class="empty">{this.error}</div> : null}
-          {f.map((h) => {
-            const imgs = h.images ?? [];
-            const total = imgs.reduce((a, i) => a + i.size, 0);
-            const unused = imgs.filter((i) => !i.in_use);
-            const dangling = imgs.filter((i) => i.dangling);
-            return (
-              <section class="fimg">
-                <div class="fhead">
-                  <span class={"hdot " + h.kind}></span>
-                  <span class="hname">{h.id}</span>
-                  {h.online ? (
-                    <div class="fstats">
-                      <span class="stat"><i class="k">images</i><i class="v">{imgs.length}</i></span>
-                      <span class="stat"><i class="k">size</i><i class="v">{bytes(total)}</i></span>
-                      {unused.length > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused.length}<i class="t"> · {bytes(unused.reduce((a, i) => a + i.size, 0))}</i></i></span> : null}
-                      {dangling.length > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling.length}<i class="t"> · {bytes(dangling.reduce((a, i) => a + i.size, 0))}</i></i></span> : null}
-                    </div>
-                  ) : (
-                    <span class="foff">{h.error ? "unreachable" : "offline"}</span>
-                  )}
-                  <div class="grow"></div>
-                  {h.online ? <button class="pbtn" onClick={() => this.manageHost(h.id)}>manage</button> : null}
-                </div>
-              </section>
-            );
-          })}
-        </main>
-      </div>
-    );
-  }
-
   update() {
-    if (this.fleetMode) return this.renderFleet();
     const vis = this.visible();
     const total = this.images.reduce((a, i) => a + i.size, 0);
     const danglingImgs = this.images.filter((i) => i.dangling);
@@ -620,7 +573,7 @@ export class ImagesPage extends LoomElement {
                 ))}
               </div>
               <div class="grow"></div>
-              {this.selected.length > 0 ? (
+              {this.fleetMode ? null : this.selected.length > 0 ? (
                 <>
                   <span class="seln">{this.selected.length} selected</span>
                   <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
@@ -658,7 +611,7 @@ export class ImagesPage extends LoomElement {
               </colgroup>
               <thead>
                 <tr>
-                  <th class="sel"><span class={"ck" + (vis.length > 0 && vis.every((i) => this.selected.includes(i.id)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                  <th class="sel">{this.fleetMode ? null : <span class={"ck" + (vis.length > 0 && vis.every((i) => this.selected.includes(i.id)) ? " on" : "")} onClick={this.selectAllVisible}></span>}</th>
                   <th>Repository</th>
                   <th>Image ID</th>
                   <th class="r">Size</th>
@@ -670,10 +623,15 @@ export class ImagesPage extends LoomElement {
               <tbody>
                 {vis.map((i) => (
                   <tr class={"irow" + (this.selected.includes(i.id) ? " sel" : "")} onClick={() => (this.detail = i)}>
-                    <td class="sel" onClick={(e: Event) => this.toggleSel(i.id, e)}>
-                      <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")}></span>
-                    </td>
+                    {this.fleetMode ? (
+                      <td class="sel"></td>
+                    ) : (
+                      <td class="sel" onClick={(e: Event) => this.toggleSel(i.id, e)}>
+                        <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")}></span>
+                      </td>
+                    )}
                     <td class="repo" title={i.tags.join(", ")}>
+                      {i.host ? <span class="htag">{i.host}</span> : null}
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
                       {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
                     </td>
