@@ -19,12 +19,12 @@ import type { ConfirmOpts } from "../confirm";
     font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .head.danger { color: var(--bad); }
   .head.warn { color: var(--warn); }
-  .msg { margin: 0; padding: 13px 20px 0; font: 13.5px/1.65 var(--sans); color: var(--hi); }
-  .stats { display: flex; gap: 0; margin: 16px 20px 4px; border: 1px solid var(--line); }
-  .stats .st { display: flex; flex-direction: column; gap: 5px; padding: 10px 14px; border-right: 1px solid var(--line); }
-  .stats .st:last-child { border-right: 0; }
-  .stats .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
-  .stats .sv { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .msg { margin: 0; padding: 13px 20px 16px; font: 13.5px/1.65 var(--sans); color: var(--hi); }
+  .stats { display: flex; flex-direction: column; margin: 0 20px 6px; border: 1px solid var(--line); }
+  .stats .st { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .stats .st:last-child { border-bottom: 0; }
+  .stats .sk { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .stats .sv { font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; white-space: nowrap; }
   .box.danger .stats .sv { color: var(--bad); }
   .box.warn .stats .sv { color: var(--warn); }
   .acts { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);

@@ -388,11 +388,25 @@ export class ImagesPage extends LoomElement {
   // Cross-fleet redeploy & prune: per host, redeploy containers pinning a
   // dangling image, then prune dangling — frees in-use dangling images too.
   private redeployAndPruneFleet = async () => {
+    // Estimate per host from the dangling images in the combined fleet list.
+    const targets = this.images.filter((i) => i.dangling);
+    const byHost = new Map<string, { n: number; size: number }>();
+    for (const i of targets) {
+      const h = (i as ImageInfo & { host?: string }).host || "local";
+      const e = byHost.get(h) || { n: 0, size: 0 };
+      e.n++;
+      e.size += i.size;
+      byHost.set(h, e);
+    }
+    const stats = [...byHost.entries()].map(([h, e]) => ({ label: h, value: `${e.n} · ~${bytes(e.size)}` }));
+    const total = targets.reduce((a, i) => a + i.size, 0);
+    if (byHost.size > 1) stats.push({ label: "total", value: `${targets.length} · ~${bytes(total)}` });
     const ok = await this.confirm.ask({
       title: "redeploy & prune — all hosts",
       warn: true,
       confirmLabel: "Run",
       message: "On every connected host: redeploy each container pinning a dangling image, then prune dangling images.",
+      stats,
     });
     if (!ok) return;
     const hosts = ((await this.rpc.call<{ id: string; connected: boolean }[]>("System", "hosts", [])) || []).filter((h) => h.connected);
