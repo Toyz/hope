@@ -163,6 +163,9 @@ export class System {
   updates(): UpdatesResult {
     return undefined!;
   }
+  refreshUpdates(): UpdatesResult {
+    return undefined!;
+  }
   diskUsage(): DiskResult {
     return undefined!;
   }

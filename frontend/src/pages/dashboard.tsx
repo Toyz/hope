@@ -99,6 +99,11 @@ const UNGROUPED = "(ungrouped)";
   .head .rule { flex: 1; height: 1px; background: var(--line); }
   .head .n { font: 600 11px/1 var(--mono); color: var(--dim); }
   .head .ago { font: 11px/1 var(--mono); color: var(--dim); }
+  .head .rfr { display: inline-flex; align-items: center; padding: 4px; background: transparent; border: 0;
+    color: var(--dim); cursor: pointer; }
+  .head .rfr:hover { color: var(--hi); }
+  .head .rfr:disabled { cursor: not-allowed; }
+  .head .rfr .spin { animation: spin .9s linear infinite; }
 
   /* updates rows — grouped by stack, services as chips */
   .urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto 14px;
@@ -176,6 +181,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor host: any = null;
   @reactive accessor disk: DiskResult | null = null;
   @reactive accessor diskBusy = false;
+  @reactive accessor updBusy = false;
 
   @mount
   onMount() {
@@ -201,6 +207,18 @@ export class DashboardPage extends LoomElement {
       /* storage cells stay hidden */
     }
   }
+
+  // Force an immediate cluster-wide image-freshness recrawl.
+  private refreshUpdates = async () => {
+    this.updBusy = true;
+    try {
+      this.updates = await this.rpc.call<UpdatesResult>("System", "refreshUpdates", []);
+    } catch {
+      /* ignore */
+    } finally {
+      this.updBusy = false;
+    }
+  };
 
   private refreshDisk = async () => {
     this.diskBusy = true;
@@ -457,6 +475,9 @@ export class DashboardPage extends LoomElement {
                 <span class="label">Updates</span>
                 <span class="rule"></span>
                 {this.updates?.checked_at ? <span class="ago">checked {ago(this.updates.checked_at)}</span> : null}
+                <button class="rfr" disabled={this.updBusy} title="check now" onClick={this.refreshUpdates}>
+                  <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+                </button>
                 <span class="n">{this.outdated().length}</span>
               </div>
               <div class="rows">

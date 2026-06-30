@@ -134,6 +134,10 @@ func (c *Client) StartUpdateCrawler(ctx context.Context, every time.Duration, ca
 	}()
 }
 
+// RefreshUpdates runs an immediate cluster-wide crawl (user-triggered) and
+// updates the cache.
+func (c *Client) RefreshUpdates(ctx context.Context) { c.crawlUpdates(ctx) }
+
 // crawlUpdates checks every distinct image ref across all containers and stores
 // the verdicts in the cache.
 func (c *Client) crawlUpdates(ctx context.Context) {

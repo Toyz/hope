@@ -22,6 +22,11 @@ export const theme = `
     --bad: #EC5C5C;      /* down / loop */
     --upd: #4E9BD9;      /* image update available */
 
+    /* status glyphs (SVG masks, tinted by background-color) */
+    --mk-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%23000'/%3E%3C/svg%3E");
+    --mk-ring: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='7.5' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E");
+    --mk-spin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3a9 9 0 0 1 9 9' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E");
+
     --mono: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -38,13 +43,18 @@ export const theme = `
   .dim { color: var(--dim); }
   .num { font-variant-numeric: tabular-nums; }
 
-  /* state marks — a square glyph, never a glow */
-  .mark { width: 7px; height: 7px; flex: none; background: var(--faint); }
-  .mark.ok { background: var(--ok); }
-  .mark.warn { background: var(--warn); }
-  .mark.bad { background: var(--bad); }
-  .mark.upd { background: var(--upd); }
-  .mark.loop { background: var(--bad); animation: blink 1.1s steps(2,end) infinite; }
+  /* state marks — crisp SVG glyphs (mask + tint), never a glow.
+     idle/stopped reads as a hollow ring; active states a filled dot;
+     restarting a spinning arc. */
+  .mark { width: 9px; height: 9px; flex: none; background-color: var(--faint);
+    -webkit-mask: var(--mk-ring) center / contain no-repeat; mask: var(--mk-ring) center / contain no-repeat; }
+  .mark.ok, .mark.warn, .mark.bad, .mark.upd { -webkit-mask-image: var(--mk-dot); mask-image: var(--mk-dot); }
+  .mark.ok { background-color: var(--ok); }
+  .mark.warn { background-color: var(--warn); }
+  .mark.bad { background-color: var(--bad); }
+  .mark.upd { background-color: var(--upd); }
+  .mark.loop { background-color: var(--bad); -webkit-mask-image: var(--mk-spin); mask-image: var(--mk-spin);
+    animation: spin .9s linear infinite; }
 
   /* buttons — flat, hairline, hover brightens the border only */
   .btn {
@@ -76,6 +86,7 @@ export const theme = `
   }
 
   @keyframes blink { 50% { opacity: .25; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .mark.loop { animation: none; } }
 

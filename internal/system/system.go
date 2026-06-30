@@ -47,7 +47,23 @@ func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	updates, at, err := r.docker.AllUpdates(cctx)
+	return r.collectUpdates(cctx)
+}
+
+// RefreshUpdates runs an immediate cluster-wide crawl (user-triggered from the
+// dashboard "updates" refresh) then returns the fresh report.
+func (r *SystemRouter) RefreshUpdates(ctx *rpc.Context) (*UpdatesResult, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	r.docker.RefreshUpdates(cctx)
+	return r.collectUpdates(cctx)
+}
+
+func (r *SystemRouter) collectUpdates(ctx context.Context) (*UpdatesResult, error) {
+	updates, at, err := r.docker.AllUpdates(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -57,11 +73,7 @@ func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
 			outdated++
 		}
 	}
-	checkedAt := ""
-	if !at.IsZero() {
-		checkedAt = at.UTC().Format(time.RFC3339)
-	}
-	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: checkedAt}, nil
+	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: stamp(at)}, nil
 }
 
 // DiskResult wraps a disk-usage snapshot with the time it was taken.
