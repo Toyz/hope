@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -45,10 +46,13 @@ func resolveConfigPath(path string) string {
 	if dc := os.Getenv("DOCKER_CONFIG"); dc != "" {
 		return filepath.Join(dc, "config.json")
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return filepath.Join(home, ".docker", "config.json")
 	}
-	return ""
+	// scratch has no /etc/passwd and may have no $HOME, so UserHomeDir fails —
+	// fall back to the conventional root path (where the socket-host's
+	// config.json is usually mounted).
+	return "/root/.docker/config.json"
 }
 
 // readDockerAuths parses inline credentials from a docker config.json into a
@@ -153,6 +157,19 @@ func (c *Client) registryAuth(image string) string {
 	c.authMu.RLock()
 	defer c.authMu.RUnlock()
 	return c.auths[registryHostFromImage(image)]
+}
+
+// AuthedRegistries lists the registries hope currently has credentials for —
+// a startup diagnostic so "still rate-limited?" has an obvious answer.
+func (c *Client) AuthedRegistries() []string {
+	c.authMu.RLock()
+	defer c.authMu.RUnlock()
+	out := make([]string, 0, len(c.auths))
+	for k := range c.auths {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // registryHostFromImage extracts the registry host from an image reference,

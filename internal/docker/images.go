@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 )
 
@@ -52,4 +53,31 @@ func (c *Client) Images(ctx context.Context) ([]ImageInfo, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Size > out[j].Size })
 	return out, nil
+}
+
+// PruneResult reports the outcome of an image prune.
+type PruneResult struct {
+	Deleted   int    `json:"deleted"`
+	Reclaimed uint64 `json:"reclaimed"`
+}
+
+// RemoveImage deletes a single image (force allows removing a tagged image even
+// if it has stopped containers / multiple tags).
+func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
+	_, err := c.cli.ImageRemove(ctx, id, image.RemoveOptions{Force: force, PruneChildren: true})
+	return err
+}
+
+// PruneImages removes unreferenced images: dangling-only by default, or every
+// unused image when all is true. Returns how many were deleted and bytes freed.
+func (c *Client) PruneImages(ctx context.Context, all bool) (PruneResult, error) {
+	f := filters.NewArgs()
+	// dangling=false tells the daemon to prune ALL unused images, not just the
+	// untagged ones; dangling=true (the default) prunes only dangling.
+	f.Add("dangling", map[bool]string{true: "false", false: "true"}[all])
+	rep, err := c.cli.ImagesPrune(ctx, f)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	return PruneResult{Deleted: len(rep.ImagesDeleted), Reclaimed: rep.SpaceReclaimed}, nil
 }

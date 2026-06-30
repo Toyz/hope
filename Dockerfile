@@ -35,5 +35,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /hope ./cmd/hope
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /hope /usr/local/bin/hope
+# scratch has no /etc/passwd; set HOME so ~/.docker/config.json resolves and
+# the conventional /root/.docker/config.json mount is found.
+ENV HOME=/root
 EXPOSE 8080
 ENTRYPOINT ["hope", "-config", "/app/config.toml"]

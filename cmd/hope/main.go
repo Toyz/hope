@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,6 +79,11 @@ func main() {
 	// Hot-reload registry creds when the mounted config.json changes (e.g. a
 	// fresh `docker login`) — no restart needed.
 	dock.StartCredWatcher(ctx, 30*time.Second)
+	if regs := dock.AuthedRegistries(); len(regs) > 0 {
+		lg.Info("registry auth ready", "registries", strings.Join(regs, ","))
+	} else {
+		lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
+	}
 	// Background crawler keeps the cluster-wide image-freshness cache warm for
 	// the dashboard "updates" section (manifest lookups, no layer pulls).
 	if cfg.Updates.Enabled {

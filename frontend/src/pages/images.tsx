@@ -5,8 +5,11 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
-import type { ImageInfo } from "../contracts";
+import { ConfirmService } from "../confirm";
+import type { ImageInfo, PruneResult } from "../contracts";
 import { theme } from "../styles";
+
+type Filter = "all" | "used" | "unused" | "dangling";
 
 @route("/images")
 @component("hope-images")
@@ -34,6 +37,27 @@ import { theme } from "../styles";
   .summary .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
   .summary .v.warnv { color: var(--warn); }
 
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .toolbar .grow { flex: 1; }
+  .filters { display: flex; gap: 2px; }
+  .fchip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; background: transparent;
+    border: 1px solid var(--line); color: var(--dim); cursor: pointer;
+    font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .fchip:hover { color: var(--hi); border-color: var(--line2); }
+  .fchip.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .fchip .fn { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .fchip.on .fn { color: var(--mid); }
+  .pbtn { padding: 7px 12px; background: transparent; border: 1px solid var(--line); color: var(--mid);
+    font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+  .pbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .pbtn.danger:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+  .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent;
+    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
+  .toast { position: fixed; right: 22px; bottom: 22px; z-index: 60; background: var(--raised);
+    border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px; max-width: 420px; }
+  .toast.bad { border-color: var(--bad); color: var(--bad); }
+
   .search { position: relative; margin-bottom: 18px; }
   .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
     font: 13px/1 var(--mono); padding: 11px 12px 11px 38px; }
@@ -42,11 +66,12 @@ import { theme } from "../styles";
   .search .ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
 
   table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
-  colgroup col.c-repo { width: 46%; }
-  colgroup col.c-id { width: 16%; }
-  colgroup col.c-size { width: 12%; }
-  colgroup col.c-age { width: 14%; }
-  colgroup col.c-use { width: 12%; }
+  colgroup col.c-repo { width: 40%; }
+  colgroup col.c-id { width: 15%; }
+  colgroup col.c-size { width: 11%; }
+  colgroup col.c-age { width: 12%; }
+  colgroup col.c-use { width: 14%; }
+  colgroup col.c-act { width: 8%; }
   thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
   th.r, td.r { text-align: right; }
@@ -67,6 +92,7 @@ import { theme } from "../styles";
 export class ImagesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -76,6 +102,9 @@ export class ImagesPage extends LoomElement {
   @reactive accessor error = "";
   @reactive accessor query = "";
   @reactive accessor busy = false;
+  @reactive accessor filter: Filter = "all";
+  @reactive accessor toast = "";
+  @reactive accessor toastKind = "";
 
   @mount
   onMount() {
@@ -103,9 +132,59 @@ export class ImagesPage extends LoomElement {
 
   private visible(): ImageInfo[] {
     const q = this.query.trim().toLowerCase();
-    if (!q) return this.images;
-    return this.images.filter((i) => (i.tags.join(" ") + " " + i.id).toLowerCase().includes(q));
+    return this.images.filter((i) => {
+      if (this.filter === "used" && !i.in_use) return false;
+      if (this.filter === "unused" && i.in_use) return false;
+      if (this.filter === "dangling" && !i.dangling) return false;
+      if (q && !(i.tags.join(" ") + " " + i.id).toLowerCase().includes(q)) return false;
+      return true;
+    });
   }
+
+  private showToast(msg: string, kind = "") {
+    this.toast = msg;
+    this.toastKind = kind;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => (this.toast = ""), 3500);
+  }
+  private toastTimer: any = 0;
+
+  private removeImg = async (i: ImageInfo) => {
+    const label = i.tags[0] || shortId(i.id);
+    const ok = await this.confirm.ask({
+      title: "remove image",
+      danger: true,
+      confirmLabel: "Remove",
+      message: i.in_use ? `Force-remove "${label}"? A container references it.` : `Remove image "${label}"?`,
+    });
+    if (!ok) return;
+    try {
+      await this.rpc.call("System", "removeImage", [i.id, true]);
+      this.showToast(`removed ${label}`);
+      await this.load();
+    } catch (err: any) {
+      this.showToast(`remove ${label} — ${err?.message ?? "failed"}`, "bad");
+    }
+  };
+
+  private prune = async (all: boolean) => {
+    const ok = await this.confirm.ask({
+      title: all ? "prune unused images" : "prune dangling images",
+      danger: true,
+      confirmLabel: "Prune",
+      message: all
+        ? "Remove ALL images not used by a container? This frees space but re-pulls are needed to use them again."
+        : "Remove all dangling (untagged) images?",
+    });
+    if (!ok) return;
+    try {
+      const res = await this.rpc.call<PruneResult>("System", "pruneImages", [all]);
+      this.showToast(`pruned ${res.deleted} image(s), freed ${bytes(res.reclaimed)}`);
+      await this.load();
+    } catch (err: any) {
+      this.showToast(`prune — ${err?.message ?? "failed"}`, "bad");
+    }
+  };
 
   private logout = () => {
     this.auth.clear();
@@ -141,6 +220,22 @@ export class ImagesPage extends LoomElement {
           ) : null}
 
           {this.images.length > 0 ? (
+            <div class="toolbar">
+              <div class="filters">
+                {(["all", "used", "unused", "dangling"] as Filter[]).map((f) => (
+                  <button class={"fchip" + (this.filter === f ? " on" : "")} onClick={() => (this.filter = f)}>
+                    {f}
+                    <span class="fn">{f === "all" ? this.images.length : this.images.filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length}</span>
+                  </button>
+                ))}
+              </div>
+              <div class="grow"></div>
+              {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
+              {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
+            </div>
+          ) : null}
+
+          {this.images.length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
               <input type="text" placeholder="Search image tags and ids…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
@@ -155,6 +250,7 @@ export class ImagesPage extends LoomElement {
                 <col class="c-size" />
                 <col class="c-age" />
                 <col class="c-use" />
+                <col class="c-act" />
               </colgroup>
               <thead>
                 <tr>
@@ -163,6 +259,7 @@ export class ImagesPage extends LoomElement {
                   <th class="r">Size</th>
                   <th>Age</th>
                   <th>Usage</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -178,6 +275,11 @@ export class ImagesPage extends LoomElement {
                     <td>
                       {i.in_use ? <span class="chip use">in use</span> : i.dangling ? <span class="chip dang">dangling</span> : <span class="chip">unused</span>}
                     </td>
+                    <td class="r">
+                      <button class="rm" title={i.in_use ? "force-remove (in use)" : "remove image"} onClick={() => this.removeImg(i)}>
+                        <loom-icon name="x" size={14}></loom-icon>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -186,6 +288,7 @@ export class ImagesPage extends LoomElement {
             <div class="empty">{this.query ? "No images match." : "No images on this daemon."}</div>
           ) : null}
         </main>
+        {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
       </div>
     );
   }

@@ -90,6 +90,44 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	return imgs, nil
 }
 
+// ImageRemoveParams targets one image for deletion.
+type ImageRemoveParams struct {
+	ID    string `sov:"id,0,required" json:"id"`
+	Force bool   `sov:"force,1" json:"force"`
+}
+
+// RemoveImage deletes a single local image.
+func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := r.docker.RemoveImage(cctx, p.ID, p.Force); err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+// PruneParams selects the prune scope.
+type PruneParams struct {
+	All bool `sov:"all,0" json:"all"` // true = all unused images, false = dangling only
+}
+
+// PruneImages removes unused images (dangling-only, or all unused).
+func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.PruneResult, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	res, err := r.docker.PruneImages(cctx, p.All)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return &res, nil
+}
+
 // DiskResult wraps a disk-usage snapshot with the time it was taken.
 type DiskResult struct {
 	Usage     any    `json:"usage"`

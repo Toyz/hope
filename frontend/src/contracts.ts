@@ -92,6 +92,11 @@ export interface ImageInfo {
   in_use: boolean;
 }
 
+export interface PruneResult {
+  deleted: number;
+  reclaimed: number;
+}
+
 // NDJSON stream frames.
 export interface LogFrame {
   type: "stdout" | "stderr";
@@ -191,6 +196,12 @@ export class System {
     return undefined!;
   }
   images(): ImageInfo[] {
+    return undefined!;
+  }
+  removeImage(_id: string, _force: boolean): unknown {
+    return undefined!;
+  }
+  pruneImages(_all: boolean): PruneResult {
     return undefined!;
   }
 }
