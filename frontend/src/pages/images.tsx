@@ -341,12 +341,26 @@ export class ImagesPage extends LoomElement {
   // Cross-fleet prune: run the prune stream on every connected host in turn,
   // piping each host's output into the shared processing dialog.
   private pruneFleet = async (all: boolean) => {
+    // Estimate reclaimable space per host from the combined fleet image list.
+    const targets = this.images.filter((i) => (all ? !i.in_use : i.dangling));
+    const byHost = new Map<string, { n: number; size: number }>();
+    for (const i of targets) {
+      const h = (i as ImageInfo & { host?: string }).host || "local";
+      const e = byHost.get(h) || { n: 0, size: 0 };
+      e.n++;
+      e.size += i.size;
+      byHost.set(h, e);
+    }
+    const stats = [...byHost.entries()].map(([h, e]) => ({ label: h, value: `${e.n} · ~${bytes(e.size)}` }));
+    const total = targets.reduce((a, i) => a + i.size, 0);
+    if (byHost.size > 1) stats.push({ label: "total", value: `${targets.length} · ~${bytes(total)}` });
     const ok = await this.confirm.ask({
       title: all ? "prune unused — all hosts" : "prune dangling — all hosts",
       danger: all,
       warn: !all,
       confirmLabel: "Prune",
       message: `Prune ${all ? "all unused" : "dangling"} images across every connected host.`,
+      stats,
     });
     if (!ok) return;
     const hosts = ((await this.rpc.call<{ id: string; connected: boolean }[]>("System", "hosts", [])) || []).filter((h) => h.connected);
