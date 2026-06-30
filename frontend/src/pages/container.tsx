@@ -182,6 +182,18 @@ const MAX_LINES = 600;
   .psearch input::placeholder { color: var(--dim); }
   .psearch .pn { font: 11px/1 var(--mono); color: var(--dim); }
   .pscroll { max-height: 58vh; overflow: auto; }
+  .pgroup { border-bottom: 1px solid var(--line); }
+  .pgroup:last-child { border-bottom: 0; }
+  .pghead { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 12px 14px;
+    background: transparent; border: 0; color: var(--hi); font: 600 12px/1 var(--mono); letter-spacing: .04em; cursor: pointer; }
+  .pghead:hover { background: var(--raised); }
+  .pghead:disabled { cursor: default; }
+  .pghead .pcaret { color: var(--dim); transition: transform .12s ease; flex: none; }
+  .pghead.open .pcaret { transform: rotate(90deg); }
+  .pghead .pgname { flex: 1; }
+  .pghead .pgn { font: 600 10px/1 var(--mono); color: var(--dim); border: 1px solid var(--line); padding: 4px 8px; }
+  .pgroup .ptable { border-top: 1px solid var(--line); }
+  .pgroup .ptable .pk { padding-left: 36px; }
   .ptable { width: 100%; border-collapse: collapse; }
   .ptable td { padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font: 12.5px/1.5 var(--mono); }
   .ptable tr:last-child td { border-bottom: none; }
@@ -225,6 +237,7 @@ export class ContainerPage extends LoomElement {
   @reactive accessor wrap = false;
   @reactive accessor inspectMode: "pretty" | "raw" = "pretty";
   @reactive accessor inspectQuery = "";
+  @reactive accessor inspectOpen: Record<string, boolean> = { State: true };
   @reactive accessor siblings: ContainerSummary[] = [];
   @reactive accessor dropOpen = false;
   @reactive accessor cbusy = ""; // op currently running
@@ -550,6 +563,25 @@ export class ContainerPage extends LoomElement {
     const filtered = q
       ? rows.filter(([k, v]) => k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q))
       : rows;
+
+    // Group rows by their top-level section so inspect reads as structure
+    // (State, Config, NetworkSettings…) instead of one flat wall of dotted keys.
+    const groups = new Map<string, [string, any][]>();
+    for (const [k, v] of filtered) {
+      const dot = k.indexOf(".");
+      const top = dot === -1 ? k : k.slice(0, dot);
+      const rest = dot === -1 ? "" : k.slice(dot + 1);
+      if (!groups.has(top)) groups.set(top, []);
+      groups.get(top)!.push([rest, v]);
+    }
+    const PRIORITY = ["State", "Config", "HostConfig", "NetworkSettings", "Mounts", "Name", "Image", "Created", "RestartCount"];
+    const sections = [...groups.keys()].sort((a, b) => {
+      const ia = PRIORITY.indexOf(a);
+      const ib = PRIORITY.indexOf(b);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      return a.localeCompare(b);
+    });
+
     return (
       <div class="pview">
         <div class="psearch">
@@ -560,20 +592,36 @@ export class ContainerPage extends LoomElement {
             value={this.inspectQuery}
             onInput={(e: any) => (this.inspectQuery = e.target.value)}
           />
-          <span class="pn">{filtered.length}</span>
+          <span class="pn">{filtered.length} field{filtered.length === 1 ? "" : "s"}</span>
         </div>
         <div class="pscroll">
-          <table class="ptable">
-            <tbody>
-              {filtered.map(([k, v]) => (
-                <tr>
-                  <td class="pk">{k}</td>
-                  <td class="pv">{fmtVal(v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filtered.length === 0 ? <div class="pempty">No matches.</div> : null}
+          {sections.length === 0 ? <div class="pempty">No matches.</div> : null}
+          {sections.map((top) => {
+            const list = groups.get(top)!;
+            const open = !!q || !!this.inspectOpen[top];
+            return (
+              <div class="pgroup">
+                <button class={"pghead" + (open ? " open" : "")} disabled={!!q}
+                  onClick={() => (this.inspectOpen = { ...this.inspectOpen, [top]: !open })}>
+                  <loom-icon class="pcaret" name="chevron-right" size={13}></loom-icon>
+                  <span class="pgname">{top}</span>
+                  <span class="pgn">{list.length}</span>
+                </button>
+                {open ? (
+                  <table class="ptable">
+                    <tbody>
+                      {list.map(([k, v]) => (
+                        <tr>
+                          <td class="pk">{k || top}</td>
+                          <td class="pv">{fmtVal(v)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
