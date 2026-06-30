@@ -51,6 +51,11 @@ const UNGROUPED = "(ungrouped)";
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer;
   }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
+  .bar .act button:disabled { opacity: .55; cursor: default; }
+  .bar .act .upcheck { display: inline-flex; align-items: center; gap: 7px; }
+  .bar .act .upcheck loom-icon { color: var(--upd); }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   main { padding: 30px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
@@ -387,6 +392,12 @@ export class DashboardPage extends LoomElement {
               </button>
             </div>
           ) : null}
+          <div class="s act">
+            <button class="upcheck" disabled={this.updBusy} title="check all images for updates now" onClick={this.refreshUpdates}>
+              <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+              <span>check</span>
+            </button>
+          </div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 

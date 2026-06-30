@@ -11,21 +11,24 @@ import { theme } from "../styles";
 @component("hope-host-switch")
 @styles(css`
   ${theme}
-  :host { display: inline-flex; position: relative; font: 600 11px/1 var(--mono); }
+  :host { display: inline-flex; position: relative; font: 600 11px/1 var(--mono); height: 100%; }
 
   .btn {
     display: inline-flex; align-items: center; gap: 8px; height: 100%;
-    padding: 0 14px; background: none; border: 0; cursor: pointer;
-    color: var(--hi); letter-spacing: .14em; text-transform: uppercase;
+    padding: 0 16px; background: transparent; border: 0; cursor: pointer;
+    color: var(--dim); letter-spacing: .14em; text-transform: uppercase;
+    transition: background .12s, color .12s;
   }
-  .btn:hover { color: var(--hi); background: rgba(255,255,255,.03); }
+  .btn:hover { color: var(--hi); background: var(--raised); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
   .dot.local { background: var(--upd); }
   .dot.agent { background: var(--ok); }
   .dot.off { background: var(--bad); }
   .cur { color: var(--dim); font-weight: 600; }
   .cur b { color: var(--hi); font-weight: 700; letter-spacing: .04em; text-transform: none; }
-  .caret { color: var(--dim); font-size: 9px; }
+  .car { color: var(--dim); transition: transform .15s ease, color .12s; }
+  .btn:hover .car { color: var(--hi); }
+  .car.up { transform: rotate(180deg); }
 
   .menu {
     position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
@@ -106,7 +109,7 @@ export class HostSwitch extends LoomElement {
         <button class="btn" onClick={this.toggle} title="Switch Docker host">
           <span class={`dot ${kind}`}></span>
           <span class="cur">host <b>{label}</b></span>
-          <span class="caret">{this.open ? "▲" : "▼"}</span>
+          <loom-icon class={"car" + (this.open ? " up" : "")} name="chevron-down" size={12}></loom-icon>
         </button>
         {this.open ? (
           <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
