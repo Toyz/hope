@@ -48,10 +48,14 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .fchip.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .fchip .fn { color: var(--dim); font-variant-numeric: tabular-nums; }
   .fchip.on .fn { color: var(--mid); }
-  .pbtn { padding: 7px 12px; background: transparent; border: 1px solid var(--line); color: var(--mid);
-    font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+  .pbtn { padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0; transition: color .1s, border-color .1s, background .1s; }
   .pbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .pbtn.danger:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+  .pbtn.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+  .pbtn.warn:hover { color: #06080d; background: var(--warn); border-color: var(--warn); }
+  .pbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .pbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
   .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent;
     border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
@@ -276,6 +280,61 @@ export class ImagesPage extends LoomElement {
     this.procOpen = false;
   };
 
+  private async streamIntoProc(method: string, args: string[]) {
+    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, this.procCtrl!.signal)) {
+      if (f.type === "log" && f.data) this.appendProc("  " + f.data);
+      else if (f.type === "done" && !f.ok) {
+        this.procOk = false;
+        this.appendProc("  failed: " + (f.error ?? ""));
+      }
+    }
+  }
+
+  // One-shot cleanup: redeploy every container pinning a dangling image (moves
+  // them onto current tags), then prune all dangling images — freeing the ones
+  // that were stuck "in use".
+  private redeployAndPrune = async () => {
+    const stuck = this.images.filter((i) => i.dangling && i.used_by.length);
+    const byId = new Map<string, ImageInfo["used_by"][number]>();
+    for (const i of stuck) for (const u of i.used_by) byId.set(u.id, u);
+    const users = [...byId.values()];
+    const free = this.images.filter((i) => i.dangling).reduce((a, i) => a + i.size, 0);
+    const ok = await this.confirm.ask({
+      title: "redeploy & prune",
+      warn: true,
+      confirmLabel: "Run",
+      message: "Redeploy every container pinning a dangling image, then prune all dangling images.",
+      stats: [
+        { label: "redeploys", value: String(users.length) },
+        { label: "frees up to", value: "~" + bytes(free) },
+      ],
+    });
+    if (!ok) return;
+    this.procTitle = "redeploy & prune";
+    this.procLines = [];
+    this.procDone = false;
+    this.procOk = true;
+    this.procOpen = true;
+    this.procCtrl = new AbortController();
+    try {
+      for (const u of users) {
+        this.appendProc("> redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        await this.streamIntoProc("redeploy", [u.id]);
+      }
+      this.appendProc("> prune dangling");
+      await this.streamIntoProc("pruneImages", ["false"]);
+      this.appendProc("done");
+    } catch (err: any) {
+      if (!this.procCtrl?.signal.aborted) {
+        this.appendProc("error: " + (err?.message ?? "failed"));
+        this.procOk = false;
+      }
+    } finally {
+      this.procDone = true;
+      await this.load();
+    }
+  };
+
   // Redeploy every container using this image so they move onto their current
   // tag — which frees the old (often untagged) image to be removed.
   private redeployUsers = async (i: ImageInfo) => {
@@ -358,7 +417,7 @@ export class ImagesPage extends LoomElement {
           <div class="dacts">
             {i.used_by.length ? <span class="dnote">in use — redeploy frees it cleanly; remove force-deletes it from under the containers</span> : null}
             <span class="grow"></span>
-            {i.used_by.length ? <button class="pbtn" onClick={() => this.redeployUsers(i)}>redeploy {i.used_by.length} &amp; free</button> : null}
+            {i.used_by.length ? <button class="pbtn warn" onClick={() => this.redeployUsers(i)}>redeploy {i.used_by.length} &amp; free</button> : null}
             <button class="pbtn danger" onClick={() => { const im = i; this.detail = null; this.removeImg(im); }}>remove</button>
           </div>
         </div>
@@ -414,6 +473,7 @@ export class ImagesPage extends LoomElement {
                 ))}
               </div>
               <div class="grow"></div>
+              {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
               {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
               {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
             </div>
