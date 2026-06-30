@@ -371,6 +371,44 @@ export class ImagesPage extends LoomElement {
     await this.load();
   };
 
+  // Cross-fleet redeploy & prune: per host, redeploy containers pinning a
+  // dangling image, then prune dangling — frees in-use dangling images too.
+  private redeployAndPruneFleet = async () => {
+    const ok = await this.confirm.ask({
+      title: "redeploy & prune — all hosts",
+      warn: true,
+      confirmLabel: "Run",
+      message: "On every connected host: redeploy each container pinning a dangling image, then prune dangling images.",
+    });
+    if (!ok) return;
+    const hosts = ((await this.rpc.call<{ id: string; connected: boolean }[]>("System", "hosts", [])) || []).filter((h) => h.connected);
+    await this.proc.run("redeploy & prune — all hosts", async (emit, signal) => {
+      let okv = true;
+      for (const h of hosts) {
+        emit(`> ${h.id}`);
+        try {
+          await this.rpc.call("System", "setActiveHost", [h.id]);
+          const byId = new Map<string, any>();
+          for (const i of this.images.filter((i) => i.host === h.id && i.dangling && i.used_by.length)) {
+            for (const u of i.used_by) byId.set(u.id, u);
+          }
+          for (const u of byId.values()) {
+            emit("  redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+            if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
+          }
+          emit("  prune dangling");
+          if (!(await this.pipeStream(emit, signal, "pruneImages", ["false"]))) okv = false;
+        } catch (e: any) {
+          okv = false;
+          emit("  " + (e?.message ?? "failed"));
+        }
+      }
+      emit("done");
+      return okv;
+    });
+    await this.load();
+  };
+
   // Only images with no containers using them are selectable for bulk removal.
   private removable = () => this.visible().filter((i) => !i.used_by.length);
   private selectAllVisible = (e: Event) => {
@@ -629,6 +667,7 @@ export class ImagesPage extends LoomElement {
                 </>
               ) : this.fleetMode ? (
                 <>
+                  {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</button> : null}
                   {dangling > 0 ? <button class="pbtn" onClick={() => this.pruneFleet(false)}>prune dangling · all</button> : null}
                   {unused > 0 ? <button class="pbtn danger" onClick={() => this.pruneFleet(true)}>prune unused · all</button> : null}
                 </>
