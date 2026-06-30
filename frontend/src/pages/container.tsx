@@ -142,16 +142,22 @@ const MAX_LINES = 600;
   pre.logs { height: 62vh; }
   pre.logs.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  /* stat gauges */
-  .gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-  .gauge { border: 1px solid var(--line); padding: 16px 18px; }
-  .gauge .gk { font: 600 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
-  .gauge .gv { font: 600 26px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--hi); margin: 12px 0; }
-  .gauge .gv small { font-size: 14px; color: var(--dim); font-weight: 400; }
+  /* stats — two hero gauges + a secondary metric strip */
+  .heroes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .hero { border: 1px solid var(--line); padding: 18px 20px; }
+  .hero .hk { font: 600 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); }
+  .hero .hv { font: 600 32px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--hi); margin: 16px 0 14px; }
+  .hero .hsub { font: 12px/1 var(--mono); color: var(--dim); margin-top: 11px; font-variant-numeric: tabular-nums; }
   .meter { height: 6px; background: var(--faint); overflow: hidden; }
   .meter i { display: block; height: 100%; background: var(--ok); transition: width .3s ease; }
   .meter i.warn { background: var(--warn); }
   .meter i.bad { background: var(--bad); }
+  .mstrip { display: flex; flex-wrap: wrap; border: 1px solid var(--line); }
+  .mstrip .m { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 8px; padding: 13px 16px; border-right: 1px solid var(--line); }
+  .mstrip .m:last-child { border-right: 0; }
+  .mstrip .mk { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .mstrip .mv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  @media (max-width: 620px) { .heroes { grid-template-columns: 1fr; } }
 
   .err { color: var(--bad); font: 12px/1.5 var(--mono); margin-bottom: 12px; }
 
@@ -161,6 +167,8 @@ const MAX_LINES = 600;
   .subtabs button:hover { color: var(--hi); border-color: var(--line2); }
   .subtabs button.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
 
+  pre.inspect { margin: 0; border: 1px solid var(--line); background: var(--panel); padding: 16px 18px;
+    height: 60vh; overflow: auto; font: 12.5px/1.6 var(--mono); color: var(--hi); }
   pre.inspect .key { color: #9aa4b4; }
   pre.inspect .str { color: #6fd0a0; }
   pre.inspect .num { color: #e0a23b; }
@@ -173,7 +181,7 @@ const MAX_LINES = 600;
   .psearch input { flex: 1; background: transparent; border: 0; color: var(--hi); font: 13px/1 var(--mono); outline: none; }
   .psearch input::placeholder { color: var(--dim); }
   .psearch .pn { font: 11px/1 var(--mono); color: var(--dim); }
-  .pscroll { }
+  .pscroll { max-height: 58vh; overflow: auto; }
   .ptable { width: 100%; border-collapse: collapse; }
   .ptable td { padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font: 12.5px/1.5 var(--mono); }
   .ptable tr:last-child td { border-bottom: none; }
@@ -204,11 +212,15 @@ export class ContainerPage extends LoomElement {
   @reactive accessor logLines: string[] = [];
   @reactive accessor cpu = "—";
   @reactive accessor cpuBar = 0;
-  @reactive accessor mem = "—";
+  @reactive accessor memUsed = "—";
+  @reactive accessor memLimit = "—";
   @reactive accessor memBar = 0;
-  @reactive accessor net = "—";
-  @reactive accessor blk = "—";
+  @reactive accessor netRx = "—";
+  @reactive accessor netTx = "—";
+  @reactive accessor blkR = "—";
+  @reactive accessor blkW = "—";
   @reactive accessor pids = "—";
+  @reactive accessor hasStats = false;
   @reactive accessor error = "";
   @reactive accessor wrap = false;
   @reactive accessor inspectMode: "pretty" | "raw" = "pretty";
@@ -373,8 +385,9 @@ export class ContainerPage extends LoomElement {
     this.dropOpen = false;
     this.outdated = false;
     this.logLines = [];
-    this.cpu = this.mem = this.net = this.blk = this.pids = "—";
+    this.cpu = this.memUsed = this.memLimit = this.netRx = this.netTx = this.blkR = this.blkW = this.pids = "—";
     this.cpuBar = this.memBar = 0;
+    this.hasStats = false;
     this.error = "";
     this.loadInfo();
     this.runLogs(signal);
@@ -472,7 +485,8 @@ export class ContainerPage extends LoomElement {
       }
       const used = (s.memory_stats.usage ?? 0) - (s.memory_stats.stats?.cache ?? 0);
       const limit = s.memory_stats.limit ?? 0;
-      this.mem = `${mb(used)} / ${mb(limit)}`;
+      this.memUsed = mb(used);
+      this.memLimit = mb(limit);
       this.memBar = limit ? Math.min(100, (used / limit) * 100) : 0;
 
       let rx = 0, tx = 0;
@@ -480,15 +494,18 @@ export class ContainerPage extends LoomElement {
         rx += n.rx_bytes ?? 0;
         tx += n.tx_bytes ?? 0;
       }
-      this.net = `↓ ${bytes(rx)}   ↑ ${bytes(tx)}`;
+      this.netRx = bytes(rx);
+      this.netTx = bytes(tx);
 
       let r = 0, w = 0;
       for (const e of s.blkio_stats?.io_service_bytes_recursive ?? []) {
         if (e.op === "Read" || e.op === "read") r += e.value ?? 0;
         if (e.op === "Write" || e.op === "write") w += e.value ?? 0;
       }
-      this.blk = `R ${bytes(r)}   W ${bytes(w)}`;
+      this.blkR = bytes(r);
+      this.blkW = bytes(w);
       this.pids = String(s.pids_stats?.current ?? "—");
+      this.hasStats = true;
     } catch {
       /* partial frame */
     }
@@ -748,20 +765,28 @@ export class ContainerPage extends LoomElement {
           ) : null}
 
           {this.tab === "stats" ? (
-            <div class="gauges">
-              <div class="gauge">
-                <div class="gk">CPU</div>
-                <div class="gv">{this.cpu}</div>
-                <div class="meter"><i class={this.meterClass(this.cpuBar)} style={`width:${this.cpuBar}%`}></i></div>
+            <div class="stats">
+              <div class="heroes">
+                <div class="hero">
+                  <div class="hk">CPU</div>
+                  <div class="hv">{this.cpu}</div>
+                  <div class="meter"><i class={this.meterClass(this.cpuBar)} style={`width:${this.cpuBar}%`}></i></div>
+                  <div class="hsub">{this.hasStats ? `${this.cpuBar.toFixed(0)}% of one core` : "live while running"}</div>
+                </div>
+                <div class="hero">
+                  <div class="hk">Memory</div>
+                  <div class="hv">{this.hasStats ? `${this.memBar.toFixed(0)}%` : "—"}</div>
+                  <div class="meter"><i class={this.meterClass(this.memBar)} style={`width:${this.memBar}%`}></i></div>
+                  <div class="hsub">{this.memUsed} / {this.memLimit}</div>
+                </div>
               </div>
-              <div class="gauge">
-                <div class="gk">Memory</div>
-                <div class="gv">{this.mem}</div>
-                <div class="meter"><i class={this.meterClass(this.memBar)} style={`width:${this.memBar}%`}></i></div>
+              <div class="mstrip">
+                <div class="m"><i class="mk">Net rx</i><i class="mv">{this.netRx}</i></div>
+                <div class="m"><i class="mk">Net tx</i><i class="mv">{this.netTx}</i></div>
+                <div class="m"><i class="mk">Block read</i><i class="mv">{this.blkR}</i></div>
+                <div class="m"><i class="mk">Block write</i><i class="mv">{this.blkW}</i></div>
+                <div class="m"><i class="mk">PIDs</i><i class="mv">{this.pids}</i></div>
               </div>
-              <div class="gauge"><div class="gk">Network</div><div class="gv" style="font-size:18px">{this.net}</div></div>
-              <div class="gauge"><div class="gk">Block I/O</div><div class="gv" style="font-size:18px">{this.blk}</div></div>
-              <div class="gauge"><div class="gk">PIDs</div><div class="gv">{this.pids}</div></div>
             </div>
           ) : null}
 
