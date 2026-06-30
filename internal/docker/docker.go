@@ -220,6 +220,13 @@ func (c *Client) Kill(ctx context.Context, id string) error {
 	return c.sdk().ContainerKill(ctx, id, "SIGKILL")
 }
 
+// Remove stops (graceful) then removes a container. Force covers the case where
+// it's already stopped or won't stop in time.
+func (c *Client) Remove(ctx context.Context, id string) error {
+	_ = c.sdk().ContainerStop(ctx, id, container.StopOptions{})
+	return c.sdk().ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+}
+
 // Exists reports whether a container id/name resolves — used by the
 // logstream plugin to reject a stream before the first byte.
 func (c *Client) Exists(ctx context.Context, id string) bool {

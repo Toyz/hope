@@ -222,6 +222,15 @@ function aggMark(items: ContainerSummary[]): string {
   .tbtn.warnbtn { color: #06080d; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 85%, #000); }
   .tbtn.warnbtn:hover { background: var(--warn); }
   .tbtn.warnbtn:disabled { opacity: .4; cursor: not-allowed; }
+  .tbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .tbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
+  .tbtn.danger:disabled { opacity: .4; cursor: not-allowed; color: var(--bad); background: transparent; }
+  .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+    padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; }
+  .rmtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
+  .rmtoggle:hover { color: var(--hi); }
+  .rmtoggle .ck.on { background: var(--bad); border-color: var(--bad); }
   .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); }
   .ck.on { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--panel); }
 
@@ -257,6 +266,15 @@ export class StackPage extends LoomElement {
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
+  @reactive accessor stopOpen = false; // stop/remove picker dialog
+  @reactive accessor stopExcluded: string[] = []; // services excluded from the stop
+  @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
+
+  // The "(ungrouped)" project isn't a real compose stack — it's free-floating
+  // containers, so compose-level actions (redeploy/pull/compose file) don't apply.
+  get isUngrouped() {
+    return this.project === "(ungrouped)";
+  }
   private logsCtrl: AbortController | null = null;
   private opCtrl?: AbortController;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -784,24 +802,31 @@ export class StackPage extends LoomElement {
                 <div class="row1">
                   <div class="ttl">
                     <span class={"mark " + sev}></span>
-                    <h1>{s.project}</h1>
+                    <h1>{this.isUngrouped ? "ungrouped" : s.project}</h1>
+                    {this.isUngrouped ? <span class="loosetag" title="free-floating containers, not a compose stack">loose</span> : null}
                   </div>
                   <div class="toolbar">
-                    <button class="tbtn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</button>
-                    <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</button>
-                    <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</button>
-                    <div class="more">
-                      <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
-                      {this.menuOpen ? (
-                        <div class="menu">
-                          <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
-                          <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
-                          <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
-                          <button class="mitem danger" disabled={!!this.busy} onClick={() => this.stackOp("stop")}><loom-icon name="stop" size={13}></loom-icon><span>stop stack</span></button>
-                          {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                    {this.isUngrouped ? (
+                      <button class="tbtn danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</button>
+                    ) : (
+                      <>
+                        <button class="tbtn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</button>
+                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</button>
+                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</button>
+                        <div class="more">
+                          <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
+                          {this.menuOpen ? (
+                            <div class="menu">
+                              <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
+                              <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
+                              <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
+                              <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
+                              {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div class="summary">
@@ -939,6 +964,7 @@ export class StackPage extends LoomElement {
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
+        {this.stopOpen && s ? this.renderStop(s) : null}
       </div>
     );
   }
@@ -979,6 +1005,96 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.rdOpen = false)}>cancel</button>
             <button class="tbtn warnbtn" disabled={count === 0} onClick={this.rdRun}>redeploy {count}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  private stopToggle = (service: string) => {
+    this.stopExcluded = this.stopExcluded.includes(service) ? this.stopExcluded.filter((s) => s !== service) : [...this.stopExcluded, service];
+  };
+
+  // Stop (or stop-and-remove) the picked containers, one at a time, streaming
+  // progress into the processing dialog. remove deletes the container too.
+  private runStop = async (op: "stop" | "remove") => {
+    const s = this.stack;
+    if (!s) return;
+    const svcName = (c: ContainerSummary) => c.service || c.name;
+    const ids = s.containers.filter((c) => !this.stopExcluded.includes(svcName(c))).map((c) => c.id);
+    if (!ids.length) return;
+    if (op === "remove") {
+      const ok = await this.confirm.ask({
+        title: "stop & remove",
+        danger: true,
+        confirmLabel: `Remove ${ids.length}`,
+        message: `Stop and permanently delete ${ids.length} container(s)? The containers are removed, not just stopped.`,
+      });
+      if (!ok) return;
+    }
+    this.stopOpen = false;
+    const verb = op === "remove" ? "stop & remove" : "stop";
+    await this.proc.run(`${verb} ${this.project}`, async (emit) => {
+      let ok = 0;
+      let fail = 0;
+      for (const id of ids) {
+        try {
+          await this.rpc.call<OpResult>("Containers", op, [id]);
+          ok++;
+          emit(`${verb} ${id.slice(0, 12)} — ok`);
+        } catch (e: any) {
+          fail++;
+          emit(`${verb} ${id.slice(0, 12)} — ${e?.message ?? "failed"}`);
+        }
+      }
+      emit(`done — ${ok} ok${fail ? `, ${fail} failed` : ""}`);
+      return fail === 0;
+    });
+    this.stopExcluded = [];
+    await this.load();
+  };
+
+  // Stop picker: choose which containers to stop, with an option to remove them
+  // outright. The default is everything checked (= "stop the whole stack").
+  private renderStop(s: StackSummary) {
+    const groups = this.groups(s);
+    const count = groups.filter((g) => !this.stopExcluded.includes(g.service)).reduce((a, g) => a + g.items.length, 0);
+    return (
+      <div class="rdmodal" onClick={() => (this.stopOpen = false)}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name="stop" size={15} color="var(--bad)"></loom-icon>
+            <span class="rdt">stop {s.project}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.stopOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <p class="rdmsg">Pick what to stop. <b>Stop &amp; remove</b> also deletes the containers — use it to clean up loose ones.</p>
+          <div class="rdbody">
+            {groups.map((g) => {
+              const on = !this.stopExcluded.includes(g.service);
+              const up = g.items.filter((c) => c.state === "running" || c.state === "restarting").length;
+              return (
+                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.stopToggle(g.service)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class={"mark " + aggMark(g.items)}></span>
+                  <span class="rdname">{g.service}</span>
+                  <span class="grow"></span>
+                  {g.items.length > 1 ? <span class="rdpods">{up}/{g.items.length} up</span> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div class="rdacts">
+            <span class="rmtoggle" onClick={() => (this.stopRemove = !this.stopRemove)}>
+              <span class={"ck" + (this.stopRemove ? " on" : "")}></span>
+              <span>also remove</span>
+            </span>
+            <span class="rdnote">{count} of {s.total}</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.stopOpen = false)}>cancel</button>
+            <button class="tbtn danger" disabled={count === 0} onClick={() => this.runStop(this.stopRemove ? "remove" : "stop")}>
+              {this.stopRemove ? "stop & remove" : "stop"} {count}
+            </button>
           </div>
         </div>
       </div>

@@ -69,6 +69,12 @@ func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*OpResult, error
 	return r.act(ctx, p, r.dock().Kill)
 }
 
+// Remove stops and deletes a container (for loose/ungrouped containers compose
+// can't manage).
+func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+	return r.act(ctx, p, r.dock().Remove)
+}
+
 // Pull pulls the latest image for this one container (not the whole stack).
 func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {

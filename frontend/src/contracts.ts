@@ -178,6 +178,9 @@ export class Containers {
   kill(_id: string): OpResult {
     return undefined!;
   }
+  remove(_id: string): OpResult {
+    return undefined!;
+  }
   pull(_id: string): OpResult {
     return undefined!;
   }
@@ -185,6 +188,7 @@ export class Containers {
     return undefined!;
   }
 }
+
 
 @service("System")
 export class System {
