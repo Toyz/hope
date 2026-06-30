@@ -6,6 +6,9 @@
 # template is docker-compose.example.yml.
 /docker-compose.yml
 
+# compose .env (interpolated secrets: tokens, CF service token)
+/.env
+
 # air build output
 /tmp/
 
