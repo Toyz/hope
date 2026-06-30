@@ -215,7 +215,8 @@ function aggMark(items: ContainerSummary[]): string {
   .rdrow .rdname { font: 500 13px/1 var(--mono); color: var(--hi); }
   .rdrow .grow { flex: 1; }
   .rdrow .rdpods { font: 11px/1 var(--mono); color: var(--dim); }
-  .rdopts { display: flex; align-items: center; gap: 22px; padding: 11px 18px; border-top: 1px solid var(--line); }
+  .rdopts { display: flex; align-items: center; gap: 22px; padding: 10px 18px; border-top: 1px solid var(--line2);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .rdopts .ck { width: 14px; height: 14px; }
   .rdacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
