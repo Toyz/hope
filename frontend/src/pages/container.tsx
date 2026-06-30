@@ -27,6 +27,8 @@ const MAX_LINES = 600;
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
   .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .back:hover { color: var(--hi); }
+  .bar .hostcrumb { font: 600 11px/1 var(--mono); letter-spacing: .08em; color: var(--ok); text-transform: lowercase;
+    padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: 6px; }
   .ov .v.slink loom-icon { vertical-align: -1px; }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .crumb .p { color: var(--mid); cursor: pointer; }
@@ -206,10 +208,28 @@ export class ContainerPage extends LoomElement {
 
   private ctrl = new AbortController();
 
+  @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
+
+  // True when arrived from the cross-fleet overview, so "back" labels match.
+  get fleetBack() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
+
   @mount
   onMount() {
     addEventListener("click", this.closeDrop);
     if (this.routeId) this.enter(this.routeId);
+    this.loadActiveHost();
+  }
+
+  // Which host this container lives on, for the crumb in multi-host setups.
+  private async loadActiveHost() {
+    try {
+      const hosts = await this.rpc.call<{ id: string; active: boolean }[]>("System", "hosts", []);
+      this.host = (hosts || []).find((h) => h.active)?.id || "";
+    } catch {
+      this.host = "";
+    }
   }
 
   @watch("routeId")
@@ -562,9 +582,12 @@ export class ContainerPage extends LoomElement {
               <loom-icon name="chevron-left" size={13}></loom-icon> back
             </span>
           </div>
+          {this.host && this.host !== "local" ? (
+            <div class="s"><span class="hostcrumb">{this.host}</span></div>
+          ) : null}
           <div class="s">
             <span class="crumb">
-              <span class="p" onClick={() => this.router.navigate("/")}>fleet</span>
+              <span class="p" onClick={() => this.router.navigate("/")}>{this.fleetBack ? "all hosts" : "fleet"}</span>
               <span class="sep"> / </span>
               {this.project() ? (
                 <span class="p" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>

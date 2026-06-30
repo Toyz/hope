@@ -75,6 +75,7 @@ const UNGROUPED = "(ungrouped)";
 
   /* cross-host rows carry a host tag, so they need a 6-column grid */
   .row.xrow { grid-template-columns: 13px auto 1fr auto 84px 14px; }
+  .urow.xrow { grid-template-columns: 7px max-content max-content minmax(0, 1fr) auto 14px; }
   .rows .row .htag { justify-self: start; font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
     color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
   .row .umark { color: var(--upd); }
@@ -408,6 +409,32 @@ export class DashboardPage extends LoomElement {
       .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project));
   }
 
+  // Cross-fleet equivalent of updateGroups: outdated services grouped by
+  // host+project, so the fleet Updates section renders like the per-host one.
+  private fleetUpdateGroups(f: FleetHost[]) {
+    const groups: { host: string; project: string; services: { service: string; count: number }[]; count: number }[] = [];
+    for (const h of f) {
+      const byProj: Record<string, Record<string, number>> = {};
+      for (const u of h.updates ?? []) {
+        if (!this.showUngrouped && (!u.project || u.project === UNGROUPED)) continue;
+        const p = u.project || UNGROUPED;
+        const s = u.service || u.name || u.image;
+        (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
+      }
+      for (const [project, svc] of Object.entries(byProj)) {
+        groups.push({
+          host: h.id,
+          project,
+          count: Object.values(svc).reduce((a, b) => a + b, 0),
+          services: Object.entries(svc)
+            .map(([service, count]) => ({ service, count }))
+            .sort((a, b) => b.count - a.count || a.service.localeCompare(b.service)),
+        });
+      }
+    }
+    return groups.sort((a, b) => b.count - a.count || a.host.localeCompare(b.host) || a.project.localeCompare(b.project));
+  }
+
   private openContainer(id: string) {
     this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
@@ -579,16 +606,23 @@ export class DashboardPage extends LoomElement {
               <div class="head">
                 <span class="label">Fleet updates</span>
                 <span class="rule"></span>
+                <button class="rfr" disabled={this.fleetBusy} title="recheck every host" onClick={this.refreshFleet}>
+                  <loom-icon class={this.fleetBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+                </button>
                 <span class="n upd">{fupdates.length}</span>
               </div>
               <div class="rows">
-                {fupdates.map((p) => (
-                  <div class="row xrow" onClick={() => this.goCross(p.host, p.u.project)}>
-                    <loom-icon class="umark" name="download" size={13}></loom-icon>
-                    <span class="htag">{p.host}</span>
-                    <span class="name">{p.u.project || p.u.name}{p.u.service ? <span class="svc"> / {p.u.service}</span> : null}</span>
-                    <span class="why upd">update</span>
-                    <span class="count"></span>
+                {this.fleetUpdateGroups(f).map((g) => (
+                  <div class="row urow xrow" onClick={() => this.goCross(g.host, g.project)}>
+                    <span class="mark upd"></span>
+                    <span class="htag">{g.host}</span>
+                    <span class="name">{g.project}</span>
+                    <span class="svcs">
+                      {g.services.map((s) => (
+                        <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
+                      ))}
+                    </span>
+                    <span class="why upd">{g.count}</span>
                     <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
                   </div>
                 ))}
