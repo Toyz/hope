@@ -37,6 +37,23 @@ func serveCmd() *cobra.Command {
 	}
 }
 
+// waitForAgent blocks until the given host-id dials into the hub (or the
+// timeout/ctx fires), returning its tunneled docker client.
+func waitForAgent(ctx context.Context, reg *agent.Registry, id string, timeout time.Duration) *docker.Client {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if dc := reg.Get(id); dc != nil {
+			return dc
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
 func runServe(configPath string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -55,12 +72,40 @@ func runServe(configPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Docker client + a liveness ping so misconfiguration fails at boot.
-	dock, err := docker.New(cfg.Docker.Host, cfg.Docker.Config)
-	if err != nil {
-		fatal("docker client", "err", err)
+	// Remote-host hub: accept hope-agents dialing in and route their Docker over
+	// the tunnel (the host switcher is built on this registry).
+	var hubReg *agent.Registry
+	if cfg.Agent.Listen != "" && cfg.Agent.Token != "" {
+		hub := agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
+		hubReg = hub.Registry()
+		go func() {
+			if err := hub.Listen(ctx, cfg.Agent.Listen); err != nil && ctx.Err() == nil {
+				lg.Warn("agent hub stopped", "err", err)
+			}
+		}()
+		lg.Info("agent hub listening", "addr", cfg.Agent.Listen)
 	}
-	defer dock.Close()
+
+	// Docker source: either the local socket, or a connected agent's tunnel when
+	// [agent] use is set (hope then waits for that host to dial in).
+	var dock *docker.Client
+	if cfg.Agent.Use != "" {
+		if hubReg == nil {
+			fatal("agent.use set but the hub is disabled", "hint", "set [agent] listen + token")
+		}
+		lg.Info("waiting for agent to use as primary docker", "host", cfg.Agent.Use)
+		dock = waitForAgent(ctx, hubReg, cfg.Agent.Use, 90*time.Second)
+		if dock == nil {
+			fatal("agent did not connect", "host", cfg.Agent.Use)
+		}
+		lg.Info("using remote agent docker", "host", cfg.Agent.Use)
+	} else {
+		dock, err = docker.New(cfg.Docker.Host, cfg.Docker.Config)
+		if err != nil {
+			fatal("docker client", "err", err)
+		}
+		defer dock.Close()
+	}
 	if err := dock.Ping(ctx); err != nil {
 		fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
 	}
@@ -86,20 +131,6 @@ func runServe(configPath string) error {
 	}
 	// Docker disk usage (`df`) is expensive, so crawl it hourly and serve cached.
 	dock.StartDiskCrawler(ctx, time.Hour)
-
-	// Remote-host hub: accept hope-agents dialing in and route their Docker
-	// over the tunnel (the host switcher is built on this registry).
-	var hubReg *agent.Registry
-	if cfg.Agent.Listen != "" && cfg.Agent.Token != "" {
-		hub := agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
-		hubReg = hub.Registry()
-		go func() {
-			if err := hub.Listen(ctx, cfg.Agent.Listen); err != nil && ctx.Err() == nil {
-				lg.Warn("agent hub stopped", "err", err)
-			}
-		}()
-		lg.Info("agent hub listening", "addr", cfg.Agent.Listen)
-	}
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)

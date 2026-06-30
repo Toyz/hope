@@ -29,6 +29,10 @@ type Config struct {
 type AgentConfig struct {
 	Listen string `mapstructure:"listen"` // hub address for incoming agents, e.g. ":9443"
 	Token  string `mapstructure:"token"`  // shared enrollment secret an agent must present
+	// Use, when set, makes hope drive a connected agent's Docker as its PRIMARY
+	// source instead of the local socket — hope waits for that host-id to dial
+	// in at boot. (Single-host for now; the multi-host switcher comes next.)
+	Use string `mapstructure:"use"`
 }
 
 // RegistryConfig is an explicit registry credential. hope only reads inline
