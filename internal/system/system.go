@@ -3,6 +3,9 @@
 package system
 
 import (
+	"context"
+	"time"
+
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/docker"
 )
@@ -27,6 +30,38 @@ func (r *SystemRouter) Info(ctx *rpc.Context) (any, error) {
 		return nil, rpc.Internal("%v", err)
 	}
 	return info, nil
+}
+
+// UpdatesResult is the cluster-wide image-freshness report for the dashboard.
+type UpdatesResult struct {
+	Updates   []docker.ClusterUpdate `json:"updates"`
+	Outdated  int                    `json:"outdated"`
+	CheckedAt string                 `json:"checked_at"`
+}
+
+// Updates returns the cached cluster-wide image-freshness report (filled by the
+// background crawler) so the dashboard can flag containers running stale images.
+func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	updates, at, err := r.docker.AllUpdates(cctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	outdated := 0
+	for _, u := range updates {
+		if u.Status == "outdated" {
+			outdated++
+		}
+	}
+	checkedAt := ""
+	if !at.IsZero() {
+		checkedAt = at.UTC().Format(time.RFC3339)
+	}
+	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: checkedAt}, nil
 }
 
 // DiskUsage returns the daemon's disk-usage breakdown.

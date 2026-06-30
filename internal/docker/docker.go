@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -33,6 +35,11 @@ const ungrouped = "(ungrouped)"
 type Client struct {
 	cli   *client.Client
 	auths map[string]string // registry host -> X-Registry-Auth header
+
+	// Cluster-wide image-freshness cache, filled by the background crawler.
+	updMu    sync.RWMutex
+	updByRef map[string]refStatus
+	updAt    time.Time
 }
 
 // New dials the Docker daemon at host (e.g. "unix:///var/run/docker.sock"
@@ -47,7 +54,7 @@ func New(host, configPath string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &Client{cli: cli, auths: loadDockerAuths(configPath)}, nil
+	return &Client{cli: cli, auths: loadDockerAuths(configPath), updByRef: map[string]refStatus{}}, nil
 }
 
 // Close releases the underlying client.

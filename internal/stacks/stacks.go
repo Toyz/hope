@@ -131,6 +131,21 @@ func (r *StacksRouter) Stats(ctx *rpc.Context, p *ProjectParams) ([]docker.Conta
 	return stats, nil
 }
 
+// Updates checks each container's image against its registry (manifest lookup,
+// no pull) so the UI can flag containers running an outdated image.
+func (r *StacksRouter) Updates(ctx *rpc.Context, p *ProjectParams) ([]docker.ImageUpdate, error) {
+	if err := r.gate(ctx, p); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	updates, err := r.docker.ProjectUpdates(cctx, p.Project)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return updates, nil
+}
+
 // ComposeFile returns the stack's compose file text — only available when hope
 // can read the file (ComposeAvailable). Hidden in the UI otherwise.
 func (r *StacksRouter) ComposeFile(ctx *rpc.Context, p *ProjectParams) (*ComposeFileResult, error) {

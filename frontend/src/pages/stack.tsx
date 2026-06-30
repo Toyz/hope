@@ -6,7 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat, ImageUpdate } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
 
@@ -143,6 +143,8 @@ function aggMark(items: ContainerSummary[]): string {
   tr.grp.open .caret { transform: rotate(90deg); }
   .gname { color: var(--hi); font-weight: 500; }
   .badge { border: 1px solid var(--line2); color: var(--mid); font-size: 11px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0; }
+  .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px;
+    color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; }
   tr.grp:hover .badge { border-color: var(--mid); color: var(--hi); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -183,6 +185,7 @@ function aggMark(items: ContainerSummary[]): string {
     animation: fade .15s ease both;
   }
   .toast.bad { border-color: var(--bad); color: var(--bad); }
+  .toast.warn { border-color: var(--warn); color: var(--warn); }
 
   @media (max-width: 720px) { td.ports, th.ports { display: none; } }
 `)
@@ -208,6 +211,8 @@ export class StackPage extends LoomElement {
   @reactive accessor toastKind = "";
   @reactive accessor stats: Record<string, ContainerStat> = {};
   @reactive accessor statsBusy = false;
+  @reactive accessor updates: Record<string, ImageUpdate> = {};
+  @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
   private logsCtrl: AbortController | null = null;
@@ -316,6 +321,7 @@ export class StackPage extends LoomElement {
     this.project = project;
     this.stack = null;
     this.stats = {};
+    this.updates = {};
     this.closeLogs();
     this.expanded = {};
     this.opLog = "";
@@ -339,6 +345,7 @@ export class StackPage extends LoomElement {
       const ok = await this.confirm.ask({
         title: op,
         danger: op === "stop",
+        warn: op === "redeploy",
         confirmLabel: op === "stop" ? "Stop stack" : "Redeploy",
         message:
           (op === "stop" ? "Stop" : "Redeploy (recreate)") +
@@ -517,6 +524,36 @@ export class StackPage extends LoomElement {
     }
   };
 
+  // Check each container's image against its registry (network — manual).
+  private checkUpdates = async () => {
+    this.menuOpen = false;
+    this.updatesBusy = true;
+    this.showToast(`checking ${this.project} for image updates…`, "", true);
+    try {
+      const rows = await this.rpc.call<ImageUpdate[]>("Stacks", "updates", [this.project]);
+      const map: Record<string, ImageUpdate> = {};
+      for (const u of rows) map[u.id] = u;
+      this.updates = map;
+      const out = rows.filter((u) => u.status === "outdated").length;
+      this.showToast(out ? `${out} container(s) out of date` : `all images up to date`, out ? "warn" : "");
+    } catch (err: any) {
+      this.showToast(`updates — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.updatesBusy = false;
+    }
+  };
+
+  // Worst update status across a replica group (outdated wins).
+  private groupUpdate(items: ContainerSummary[]): string {
+    let any = false;
+    for (const c of items) {
+      const u = this.updates[c.id];
+      if (u?.status === "outdated") return "outdated";
+      if (u) any = true;
+    }
+    return any ? "current" : "";
+  }
+
   private cpuCell(id: string) {
     const s = this.stats[id];
     return s ? s.cpu_percent.toFixed(1) + "%" : "—";
@@ -573,6 +610,7 @@ export class StackPage extends LoomElement {
                       <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
                       {this.menuOpen ? (
                         <div class="menu">
+                          <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
                           <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
                           <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                           <button class="mitem danger" disabled={!!this.busy} onClick={() => this.stackOp("stop")}><loom-icon name="stop" size={13}></loom-icon><span>stop stack</span></button>
@@ -635,6 +673,7 @@ export class StackPage extends LoomElement {
                             <span class="cell">
                               <span class={"mark " + markClass(c.state)}></span>
                               <span class="link">{c.service || c.name}</span>
+                              {this.updates[c.id]?.status === "outdated" ? <span class="upd" title={this.updates[c.id]?.detail || "update available"}>update</span> : null}
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
@@ -658,6 +697,7 @@ export class StackPage extends LoomElement {
                             <span class={"mark " + aggMark(g.items)}></span>
                             <span class="gname">{g.service}</span>
                             <span class="badge">{g.items.length} replicas</span>
+                            {this.groupUpdate(g.items) === "outdated" ? <span class="upd" title="one or more replicas have an update available">update</span> : null}
                           </span>
                         </td>
                         <td class="state">{running}/{g.items.length} up</td>
@@ -679,6 +719,7 @@ export class StackPage extends LoomElement {
                                   {c.service || c.name}
                                   <span class="repn">#{c.number || "—"}</span>
                                 </span>
+                                {this.updates[c.id]?.status === "outdated" ? <span class="upd" title={this.updates[c.id]?.detail || "update available"}>update</span> : null}
                               </span>
                             </td>
                             <td class="state">{c.state}</td>

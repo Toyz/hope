@@ -55,6 +55,29 @@ export interface ContainerStat {
   mem_limit: number;
 }
 
+export interface ImageUpdate {
+  id: string;
+  image: string;
+  status: "current" | "outdated" | "unknown";
+  detail?: string;
+}
+
+export interface ClusterUpdate {
+  id: string;
+  project: string;
+  service: string;
+  name: string;
+  image: string;
+  status: "current" | "outdated" | "unknown";
+  detail?: string;
+}
+
+export interface UpdatesResult {
+  updates: ClusterUpdate[];
+  outdated: number;
+  checked_at: string;
+}
+
 // NDJSON stream frames.
 export interface LogFrame {
   type: "stdout" | "stderr";
@@ -94,6 +117,12 @@ export class Stacks {
   composeFile(_project: string): ComposeFileResult {
     return undefined!;
   }
+  stats(_project: string): ContainerStat[] {
+    return undefined!;
+  }
+  updates(_project: string): ImageUpdate[] {
+    return undefined!;
+  }
 }
 
 @service("Containers")
@@ -127,6 +156,9 @@ export class System {
     return undefined!;
   }
   diskUsage(): unknown {
+    return undefined!;
+  }
+  updates(): UpdatesResult {
     return undefined!;
   }
 }

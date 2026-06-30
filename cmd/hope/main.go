@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Toyz/sov"
 	"github.com/Toyz/sov/gateway/builtin/static"
@@ -60,12 +61,15 @@ func main() {
 	if err := dock.Ping(ctx); err != nil {
 		fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
 	}
+	// Background crawler keeps the cluster-wide image-freshness cache warm for
+	// the dashboard "updates" section (manifest lookups, no layer pulls).
+	dock.StartUpdateCrawler(ctx, 6*time.Hour)
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
 
 	gw := sov.New()
-	gw.MustUse(lg) // same instance → unified log sink, captures every dispatch
+	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
 	gw.Register(stacks.NewStacksRouter(dock, comp))
 	gw.Register(containers.NewContainersRouter(dock))

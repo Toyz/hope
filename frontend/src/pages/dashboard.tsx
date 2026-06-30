@@ -7,7 +7,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
-import type { StackSummary } from "../contracts";
+import type { StackSummary, UpdatesResult } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
@@ -41,6 +41,8 @@ const UNGROUPED = "(ungrouped)";
   .bar .verdict.ok { color: var(--ok); }
   .bar .verdict.warn { color: var(--warn); }
   .bar .verdict.bad { color: var(--bad); }
+  .bar .upd { gap: 7px; color: var(--warn); font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar .upd loom-icon { color: var(--warn); }
   .bar .act { padding: 0; border-right: 1px solid var(--line); }
   .bar .act button {
     height: 100%; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
@@ -81,6 +83,18 @@ const UNGROUPED = "(ungrouped)";
   .head .label { font: 600 10px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
   .head .rule { flex: 1; height: 1px; background: var(--line); }
   .head .n { font: 600 11px/1 var(--mono); color: var(--dim); }
+  .head .ago { font: 11px/1 var(--mono); color: var(--dim); }
+
+  /* updates rows — grouped by stack, services as chips */
+  .urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto 14px;
+    height: auto; min-height: 46px; padding-top: 9px; padding-bottom: 9px; align-items: center; }
+  .urow.static { cursor: default; }
+  .urow.static:hover { background: transparent; }
+  .urow .name { white-space: nowrap; }
+  .urow .svcs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .urow .svc { font: 11px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 4px 7px; white-space: nowrap; }
+  .urow .svc b { color: var(--hi); font-weight: 600; }
+  .urow .why.warn { color: var(--warn); font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
 
   /* ── instrument rows ── */
   .rows { border: 1px solid var(--line); }
@@ -142,6 +156,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor loaded = false;
   @reactive accessor showUngrouped = false;
   @reactive accessor query = "";
+  @reactive accessor updates: UpdatesResult | null = null;
 
   @mount
   onMount() {
@@ -165,6 +180,42 @@ export class DashboardPage extends LoomElement {
     } catch (err: any) {
       this.error = err?.message ?? "Can't reach the daemon.";
     }
+    // Cluster-wide image freshness (cached by the backend crawler) — optional.
+    try {
+      this.updates = await this.rpc.call<UpdatesResult>("System", "updates", []);
+    } catch {
+      /* updates section just stays hidden */
+    }
+  }
+
+  private outdated() {
+    return (this.updates?.updates ?? []).filter(
+      (u) => u.status === "outdated" && (this.showUngrouped || (u.project !== "" && u.project !== UNGROUPED)),
+    );
+  }
+
+  // Collapse outdated containers into per-stack groups (services deduped, with
+  // replica counts) so a fleet with dozens of updates reads as a few rows.
+  private updateGroups() {
+    const byProj: Record<string, Record<string, number>> = {};
+    for (const u of this.outdated()) {
+      const p = u.project || UNGROUPED;
+      const s = u.service || u.name || u.image;
+      (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
+    }
+    return Object.entries(byProj)
+      .map(([project, svc]) => ({
+        project,
+        count: Object.values(svc).reduce((a, b) => a + b, 0),
+        services: Object.entries(svc)
+          .map(([service, count]) => ({ service, count }))
+          .sort((a, b) => b.count - a.count || a.service.localeCompare(b.service)),
+      }))
+      .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project));
+  }
+
+  private openContainer(id: string) {
+    this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
 
   private visible(): StackSummary[] {
@@ -231,6 +282,9 @@ export class DashboardPage extends LoomElement {
             <span class={"mark " + (vClass === "ok" ? "ok" : vClass)}></span>
             {vText}
           </div>
+          {this.outdated().length > 0 ? (
+            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{this.outdated().length} updates</span></div>
+          ) : null}
           {this.hasUngrouped() ? (
             <div class="s act">
               <button onClick={() => (this.showUngrouped = !this.showUngrouped)}>
@@ -297,6 +351,35 @@ export class DashboardPage extends LoomElement {
             </section>
           ) : null}
 
+          {this.outdated().length > 0 ? (
+            <section>
+              <div class="head">
+                <span class="label">Updates</span>
+                <span class="rule"></span>
+                {this.updates?.checked_at ? <span class="ago">checked {ago(this.updates.checked_at)}</span> : null}
+                <span class="n">{this.outdated().length}</span>
+              </div>
+              <div class="rows">
+                {this.updateGroups().map((g) => {
+                  const linkable = g.project !== UNGROUPED;
+                  return (
+                    <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? this.go(g.project) : null)}>
+                      <span class="mark warn"></span>
+                      <span class="name">{g.project}</span>
+                      <span class="svcs">
+                        {g.services.map((s) => (
+                          <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
+                        ))}
+                      </span>
+                      <span class="why warn">{g.count}</span>
+                      {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           {nominal.length > 0 ? (
             <section>
               <div class="head">
@@ -331,4 +414,17 @@ export class DashboardPage extends LoomElement {
       </div>
     );
   }
+}
+
+// Relative time for the "checked Xm ago" label on the updates section.
+function ago(iso: string): string {
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "pending";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 90) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
