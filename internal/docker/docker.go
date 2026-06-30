@@ -6,6 +6,7 @@ package docker
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"sort"
@@ -33,8 +34,16 @@ const ungrouped = "(ungrouped)"
 
 // Client is hope's Docker facade over a single daemon endpoint.
 type Client struct {
-	cli   *client.Client
-	auths map[string]string // registry host -> X-Registry-Auth header
+	cli *client.Client
+
+	// Registry auth. authMu guards `auths` (rebuilt by the cred watcher when
+	// config.json changes). regCreds are the explicit [[registry]] credentials,
+	// re-applied over the file's on every reload so config always wins.
+	authMu   sync.RWMutex
+	auths    map[string]string // registry host -> X-Registry-Auth header
+	authPath string            // resolved config.json path (for the watcher)
+	authSum  [sha256.Size]byte // last seen config.json checksum
+	regCreds []regCred
 
 	// Cluster-wide image-freshness cache, filled by the background crawler.
 	updMu    sync.RWMutex
@@ -60,7 +69,9 @@ func New(host, configPath string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &Client{cli: cli, auths: loadDockerAuths(configPath), updByRef: map[string]refStatus{}}, nil
+	c := &Client{cli: cli, auths: map[string]string{}, updByRef: map[string]refStatus{}}
+	c.initAuths(configPath)
+	return c, nil
 }
 
 // Close releases the underlying client.

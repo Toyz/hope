@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -190,6 +191,59 @@ func (c *Client) Recreate(ctx context.Context, id string) error {
 	}
 	if err := c.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("start %s: %w", name, err)
+	}
+	return nil
+}
+
+// selfID returns hope's own container id — inside a container the hostname is
+// the container's (short) id, unless overridden.
+func (c *Client) selfID() string {
+	h, _ := os.Hostname()
+	return h
+}
+
+// isSelf reports whether id refers to hope's own container.
+func (c *Client) isSelf(id string) bool {
+	s := c.selfID()
+	if s == "" || id == "" {
+		return false
+	}
+	return strings.HasPrefix(id, s) || strings.HasPrefix(s, id)
+}
+
+// RecreateManaged recreates a container, but if it's hope's OWN container it
+// hands the job to a detached helper so hope can be torn down and replaced
+// without killing the process mid-recreate (which would leave it gone).
+func (c *Client) RecreateManaged(ctx context.Context, id string) error {
+	if c.isSelf(id) {
+		return c.recreateDetached(ctx, id)
+	}
+	return c.Recreate(ctx, id)
+}
+
+// recreateDetached launches a throwaway container from hope's (freshly pulled)
+// image that runs `hope self-recreate <id>` with the docker socket mounted. It
+// outlives the old hope, so it can stop/remove/recreate it cleanly.
+func (c *Client) recreateDetached(ctx context.Context, id string) error {
+	info, err := c.cli.ContainerInspect(ctx, id)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", id, err)
+	}
+	helper := &container.Config{
+		Image:      info.Config.Image,
+		Entrypoint: []string{"hope", "self-recreate", id},
+		Labels:     map[string]string{"ink.hope.self-updater": "1"},
+	}
+	host := &container.HostConfig{
+		AutoRemove: true,
+		Binds:      []string{"/var/run/docker.sock:/var/run/docker.sock"},
+	}
+	created, err := c.cli.ContainerCreate(ctx, helper, host, nil, nil, "")
+	if err != nil {
+		return fmt.Errorf("create self-updater: %w", err)
+	}
+	if err := c.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("start self-updater: %w", err)
 	}
 	return nil
 }

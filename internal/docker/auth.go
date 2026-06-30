@@ -1,12 +1,18 @@
 package docker
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// regCred is an explicit registry credential from config ([[registry]]).
+type regCred struct{ server, user, pass string }
 
 // Registry auth. The Docker daemon does not apply the CLI's stored credentials
 // to API pulls — the CLI reads ~/.docker/config.json and forwards them as
@@ -30,30 +36,37 @@ type registryAuthHeader struct {
 	ServerAddress string `json:"serveraddress,omitempty"`
 }
 
-// loadDockerAuths reads registry credentials from a docker config.json. An
-// empty path resolves to $DOCKER_CONFIG/config.json or ~/.docker/config.json.
-// A missing file is not an error — it just means no private-registry pulls.
-//
-// Note: only inline `auth` entries (from `docker login`) are supported, not
-// credential-helper / credsStore setups, which keep secrets outside the file.
-func loadDockerAuths(path string) map[string]string {
+// resolveConfigPath resolves a docker config.json path; empty falls back to
+// $DOCKER_CONFIG/config.json or ~/.docker/config.json.
+func resolveConfigPath(path string) string {
+	if path != "" {
+		return path
+	}
+	if dc := os.Getenv("DOCKER_CONFIG"); dc != "" {
+		return filepath.Join(dc, "config.json")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".docker", "config.json")
+	}
+	return ""
+}
+
+// readDockerAuths parses inline credentials from a docker config.json into a
+// registry-host -> X-Registry-Auth map. A missing file or a credential-helper /
+// credsStore setup (secrets kept outside the file) yields an empty map.
+func readDockerAuths(path string) map[string]string {
+	out := map[string]string{}
 	if path == "" {
-		if dc := os.Getenv("DOCKER_CONFIG"); dc != "" {
-			path = filepath.Join(dc, "config.json")
-		} else if home, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(home, ".docker", "config.json")
-		}
+		return out
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return out
 	}
 	var cfg dockerConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil
+		return out
 	}
-
-	out := map[string]string{}
 	for registry, entry := range cfg.Auths {
 		user, pass := entry.Username, entry.Password
 		if entry.Auth != "" {
@@ -66,31 +79,79 @@ func loadDockerAuths(path string) map[string]string {
 		if user == "" && pass == "" {
 			continue
 		}
-		hdr, _ := json.Marshal(registryAuthHeader{Username: user, Password: pass, ServerAddress: registry})
-		out[normalizeRegistry(registry)] = base64.URLEncoding.EncodeToString(hdr)
+		out[normalizeRegistry(registry)] = encodeAuth(user, pass, registry)
 	}
 	return out
 }
 
-// AddRegistryCreds registers an explicit registry credential (from config),
-// overriding anything loaded from config.json for the same registry. Works
-// without a credential helper, so it's the reliable path in hope's container.
+func encodeAuth(user, pass, server string) string {
+	hdr, _ := json.Marshal(registryAuthHeader{Username: user, Password: pass, ServerAddress: server})
+	return base64.URLEncoding.EncodeToString(hdr)
+}
+
+// initAuths resolves the config path, records its checksum, and builds the
+// initial merged auth map.
+func (c *Client) initAuths(configPath string) {
+	c.authPath = resolveConfigPath(configPath)
+	if data, err := os.ReadFile(c.authPath); err == nil {
+		c.authSum = sha256.Sum256(data)
+	}
+	c.reloadAuths()
+}
+
+// reloadAuths rebuilds the merged auth map: config.json entries first, the
+// explicit [[registry]] creds layered on top (config always wins).
+func (c *Client) reloadAuths() {
+	merged := readDockerAuths(c.authPath)
+	for _, r := range c.regCreds {
+		merged[normalizeRegistry(r.server)] = encodeAuth(r.user, r.pass, r.server)
+	}
+	c.authMu.Lock()
+	c.auths = merged
+	c.authMu.Unlock()
+}
+
+// AddRegistryCreds registers an explicit registry credential (from config) and
+// rebuilds the auth map. Works without a credential helper.
 func (c *Client) AddRegistryCreds(server, user, pass string) {
 	if user == "" && pass == "" {
 		return
 	}
-	hdr, _ := json.Marshal(registryAuthHeader{Username: user, Password: pass, ServerAddress: server})
-	if c.auths == nil {
-		c.auths = map[string]string{}
+	c.regCreds = append(c.regCreds, regCred{server: server, user: user, pass: pass})
+	c.reloadAuths()
+}
+
+// StartCredWatcher polls the config.json checksum and reloads credentials when
+// it changes, so a fresh `docker login` takes effect without restarting hope.
+func (c *Client) StartCredWatcher(ctx context.Context, every time.Duration) {
+	if c.authPath == "" {
+		return
 	}
-	c.auths[normalizeRegistry(server)] = base64.URLEncoding.EncodeToString(hdr)
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				var sum [sha256.Size]byte
+				if data, err := os.ReadFile(c.authPath); err == nil {
+					sum = sha256.Sum256(data)
+				}
+				if sum != c.authSum {
+					c.authSum = sum
+					c.reloadAuths()
+				}
+			}
+		}
+	}()
 }
 
 // registryAuth returns the X-Registry-Auth header for an image ref, or "".
 func (c *Client) registryAuth(image string) string {
-	if len(c.auths) == 0 {
-		return ""
-	}
+	c.authMu.RLock()
+	defer c.authMu.RUnlock()
 	return c.auths[registryHostFromImage(image)]
 }
 

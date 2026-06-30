@@ -32,6 +32,14 @@ import (
 )
 
 func main() {
+	// Detached self-updater: `hope self-recreate <id>` runs in a throwaway
+	// helper container (spawned by a redeploy of hope's own container) and
+	// recreates hope from the side, so the original can be torn down cleanly.
+	if len(os.Args) >= 3 && os.Args[1] == "self-recreate" {
+		selfRecreate(os.Args[2])
+		return
+	}
+
 	configPath := flag.String("config", "config.toml", "path to the TOML config file")
 	flag.Parse()
 
@@ -67,6 +75,9 @@ func main() {
 		dock.AddRegistryCreds(r.Server, r.Username, r.Password)
 		lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
 	}
+	// Hot-reload registry creds when the mounted config.json changes (e.g. a
+	// fresh `docker login`) — no restart needed.
+	dock.StartCredWatcher(ctx, 30*time.Second)
 	// Background crawler keeps the cluster-wide image-freshness cache warm for
 	// the dashboard "updates" section (manifest lookups, no layer pulls).
 	if cfg.Updates.Enabled {
@@ -113,4 +124,22 @@ func main() {
 	if err := gw.Run(ctx, cfg.Server.Addr); err != nil {
 		fatal("server", "err", err)
 	}
+}
+
+// selfRecreate runs in the throwaway helper container. It waits briefly so the
+// parent's redeploy request can return, then recreates hope's container (the
+// helper outlives it, so the teardown completes cleanly).
+func selfRecreate(id string) {
+	d, err := docker.New("unix:///var/run/docker.sock", "")
+	if err != nil {
+		log.Fatalf("hope self-recreate: %v", err)
+	}
+	defer d.Close()
+	time.Sleep(2 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := d.Recreate(ctx, id); err != nil {
+		log.Fatalf("hope self-recreate %s: %v", id, err)
+	}
+	log.Printf("hope self-recreate: %s replaced", id)
 }

@@ -111,7 +111,7 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, 
 	}
 	n := 0
 	for _, id := range ids {
-		if err := r.docker.Recreate(cctx, id); err != nil {
+		if err := r.docker.RecreateManaged(cctx, id); err != nil {
 			return &OpResult{OK: false, Output: log.String(), Error: fmt.Sprintf("recreate failed: %v", err)}, nil
 		}
 		n++
