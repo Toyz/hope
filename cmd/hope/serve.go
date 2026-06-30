@@ -90,6 +90,21 @@ func runServe(configPath string) error {
 	if cfg.Agent.Token != "" {
 		hub = agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
 		hubReg = hub.Registry()
+		// Give every connected agent the same background jobs as the local
+		// daemon — registry creds + update/disk crawlers — scoped to its
+		// connection (sctx is cancelled when it drops). The freshness cache is
+		// per-host and in-memory (no shared on-disk path across hosts).
+		hub.OnConnect(func(sctx context.Context, host *agent.Host) {
+			d := host.Docker
+			for _, r := range cfg.Registries {
+				d.AddRegistryCreds(r.Server, r.Username, r.Password)
+			}
+			if cfg.Updates.Enabled {
+				d.StartUpdateCrawler(sctx, cfg.Updates.Interval, "")
+			}
+			d.StartDiskCrawler(sctx, time.Hour)
+			lg.Info("agent background jobs started", "host", host.ID)
+		})
 		if cfg.Agent.Listen != "" {
 			go func() {
 				if err := hub.Listen(ctx, cfg.Agent.Listen); err != nil && ctx.Err() == nil {

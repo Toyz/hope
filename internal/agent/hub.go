@@ -81,7 +81,14 @@ type Hub struct {
 	configPath string
 	reg        *Registry
 	log        Logger
+	onConnect  func(ctx context.Context, h *Host)
 }
+
+// OnConnect registers a callback run for each agent once it's online, with a
+// context cancelled when that agent disconnects. hope uses it to start the
+// host's background jobs (registry creds, update + disk crawlers) so a remote
+// host gets the same periodic work as the local daemon.
+func (h *Hub) OnConnect(fn func(ctx context.Context, host *Host)) { h.onConnect = fn }
 
 // NewHub builds a hub. token is the shared enrollment secret; configPath is the
 // docker config.json for registry creds applied to remote pulls.
@@ -165,10 +172,17 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	h.reg.add(host)
 	h.log.Info("agent online", "host", hostID, "remote", host.Remote)
 
+	// Per-session context so the host's background jobs stop when it drops.
+	sessCtx, cancel := context.WithCancel(ctx)
+	if h.onConnect != nil {
+		h.onConnect(sessCtx, host)
+	}
+
 	select {
 	case <-sess.CloseChan():
 	case <-ctx.Done():
 	}
+	cancel()
 	sess.Close()
 	dock.Close()
 	h.reg.remove(hostID, host)
