@@ -236,6 +236,23 @@ func (c *Client) Info(ctx context.Context) (any, error) {
 	return info, nil
 }
 
+// ServerInfo is a small typed slice of the daemon info (for the agents view).
+type ServerInfo struct {
+	Version    string `json:"version"`
+	Containers int    `json:"containers"`
+	Running    int    `json:"running"`
+	Images     int    `json:"images"`
+}
+
+// ServerInfo returns the daemon version + counts.
+func (c *Client) ServerInfo(ctx context.Context) (ServerInfo, error) {
+	i, err := c.sdk().Info(ctx)
+	if err != nil {
+		return ServerInfo{}, err
+	}
+	return ServerInfo{Version: i.ServerVersion, Containers: i.Containers, Running: i.ContainersRunning, Images: i.Images}, nil
+}
+
 // DiskUsage returns the daemon's disk-usage breakdown.
 func (c *Client) DiskUsage(ctx context.Context) (any, error) {
 	du, err := c.sdk().DiskUsage(ctx, types.DiskUsageOptions{})

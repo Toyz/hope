@@ -14,6 +14,15 @@ import (
 	"github.com/toyz/hope/internal/docker"
 )
 
+// AgentInfo is the remote agent's build metadata, reported in the handshake.
+type AgentInfo struct {
+	Version   string `json:"version"`
+	Revision  string `json:"revision"`
+	GoVersion string `json:"go_version"`
+	Platform  string `json:"platform"`
+	BuildTime string `json:"build_time"`
+}
+
 // Host is a connected remote Docker host, exposed to hope as a normal
 // docker.Client that happens to run over the agent tunnel.
 type Host struct {
@@ -21,6 +30,7 @@ type Host struct {
 	Docker      *docker.Client
 	Remote      string
 	ConnectedAt time.Time
+	Info        AgentInfo
 }
 
 // Registry tracks the live agents. Safe for concurrent use.
@@ -57,13 +67,20 @@ func (r *Registry) Get(id string) *docker.Client {
 	return nil
 }
 
-// List returns the connected hosts (id + when), newest-stable order.
+// Host returns the live Host for an id (build info, connection), or nil.
+func (r *Registry) Host(id string) *Host {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.hosts[id]
+}
+
+// List returns the connected hosts (id + when + build info), newest-stable order.
 func (r *Registry) List() []HostInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]HostInfo, 0, len(r.hosts))
 	for _, h := range r.hosts {
-		out = append(out, HostInfo{ID: h.ID, Remote: h.Remote, ConnectedAt: h.ConnectedAt})
+		out = append(out, HostInfo{ID: h.ID, Remote: h.Remote, ConnectedAt: h.ConnectedAt, Info: h.Info})
 	}
 	return out
 }
@@ -73,6 +90,7 @@ type HostInfo struct {
 	ID          string    `json:"id"`
 	Remote      string    `json:"remote"`
 	ConnectedAt time.Time `json:"connected_at"`
+	Info        AgentInfo `json:"info"`
 }
 
 // Hub accepts agent connections and registers each as a Host.
@@ -142,13 +160,30 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 		return
 	}
 	parts := strings.Fields(strings.TrimSpace(line))
-	if len(parts) != 3 || parts[0] != protoVersion ||
+	if len(parts) < 3 || parts[0] != protoVersion ||
 		subtle.ConstantTimeCompare([]byte(parts[1]), []byte(h.token)) != 1 {
 		_, _ = conn.Write([]byte("DENIED\n"))
 		conn.Close()
 		return
 	}
 	hostID := parts[2]
+	// Optional build info (newer agents): version revision go os/arch buildtime.
+	var info AgentInfo
+	if len(parts) >= 8 {
+		deDash := func(s string) string {
+			if s == "-" {
+				return ""
+			}
+			return s
+		}
+		info = AgentInfo{
+			Version:   deDash(parts[3]),
+			Revision:  deDash(parts[4]),
+			GoVersion: deDash(parts[5]),
+			Platform:  deDash(parts[6]),
+			BuildTime: deDash(parts[7]),
+		}
+	}
 	if _, err := conn.Write([]byte("OK\n")); err != nil {
 		conn.Close()
 		return
@@ -168,7 +203,7 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 		sess.Close()
 		return
 	}
-	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now()}
+	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now(), Info: info}
 	h.reg.add(host)
 	h.log.Info("agent online", "host", hostID, "remote", host.Remote)
 

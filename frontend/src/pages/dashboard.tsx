@@ -213,7 +213,6 @@ export class DashboardPage extends LoomElement {
   @reactive accessor stacks: StackSummary[] = [];
   @reactive accessor error = "";
   @reactive accessor loaded = false;
-  @reactive accessor showUngrouped = false;
   @reactive accessor query = "";
   @reactive accessor updates: UpdatesResult | null = null;
   @reactive accessor host: any = null;
@@ -408,7 +407,7 @@ export class DashboardPage extends LoomElement {
 
   private outdated() {
     return (this.updates?.updates ?? []).filter(
-      (u) => u.status === "outdated" && (this.showUngrouped || (u.project !== "" && u.project !== UNGROUPED)),
+      (u) => u.status === "outdated",
     );
   }
 
@@ -419,7 +418,6 @@ export class DashboardPage extends LoomElement {
   private groupUpdates(items: any[]) {
     const byProj: Record<string, Record<string, number>> = {};
     for (const u of items) {
-      if (!this.showUngrouped && (!u.project || u.project === UNGROUPED)) continue;
       const p = u.project || UNGROUPED;
       const s = u.service || u.name || u.image;
       (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
@@ -446,7 +444,6 @@ export class DashboardPage extends LoomElement {
     for (const h of f) {
       const byProj: Record<string, Record<string, number>> = {};
       for (const u of h.updates ?? []) {
-        if (!this.showUngrouped && (!u.project || u.project === UNGROUPED)) continue;
         const p = u.project || UNGROUPED;
         const s = u.service || u.name || u.image;
         (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
@@ -488,9 +485,10 @@ export class DashboardPage extends LoomElement {
         <span class="mark upd"></span>
         <span class="name">{opts.host ? <span class="htag">{opts.host}</span> : null}{g.project}</span>
         <span class="svcs">
-          {g.services.map((s) => (
+          {g.services.slice(0, 8).map((s) => (
             <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
           ))}
+          {g.services.length > 8 ? <span class="svc more">+{g.services.length - 8}</span> : null}
         </span>
         <span class="why upd">{g.count}</span>
         {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
@@ -527,7 +525,7 @@ export class DashboardPage extends LoomElement {
   }
 
   private visible(): StackSummary[] {
-    let list = this.showUngrouped ? this.stacks : this.stacks.filter((s) => s.project !== UNGROUPED);
+    let list = this.stacks;
     const q = this.query.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -537,9 +535,6 @@ export class DashboardPage extends LoomElement {
       );
     }
     return list;
-  }
-  private hasUngrouped(): boolean {
-    return this.stacks.some((s) => s.project === UNGROUPED);
   }
   private ranked(): Ranked[] {
     return this.visible()
@@ -587,20 +582,11 @@ export class DashboardPage extends LoomElement {
       updC = 0;
     const problems: { host: string; s: any }[] = [];
     const fupdates: { host: string; u: any }[] = [];
-    // Loose (ungrouped) containers are hidden by default, like the single-host
-    // dashboard; the "loose" toggle reveals them.
-    const keep = (project: string) => this.showUngrouped || (!!project && project !== UNGROUPED);
-    let fleetHasLoose = false;
     for (const h of f) {
-      const ups = (h.updates ?? []).filter((u) => {
-        if (!u.project || u.project === UNGROUPED) fleetHasLoose = true;
-        return keep(u.project);
-      });
+      const ups = h.updates ?? [];
       updC += ups.length;
       for (const u of ups) fupdates.push({ host: h.id, u });
       for (const s of h.stacks) {
-        if (s.project === UNGROUPED) fleetHasLoose = true;
-        if (!keep(s.project)) continue;
         runC += s.running;
         totC += s.total;
         stackC++;
@@ -629,13 +615,6 @@ export class DashboardPage extends LoomElement {
           </div>
           {updC > 0 ? (
             <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span></div>
-          ) : null}
-          {fleetHasLoose ? (
-            <div class="s act">
-              <button onClick={() => (this.showUngrouped = !this.showUngrouped)}>
-                {this.showUngrouped ? "hide loose" : "loose"}
-              </button>
-            </div>
           ) : null}
           <div class="s act">
             <button class="upcheck" disabled={this.fleetBusy} title="recheck every host for image updates" onClick={this.refreshFleet}>
@@ -697,7 +676,7 @@ export class DashboardPage extends LoomElement {
 
   private renderFleetHost(h: FleetHost) {
     const ranked = (h.stacks ?? [])
-      .filter((s) => this.showUngrouped || s.project !== UNGROUPED)
+      .filter(() => true)
       .map((s) => ({ ...s, sev: stackSeverity(s.running, s.total, s.restarting) }))
       .sort((a, b) => severityRank(b.sev) - severityRank(a.sev));
     const up = (h.stacks ?? []).reduce((a, s) => a + s.running, 0);
@@ -778,13 +757,6 @@ export class DashboardPage extends LoomElement {
           </div>
           {this.outdated().length > 0 ? (
             <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{this.outdated().length} updates</span></div>
-          ) : null}
-          {this.hasUngrouped() ? (
-            <div class="s act">
-              <button onClick={() => (this.showUngrouped = !this.showUngrouped)}>
-                {this.showUngrouped ? "hide loose" : "loose"}
-              </button>
-            </div>
           ) : null}
           <div class="s act">
             <button class="upcheck" disabled={this.updBusy} title="check all images for updates now" onClick={this.refreshUpdates}>

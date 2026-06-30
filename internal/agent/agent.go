@@ -14,11 +14,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
+	"github.com/toyz/hope/internal/version"
 )
 
 // protoLine is the handshake the agent sends first: "HOPE-AGENT/1 <token> <id>".
@@ -81,7 +83,19 @@ func serveOnce(ctx context.Context, opts Options) error {
 	}
 	defer conn.Close()
 
-	if _, err := fmt.Fprintf(conn, "%s %s %s\n", protoVersion, opts.Token, opts.HostID); err != nil {
+	// Handshake: proto token hostID + build info (version revision go os/arch
+	// buildtime). Empty fields are "-" so positions stay fixed; older hubs
+	// ignore the extra fields, older agents simply omit them.
+	v := version.Get()
+	f := func(s string) string {
+		if s == "" {
+			return "-"
+		}
+		return s
+	}
+	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s\n",
+		protoVersion, opts.Token, opts.HostID,
+		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime)); err != nil {
 		return err
 	}
 	reply, err := readLine(conn)
