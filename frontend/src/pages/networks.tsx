@@ -34,11 +34,15 @@ export class NetworksPage extends LoomElement {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor nets: NetworkInfo[] = [];
+  @reactive accessor nets: (NetworkInfo & { host?: string })[] = [];
   @reactive accessor busy = false;
   @reactive accessor error = "";
   @reactive accessor query = "";
-  @reactive accessor detail: NetworkInfo | null = null;
+  @reactive accessor detail: (NetworkInfo & { host?: string }) | null = null;
+
+  get fleetMode() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
 
   @mount
   onMount() {
@@ -50,9 +54,29 @@ export class NetworksPage extends LoomElement {
   }
 
   private load = async () => {
+    if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
       this.nets = ((await this.rpc.call<NetworkInfo[]>("System", "networks", [])) || []).map((n) => ({ ...n, used_by: n.used_by || [] }));
+      this.error = "";
+    } catch (err: any) {
+      this.error = err?.message ?? "Can't list networks.";
+    } finally {
+      this.busy = false;
+    }
+  };
+
+  private loadFleet = async () => {
+    this.busy = true;
+    try {
+      const hosts = (await this.rpc.call<import("../contracts").FleetNetworksHost[]>("System", "fleetNetworks", [])) || [];
+      const combined: (NetworkInfo & { host?: string })[] = [];
+      for (const h of hosts) {
+        if (!h.online) continue;
+        for (const n of h.networks || []) combined.push({ ...n, used_by: n.used_by || [], host: h.id });
+      }
+      combined.sort((a, b) => b.used_by.length - a.used_by.length || a.name.localeCompare(b.name));
+      this.nets = combined;
       this.error = "";
     } catch (err: any) {
       this.error = err?.message ?? "Can't list networks.";
@@ -71,7 +95,7 @@ export class NetworksPage extends LoomElement {
     else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
   };
 
-  private del = async (n: NetworkInfo) => {
+  private del = async (n: NetworkInfo & { host?: string }) => {
     const ok = await this.confirm.ask({
       title: "remove network",
       danger: true,
@@ -81,6 +105,7 @@ export class NetworksPage extends LoomElement {
     if (!ok) return;
     this.detail = null;
     try {
+      if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
       await this.rpc.call("System", "removeNetwork", [n.id]);
       await this.load();
     } catch (err: any) {
@@ -116,7 +141,7 @@ export class NetworksPage extends LoomElement {
             <div class="summary">
               <span class="stat"><i class="k">networks</i><i class="v">{this.nets.length}</i></span>
               <span class="stat"><i class="k">attached</i><i class="v">{attached}</i></span>
-              <span class="stat"><i class="k">empty</i><i class="v">{this.nets.length - attached}</i></span>
+              <span class="stat"><i class="k">empty</i><i class={"v" + (this.nets.length - attached > 0 ? " warnv" : "")}>{this.nets.length - attached}</i></span>
             </div>
           ) : null}
 
@@ -142,7 +167,7 @@ export class NetworksPage extends LoomElement {
               <tbody>
                 {vis.map((n) => (
                   <tr onClick={() => (this.detail = n)}>
-                    <td class="rname">{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
+                    <td class="rname">{n.host ? <span class="htag">{n.host}</span> : null}{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
                     <td class="rmeta">{n.driver}</td>
                     <td class="rmeta">{n.scope}</td>
                     <td class="use">{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="ubmore"> +{n.used_by.length - 1}</span> : null}</span> : <span class="none">—</span>}</td>
@@ -161,7 +186,7 @@ export class NetworksPage extends LoomElement {
     );
   }
 
-  private renderDetail(n: NetworkInfo) {
+  private renderDetail(n: NetworkInfo & { host?: string }) {
     return (
       <div class="dmodal" onClick={() => (this.detail = null)}>
         <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
@@ -171,6 +196,7 @@ export class NetworksPage extends LoomElement {
             <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           <div class="dfacts">
+            {n.host ? <span class="st"><i class="sk">host</i><i class="sv">{n.host}</i></span> : null}
             <span class="st"><i class="sk">driver</i><i class="sv">{n.driver}</i></span>
             <span class="st"><i class="sk">scope</i><i class="sv">{n.scope}</i></span>
             <span class="st"><i class="sk">created</i><i class="sv">{ago(n.created)}</i></span>
@@ -189,7 +215,7 @@ export class NetworksPage extends LoomElement {
           <div class="dacts">
             {n.used_by.length ? <span class="dnote">detach its containers before removing</span> : null}
             <span class="grow"></span>
-            <button class="pbtn danger" disabled={!!n.used_by.length} onClick={() => this.del(n)}>remove</button>
+            {n.used_by.length ? null : <button class="pbtn danger" onClick={() => this.del(n)}>remove</button>}
           </div>
         </div>
       </div>

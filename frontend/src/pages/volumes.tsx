@@ -38,12 +38,16 @@ export class VolumesPage extends LoomElement {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor vols: VolumeInfo[] = [];
+  @reactive accessor vols: (VolumeInfo & { host?: string })[] = [];
   @reactive accessor busy = false;
   @reactive accessor error = "";
   @reactive accessor query = "";
   @reactive accessor filter: Filter = "all";
-  @reactive accessor detail: VolumeInfo | null = null;
+  @reactive accessor detail: (VolumeInfo & { host?: string }) | null = null;
+
+  get fleetMode() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
 
   @mount
   onMount() {
@@ -55,9 +59,29 @@ export class VolumesPage extends LoomElement {
   }
 
   private load = async () => {
+    if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
       this.vols = ((await this.rpc.call<VolumeInfo[]>("System", "volumes", [])) || []).map((v) => ({ ...v, used_by: v.used_by || [] }));
+      this.error = "";
+    } catch (err: any) {
+      this.error = err?.message ?? "Can't list volumes.";
+    } finally {
+      this.busy = false;
+    }
+  };
+
+  private loadFleet = async () => {
+    this.busy = true;
+    try {
+      const hosts = (await this.rpc.call<import("../contracts").FleetVolumesHost[]>("System", "fleetVolumes", [])) || [];
+      const combined: (VolumeInfo & { host?: string })[] = [];
+      for (const h of hosts) {
+        if (!h.online) continue;
+        for (const v of h.volumes || []) combined.push({ ...v, used_by: v.used_by || [], host: h.id });
+      }
+      combined.sort((a, b) => b.used_by.length - a.used_by.length || a.name.localeCompare(b.name));
+      this.vols = combined;
       this.error = "";
     } catch (err: any) {
       this.error = err?.message ?? "Can't list volumes.";
@@ -76,7 +100,7 @@ export class VolumesPage extends LoomElement {
     else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
   };
 
-  private del = async (v: VolumeInfo) => {
+  private del = async (v: VolumeInfo & { host?: string }) => {
     const inUse = v.used_by.length > 0;
     const ok = await this.confirm.ask({
       title: "remove volume",
@@ -89,6 +113,7 @@ export class VolumesPage extends LoomElement {
     if (!ok) return;
     this.detail = null;
     try {
+      if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
       await this.rpc.call("System", "removeVolume", [v.name]);
       await this.load();
     } catch (err: any) {
@@ -130,7 +155,7 @@ export class VolumesPage extends LoomElement {
             <div class="summary">
               <span class="stat"><i class="k">volumes</i><i class="v">{this.vols.length}</i></span>
               <span class="stat"><i class="k">mounted</i><i class="v">{mounted}</i></span>
-              <span class="stat"><i class="k">unused</i><i class="v">{unused}</i></span>
+              <span class="stat"><i class="k">unused</i><i class={"v" + (unused > 0 ? " warnv" : "")}>{unused}</i></span>
             </div>
           ) : null}
 
@@ -168,10 +193,10 @@ export class VolumesPage extends LoomElement {
               <tbody>
                 {vis.map((v) => (
                   <tr onClick={() => (this.detail = v)}>
-                    <td class="rname">{v.name}</td>
+                    <td class="rname">{v.host ? <span class="htag">{v.host}</span> : null}{v.name}</td>
                     <td class="rmeta">{v.driver}</td>
                     <td class="use">{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="ubmore"> +{v.used_by.length - 1}</span> : null}</span> : <span class="none">unused</span>}</td>
-                    <td class="r"><button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button></td>
+                    <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
                   </tr>
                 ))}
               </tbody>
@@ -186,7 +211,7 @@ export class VolumesPage extends LoomElement {
     );
   }
 
-  private renderDetail(v: VolumeInfo) {
+  private renderDetail(v: VolumeInfo & { host?: string }) {
     return (
       <div class="dmodal" onClick={() => (this.detail = null)}>
         <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
@@ -196,6 +221,7 @@ export class VolumesPage extends LoomElement {
             <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           <div class="dfacts">
+            {v.host ? <span class="st"><i class="sk">host</i><i class="sv">{v.host}</i></span> : null}
             <span class="st"><i class="sk">driver</i><i class="sv">{v.driver}</i></span>
             <span class="st"><i class="sk">created</i><i class="sv">{agoStr(v.created_at)}</i></span>
             <span class="st"><i class="sk">status</i><i class="sv">{v.used_by.length ? "mounted" : "unused"}</i></span>
@@ -212,9 +238,9 @@ export class VolumesPage extends LoomElement {
             </div>
           </div>
           <div class="dacts">
-            {v.used_by.length ? <span class="dnote">mounted — removing force-deletes the data from under the containers</span> : null}
+            {v.used_by.length ? <span class="dnote">mounted — unmount its containers before removing</span> : null}
             <span class="grow"></span>
-            <button class="pbtn danger" onClick={() => this.del(v)}>remove</button>
+            {v.used_by.length ? null : <button class="pbtn danger" onClick={() => this.del(v)}>remove</button>}
           </div>
         </div>
       </div>

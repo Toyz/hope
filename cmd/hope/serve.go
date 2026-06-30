@@ -28,6 +28,7 @@ import (
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
 	"github.com/toyz/hope/internal/system"
+	"github.com/toyz/hope/internal/version"
 )
 
 func serveCmd() *cobra.Command {
@@ -72,6 +73,8 @@ func runServe(configPath string) error {
 	// The request logger is also the gateway-wide log sink AND main()'s logger,
 	// so every line (startup, fatal, per-request) shares one format.
 	lg := logger.New(logger.Config{Color: cfg.Log.Color, JSON: cfg.Log.JSON, SkipFramework: true})
+	bi := version.Get()
+	lg.Info("hope", "version", bi.Version, "revision", bi.Revision, "built", bi.BuildTime, "go", bi.GoVersion)
 	fatal := func(msg string, args ...any) {
 		lg.Error(msg, args...)
 		os.Exit(1)

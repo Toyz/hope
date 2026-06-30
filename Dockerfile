@@ -19,6 +19,10 @@ FROM golang:alpine AS build
 RUN apk add --no-cache git ca-certificates
 ARG GOPRIVATE=""
 ENV GOPRIVATE=${GOPRIVATE}
+# Build info stamped into the binary (CI passes these; see docker-publish.yml).
+ARG VERSION="dev"
+ARG REVISION=""
+ARG BUILDTIME=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=secret,id=netrc,target=/root/.netrc,required=false go mod download
@@ -26,7 +30,12 @@ COPY . .
 # Drop in the freshly built SPA so //go:embed all:frontend/dist picks it up.
 RUN rm -rf frontend/dist
 COPY --from=ui /ui/dist ./frontend/dist
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /hope ./cmd/hope
+RUN CGO_ENABLED=0 go build \
+      -ldflags="-s -w \
+        -X github.com/toyz/hope/internal/version.Version=${VERSION} \
+        -X github.com/toyz/hope/internal/version.Revision=${REVISION} \
+        -X github.com/toyz/hope/internal/version.BuildTime=${BUILDTIME}" \
+      -o /hope ./cmd/hope
 
 # 3) Minimal runtime — scratch. The binary is a static (CGO_ENABLED=0) pure-Go
 # build, hope reaches the daemon over the mounted socket (or tcp), and the

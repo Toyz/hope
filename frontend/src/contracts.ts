@@ -239,6 +239,27 @@ export class System {
   removeVolume(_id: string): unknown {
     return undefined!;
   }
+  fleetNetworks(): FleetNetworksHost[] {
+    return undefined!;
+  }
+  fleetVolumes(): FleetVolumesHost[] {
+    return undefined!;
+  }
+}
+
+export interface FleetNetworksHost {
+  id: string;
+  kind: "local" | "agent";
+  online: boolean;
+  error?: string;
+  networks: NetworkInfo[];
+}
+export interface FleetVolumesHost {
+  id: string;
+  kind: "local" | "agent";
+  online: boolean;
+  error?: string;
+  volumes: VolumeInfo[];
 }
 
 // ResourceUser is a container attached to a network or mounting a volume.

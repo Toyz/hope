@@ -239,6 +239,85 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	return imgs, nil
 }
 
+// FleetNetworksHost / FleetVolumesHost are one host's resources for the
+// cross-fleet networks/volumes views.
+type FleetNetworksHost struct {
+	ID       string               `json:"id"`
+	Kind     string               `json:"kind"`
+	Online   bool                 `json:"online"`
+	Error    string               `json:"error,omitempty"`
+	Networks []docker.NetworkInfo `json:"networks"`
+}
+type FleetVolumesHost struct {
+	ID      string              `json:"id"`
+	Kind    string              `json:"kind"`
+	Online  bool                `json:"online"`
+	Error   string              `json:"error,omitempty"`
+	Volumes []docker.VolumeInfo `json:"volumes"`
+}
+
+// FleetNetworks lists every host's networks (all-hosts networks view).
+func (r *SystemRouter) FleetNetworks(ctx *rpc.Context) ([]FleetNetworksHost, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	hcs := r.hosts.All()
+	out := make([]FleetNetworksHost, len(hcs))
+	var wg sync.WaitGroup
+	for i, h := range hcs {
+		out[i] = FleetNetworksHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Networks: []docker.NetworkInfo{}}
+		if !h.Online || h.Client == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, c *docker.Client) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			ns, err := c.Networks(cctx)
+			if err != nil {
+				out[i].Online = false
+				out[i].Error = err.Error()
+				return
+			}
+			out[i].Networks = ns
+		}(i, h.Client)
+	}
+	wg.Wait()
+	return out, nil
+}
+
+// FleetVolumes lists every host's volumes (all-hosts volumes view).
+func (r *SystemRouter) FleetVolumes(ctx *rpc.Context) ([]FleetVolumesHost, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	hcs := r.hosts.All()
+	out := make([]FleetVolumesHost, len(hcs))
+	var wg sync.WaitGroup
+	for i, h := range hcs {
+		out[i] = FleetVolumesHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Volumes: []docker.VolumeInfo{}}
+		if !h.Online || h.Client == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, c *docker.Client) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			vs, err := c.Volumes(cctx)
+			if err != nil {
+				out[i].Online = false
+				out[i].Error = err.Error()
+				return
+			}
+			out[i].Volumes = vs
+		}(i, h.Client)
+	}
+	wg.Wait()
+	return out, nil
+}
+
 // Networks lists the active host's Docker networks with the containers attached
 // to each (the reverse "who's on this network" mapping).
 func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) {

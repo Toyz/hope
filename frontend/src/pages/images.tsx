@@ -477,7 +477,7 @@ export class ImagesPage extends LoomElement {
     await this.load();
   };
 
-  private renderDetail(i: ImageInfo) {
+  private renderDetail(i: ImageInfo & { host?: string }) {
     const title = i.tags.length ? i.tags[0] : "<untagged>";
     return (
       <div class="dmodal" onClick={() => (this.detail = null)}>
@@ -488,6 +488,7 @@ export class ImagesPage extends LoomElement {
             <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           <div class="dfacts">
+            {i.host ? <span class="st"><i class="sk">host</i><i class="sv">{i.host}</i></span> : null}
             <span class="st"><i class="sk">size</i><i class="sv">{bytes(i.size)}</i></span>
             <span class="st"><i class="sk">age</i><i class="sv">{age(i.created)}</i></span>
             <span class="st"><i class="sk">status</i><i class="sv">{i.in_use ? "in use" : i.dangling ? "dangling" : "unused"}</i></span>
