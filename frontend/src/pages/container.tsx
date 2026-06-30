@@ -1,8 +1,8 @@
 // Container detail — a terminal. Live logs + live stats (loom-rpc @stream over
 // NDJSON) and the raw inspect JSON. Streams tear down on unmount via AbortSignal.
-import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
-import { route, LoomRouter } from "@toyz/loom/router";
+import { route, LoomRouter, onRouteEnter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import type { LogFrame } from "../contracts";
@@ -71,14 +71,23 @@ export class ContainerPage extends LoomElement {
 
   private ctrl = new AbortController();
 
-  @mount
-  onMount() {
+  // Fires on every activation, including container -> container navigation, so
+  // the old streams are torn down and new ones started for the new id.
+  @onRouteEnter
+  entered(params: Record<string, string>) {
     if (!this.auth.isAuthenticated) {
       this.router.navigate("/login");
       return;
     }
-    const m = location.pathname.match(/^\/container\/(.+)$/);
-    this.id = m ? decodeURIComponent(m[1]) : "";
+    this.id = decodeURIComponent(params.id ?? "");
+    this.ctrl.abort();
+    this.ctrl = new AbortController();
+    this.logLines = [];
+    this.cpu = "—";
+    this.mem = "—";
+    this.inspectJson = "";
+    this.tab = "logs";
+    this.error = "";
     this.runLogs();
     this.runStats();
   }

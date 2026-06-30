@@ -8,7 +8,7 @@ import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import type { StackSummary } from "../contracts";
-import { theme, stackSeverity, severityRank, type Severity } from "../styles";
+import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -48,10 +48,24 @@ const UNGROUPED = "(ungrouped)";
   }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 22px 24px 80px; max-width: 1180px; margin: 0 auto; }
+  main { padding: 30px 40px 96px; max-width: 1340px; margin: 0 auto; }
+
+  /* search */
+  .search { position: relative; margin-bottom: 22px; }
+  .search input {
+    width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
+    font: 13px/1 var(--mono); padding: 12px 13px 12px 38px; border-radius: 0;
+  }
+  .search input::placeholder { color: var(--dim); }
+  .search input:focus { outline: none; border-color: var(--line2); }
+  .search .ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
+  .search .clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    background: transparent; border: 0; color: var(--dim); cursor: pointer; font: 11px/1 var(--mono);
+    letter-spacing: .1em; text-transform: uppercase; padding: 5px; }
+  .search .clear:hover { color: var(--hi); }
 
   /* ── fleet ribbon ── */
-  .ribbon { display: flex; gap: 2px; height: 12px; margin: 6px 0 30px; }
+  .ribbon { display: flex; gap: 3px; height: 14px; margin: 6px 0 28px; }
   .ribbon i { flex: 1 1 0; background: #1B3A2D; cursor: pointer; transition: opacity .1s; }
   .ribbon i.ok { background: #244B39; }
   .ribbon i.down { background: var(--faint); }
@@ -62,8 +76,8 @@ const UNGROUPED = "(ungrouped)";
   .ribbon [data-tip]:hover::after { top: calc(100% + 8px); bottom: auto; }
 
   /* ── section ── */
-  section { margin-bottom: 26px; }
-  .head { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+  section { margin-bottom: 34px; }
+  .head { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
   .head .label { font: 600 10px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
   .head .rule { flex: 1; height: 1px; background: var(--line); }
   .head .n { font: 600 11px/1 var(--mono); color: var(--dim); }
@@ -88,6 +102,24 @@ const UNGROUPED = "(ungrouped)";
   .row .count .t { color: var(--dim); }
   .row .chev { color: var(--faint); justify-self: end; }
   .row:hover .chev { color: var(--mid); }
+  .row .seg { --seg-h: 7px; }
+
+  /* fleet tiles — dense board instead of one tall list */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(246px, 1fr)); gap: 14px; }
+  .tile {
+    border: 1px solid var(--line); background: var(--panel);
+    padding: 16px 16px 17px; cursor: pointer; display: flex; flex-direction: column; gap: 15px;
+    transition: border-color .12s ease, background .12s ease;
+    animation: fade .18s ease both;
+  }
+  .tile:hover { border-color: var(--line2); background: var(--raised); }
+  .tile.off { opacity: .55; }
+  .tile .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .tile .nm { display: flex; align-items: center; gap: 9px; min-width: 0; font: 500 13px/1.1 var(--mono); color: var(--hi); }
+  .tile .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .ct { font: 13px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tile .ct b { color: var(--hi); font-weight: 600; }
+  .tile .seg { --seg-h: 7px; }
 
   .empty { padding: 44px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
 
@@ -109,6 +141,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor error = "";
   @reactive accessor loaded = false;
   @reactive accessor showUngrouped = false;
+  @reactive accessor query = "";
 
   @mount
   onMount() {
@@ -135,7 +168,16 @@ export class DashboardPage extends LoomElement {
   }
 
   private visible(): StackSummary[] {
-    return this.showUngrouped ? this.stacks : this.stacks.filter((s) => s.project !== UNGROUPED);
+    let list = this.showUngrouped ? this.stacks : this.stacks.filter((s) => s.project !== UNGROUPED);
+    const q = this.query.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (s) =>
+          s.project.toLowerCase().includes(q) ||
+          s.containers.some((c) => (c.service || c.name).toLowerCase().includes(q)),
+      );
+    }
+    return list;
   }
   private hasUngrouped(): boolean {
     return this.stacks.some((s) => s.project === UNGROUPED);
@@ -148,6 +190,18 @@ export class DashboardPage extends LoomElement {
 
   private go(p: string) {
     this.router.navigate(`/stack/${encodeURIComponent(p)}`);
+  }
+
+  // segs renders a stack's containers as a thin heat-bar (one cell per
+  // container, colored by state) — texture + density on each tile.
+  private segs(s: StackSummary) {
+    return (
+      <div class="seg">
+        {s.containers.map((c) => (
+          <i class={markClass(c.state)}></i>
+        ))}
+      </div>
+    );
   }
   private logout = () => {
     this.auth.clear();
@@ -189,6 +243,19 @@ export class DashboardPage extends LoomElement {
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}
+
+          {this.stacks.length > 0 ? (
+            <div class="search">
+              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
+              <input
+                type="text"
+                placeholder="Search stacks and services…"
+                value={this.query}
+                onInput={(e: any) => (this.query = e.target.value)}
+              />
+              {this.query ? <button class="clear" onClick={() => (this.query = "")}>clear</button> : null}
+            </div>
+          ) : null}
 
           {all.length > 0 ? (
             <div class="ribbon">
@@ -237,17 +304,20 @@ export class DashboardPage extends LoomElement {
                 <span class="rule"></span>
                 <span class="n">{nominal.length}</span>
               </div>
-              <div class="rows">
+              <div class="grid">
                 {nominal.map((s) => (
-                  <div class="row" onClick={() => this.go(s.project)}>
-                    <span class={"mark " + (s.sev === "ok" ? "ok" : "")}></span>
-                    <span class="name">{s.project}</span>
-                    <span class="why hide-m dim">{s.sev === "down" ? "stopped" : ""}</span>
-                    <span class="count">
-                      {s.running}
-                      <span class="t">/{s.total}</span>
-                    </span>
-                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
+                  <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={() => this.go(s.project)}>
+                    <div class="top">
+                      <span class="nm">
+                        <span class={"mark " + (s.sev === "ok" ? "ok" : "")}></span>
+                        <span class="t">{s.project}</span>
+                      </span>
+                      <span class="ct">
+                        <b>{s.running}</b>
+                        <span class="s">/{s.total}</span>
+                      </span>
+                    </div>
+                    {this.segs(s)}
                   </div>
                 ))}
               </div>

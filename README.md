@@ -6,6 +6,8 @@ frontend, reads Docker Compose labels to group containers into stacks, and drive
 full stack lifecycle — all over the Docker API, so it works against a local
 socket or a remote daemon with no compose files on disk.
 
+**Docs:** https://mininote.ink/s/dzW9c7aSbkHOGeD5-jH1qA
+
 > Screenshots below use a demo dataset — not a real cluster.
 
 ![Mission-control overview](docs/dashboard.png)

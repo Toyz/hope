@@ -32,3 +32,6 @@ Thumbs.db
 *~
 .idea/
 *.swp
+
+# stray root screenshots (debug); docs/ images are tracked
+/*.png

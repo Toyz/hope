@@ -1,8 +1,8 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
-import { route, LoomRouter } from "@toyz/loom/router";
+import { route, LoomRouter, onRouteEnter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
@@ -178,14 +178,20 @@ export class StackPage extends LoomElement {
     this.toastTimer = setTimeout(() => (this.toast = ""), 2800);
   }
 
-  @mount
-  onMount() {
+  // Fires on every activation — including navigating from one stack to another
+  // (the router reuses the element), so the data always reloads for the new param.
+  @onRouteEnter
+  entered(params: Record<string, string>) {
     if (!this.auth.isAuthenticated) {
       this.router.navigate("/login");
       return;
     }
-    const m = location.pathname.match(/^\/stack\/(.+)$/);
-    this.project = m ? decodeURIComponent(m[1]) : "";
+    this.project = decodeURIComponent(params.project ?? "");
+    this.stack = null;
+    this.closeLogs();
+    this.expanded = {};
+    this.opLog = "";
+    this.composeText = "";
     this.load();
   }
 
