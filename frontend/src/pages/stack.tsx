@@ -675,7 +675,7 @@ export class StackPage extends LoomElement {
   private snapshot = async () => {
     this.statsBusy = true;
     try {
-      const rows = await this.rpc.call<ContainerStat[]>("Stacks", "stats", [this.project]);
+      const rows = (await this.rpc.call<ContainerStat[]>("Stacks", "stats", [this.project])) || [];
       const map: Record<string, ContainerStat> = {};
       for (const s of rows) map[s.id] = s;
       this.stats = map;
@@ -692,7 +692,7 @@ export class StackPage extends LoomElement {
     this.updatesBusy = true;
     this.showToast(`checking ${this.project} for image updates…`, "", true);
     try {
-      const rows = await this.rpc.call<ImageUpdate[]>("Stacks", "updates", [this.project]);
+      const rows = (await this.rpc.call<ImageUpdate[]>("Stacks", "updates", [this.project])) || [];
       const map: Record<string, ImageUpdate> = {};
       for (const u of rows) map[u.id] = u;
       this.updates = map;
