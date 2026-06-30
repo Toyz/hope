@@ -39,7 +39,7 @@ func (c *Client) Images(ctx context.Context) ([]ImageInfo, error) {
 		tags := im.RepoTags
 		dangling := len(tags) == 0 || (len(tags) == 1 && tags[0] == "<none>:<none>")
 		if dangling {
-			tags = nil
+			tags = []string{} // never nil -> serializes as [] not null
 		}
 		out = append(out, ImageInfo{
 			ID:       im.ID,

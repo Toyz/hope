@@ -89,7 +89,9 @@ export class ImagesPage extends LoomElement {
   private load = async () => {
     this.busy = true;
     try {
-      this.images = await this.rpc.call<ImageInfo[]>("System", "images", []);
+      const list = await this.rpc.call<ImageInfo[]>("System", "images", []);
+      // Go sends a nil tag slice as JSON null for dangling images — normalize.
+      this.images = (list || []).map((i) => ({ ...i, tags: i.tags || [] }));
       this.error = "";
       this.loaded = true;
     } catch (err: any) {
