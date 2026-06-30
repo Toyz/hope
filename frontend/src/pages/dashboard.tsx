@@ -73,15 +73,17 @@ const UNGROUPED = "(ungrouped)";
   .hostbar .hv.bad { color: var(--bad); }
   .hostbar .hv.upd { color: var(--upd); }
 
-  /* cross-host rows carry a host tag, so they need a 6-column grid */
-  .row.xrow { grid-template-columns: 13px auto 1fr auto 84px 14px; }
-  .urow.xrow { grid-template-columns: 7px max-content max-content minmax(0, 1fr) auto 14px; }
-  .rows .row .htag { justify-self: start; font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  /* cross-host rows prefix the name with a small host pill, so the grid (and
+     thus the service chips + count column) stays identical to the per-host view */
+  .row .name .htag { display: inline-block; margin-right: 9px; vertical-align: middle;
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
     color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
   .row .umark { color: var(--upd); }
   .row .name .svc { color: var(--dim); }
   .row .why.upd { color: var(--upd); }
   .head .n.upd { color: var(--upd); }
+  .head .n.warn { color: var(--warn); }
+  .head .n.bad { color: var(--bad); }
   .fleetsec .foff { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--bad); }
   .fleetsec .frow-empty { padding: 12px 14px; color: var(--dim); font: 500 12px/1 var(--mono); }
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
@@ -412,9 +414,12 @@ export class DashboardPage extends LoomElement {
 
   // Collapse outdated containers into per-stack groups (services deduped, with
   // replica counts) so a fleet with dozens of updates reads as a few rows.
-  private updateGroups() {
+  // Group a flat list of outdated items into project -> services, shared by the
+  // single-host and per-host (fleet) Updates sections so they're identical.
+  private groupUpdates(items: any[]) {
     const byProj: Record<string, Record<string, number>> = {};
-    for (const u of this.outdated()) {
+    for (const u of items) {
+      if (!this.showUngrouped && (!u.project || u.project === UNGROUPED)) continue;
       const p = u.project || UNGROUPED;
       const s = u.service || u.name || u.image;
       (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
@@ -428,6 +433,10 @@ export class DashboardPage extends LoomElement {
           .sort((a, b) => b.count - a.count || a.service.localeCompare(b.service)),
       }))
       .sort((a, b) => b.count - a.count || a.project.localeCompare(b.project));
+  }
+
+  private updateGroups() {
+    return this.groupUpdates(this.outdated());
   }
 
   // Cross-fleet equivalent of updateGroups: outdated services grouped by
@@ -475,10 +484,9 @@ export class DashboardPage extends LoomElement {
   ) {
     const linkable = opts.linkable ?? true;
     return (
-      <div class={"row urow" + (opts.host ? " xrow" : "") + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
+      <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
         <span class="mark upd"></span>
-        {opts.host ? <span class="htag">{opts.host}</span> : null}
-        <span class="name">{g.project}</span>
+        <span class="name">{opts.host ? <span class="htag">{opts.host}</span> : null}{g.project}</span>
         <span class="svcs">
           {g.services.map((s) => (
             <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
@@ -493,10 +501,9 @@ export class DashboardPage extends LoomElement {
   // Shared Attention row (single-host + all-hosts).
   private attentionRow(s: any, opts: { host?: string; onClick: () => void }) {
     return (
-      <div class={"row" + (opts.host ? " xrow" : "")} onClick={opts.onClick}>
+      <div class="row" onClick={opts.onClick}>
         <span class={"mark " + s.sev}></span>
-        {opts.host ? <span class="htag">{opts.host}</span> : null}
-        <span class="name">{s.project}</span>
+        <span class="name">{opts.host ? <span class="htag">{opts.host}</span> : null}{s.project}</span>
         <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
           {s.sev === "loop"
             ? `${s.containers.filter((c: any) => c.state === "restarting").length} restarting`
@@ -651,9 +658,9 @@ export class DashboardPage extends LoomElement {
           {problems.length > 0 ? (
             <section>
               <div class="head">
-                <span class="label">Fleet attention</span>
+                <span class="label">Attention</span>
                 <span class="rule"></span>
-                <span class="n">{problems.length}</span>
+                <span class={"n " + vClass}>{problems.length}</span>
               </div>
               <div class="rows">
                 {problems.map((p) => this.attentionRow(p.s, { host: p.host, onClick: () => this.goCross(p.host, p.s.project) }))}
@@ -664,7 +671,7 @@ export class DashboardPage extends LoomElement {
           {fupdates.length > 0 ? (
             <section>
               <div class="head">
-                <span class="label">Fleet updates</span>
+                <span class="label">Updates</span>
                 <span class="rule"></span>
                 {this.fleetChecked() ? <span class="ago">checked {ago(this.fleetChecked())}</span> : null}
                 <button class="rfr" disabled={this.fleetBusy} title="recheck every host" onClick={this.refreshFleet}>
@@ -823,7 +830,7 @@ export class DashboardPage extends LoomElement {
               <div class="head">
                 <span class="label">Attention</span>
                 <span class="rule"></span>
-                <span class="n">{issues.length}</span>
+                <span class={"n " + vClass}>{issues.length}</span>
               </div>
               <div class="rows">
                 {issues.map((s) => this.attentionRow(s, { onClick: () => this.go(s.project) }))}
@@ -840,7 +847,7 @@ export class DashboardPage extends LoomElement {
                 <button class="rfr" disabled={this.updBusy} title="check now" onClick={this.refreshUpdates}>
                   <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
                 </button>
-                <span class="n">{this.outdated().length}</span>
+                <span class="n upd">{this.outdated().length}</span>
               </div>
               <div class="rows">
                 {this.updateGroups().map((g) =>

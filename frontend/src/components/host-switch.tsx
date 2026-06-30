@@ -103,8 +103,11 @@ export class HostSwitch extends LoomElement {
       location.href = "/"; // show the fleet overview on the dashboard
       return;
     }
+    const wasFleet = this.fleetOn;
     localStorage.removeItem("hope.fleet");
-    if (!this.fleetOn && this.active && id === this.active.id) return;
+    // Leaving the all-hosts view always reloads, even if the server-active host
+    // is unchanged — otherwise picking "local" from "all" appears to do nothing.
+    if (!wasFleet && this.active && id === this.active.id) return;
     this.busy = true;
     try {
       await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
