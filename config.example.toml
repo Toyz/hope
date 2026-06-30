@@ -32,6 +32,17 @@ roots = []
 color = true
 json = false
 
+[updates]
+# Background crawler that checks each container's image against its registry
+# (a manifest lookup — never pulls layers) to power the dashboard "updates"
+# section. Mind Docker Hub anonymous rate limits when lowering the interval.
+enabled = true
+interval = "6h"
+# Persist the cache to disk so it survives restarts. Empty = in-memory only.
+# Mount this path to keep it across container recreates, e.g.:
+#   volumes: ["hope-data:/data"]   ->   cache_path = "/data/updates.json"
+cache_path = ""
+
 [socketproxy]
 # Opt-in LAN-facing reverse proxy that forwards the Docker API to the unix
 # socket behind an allowlist. SECURITY: root-equivalent to whoever reaches the

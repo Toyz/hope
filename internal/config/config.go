@@ -19,6 +19,22 @@ type Config struct {
 	Compose     ComposeConfig     `mapstructure:"compose"`
 	SocketProxy SocketProxyConfig `mapstructure:"socketproxy"`
 	Log         LogConfig         `mapstructure:"log"`
+	Updates     UpdatesConfig     `mapstructure:"updates"`
+}
+
+// UpdatesConfig controls the background image-freshness crawler that powers the
+// dashboard "updates" section.
+type UpdatesConfig struct {
+	// Enabled toggles the crawler. Disabled = the updates section stays empty
+	// (avoids registry traffic / rate limits if you don't want it).
+	Enabled bool `mapstructure:"enabled"`
+	// Interval between cluster-wide crawls. Mind Docker Hub anonymous rate
+	// limits; a few hours is sensible.
+	Interval time.Duration `mapstructure:"interval"`
+	// CachePath optionally persists the freshness cache to disk so it survives
+	// restarts. Empty = in-memory only. Mount this path to keep it across
+	// container recreates (e.g. "/data/updates.json").
+	CachePath string `mapstructure:"cache_path"`
 }
 
 // LogConfig configures the request logger.
@@ -97,6 +113,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("docker.host", "unix:///var/run/docker.sock")
 	v.SetDefault("auth.token_ttl", "24h")
 	v.SetDefault("log.color", true)
+	v.SetDefault("updates.enabled", true)
+	v.SetDefault("updates.interval", "6h")
 	v.SetDefault("socketproxy.enabled", false)
 	v.SetDefault("socketproxy.listen", ":2375")
 	v.SetDefault("socketproxy.allow_methods", []string{"GET", "HEAD"})
@@ -118,6 +136,9 @@ func (c *Config) validate() error {
 	}
 	if c.Docker.Host == "" {
 		return fmt.Errorf("config: docker.host is required")
+	}
+	if c.Updates.Interval <= 0 {
+		c.Updates.Interval = 6 * time.Hour
 	}
 	return nil
 }

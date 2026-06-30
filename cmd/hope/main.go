@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/Toyz/sov"
 	"github.com/Toyz/sov/gateway/builtin/static"
@@ -63,7 +62,10 @@ func main() {
 	}
 	// Background crawler keeps the cluster-wide image-freshness cache warm for
 	// the dashboard "updates" section (manifest lookups, no layer pulls).
-	dock.StartUpdateCrawler(ctx, 6*time.Hour)
+	if cfg.Updates.Enabled {
+		dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
+		lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
+	}
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)

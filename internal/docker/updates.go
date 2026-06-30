@@ -2,6 +2,9 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -110,9 +113,12 @@ func (c *Client) ProjectUpdates(ctx context.Context, project string) ([]ImageUpd
 	return out, nil
 }
 
-// StartUpdateCrawler runs an immediate crawl, then re-crawls every `every` to
-// keep the cluster-wide freshness cache warm. It returns when ctx is cancelled.
-func (c *Client) StartUpdateCrawler(ctx context.Context, every time.Duration) {
+// StartUpdateCrawler loads any persisted cache, runs an immediate crawl, then
+// re-crawls every `every`. cachePath (if non-empty) persists the cache across
+// restarts — mount it to survive container recreates.
+func (c *Client) StartUpdateCrawler(ctx context.Context, every time.Duration, cachePath string) {
+	c.updPath = cachePath
+	c.loadUpdateCache()
 	go func() {
 		c.crawlUpdates(ctx)
 		t := time.NewTicker(every)
@@ -166,6 +172,68 @@ func (c *Client) crawlUpdates(ctx context.Context) {
 	c.updByRef = acc
 	c.updAt = time.Now()
 	c.updMu.Unlock()
+	c.saveUpdateCache()
+}
+
+// persistedCache is the on-disk shape of the freshness cache.
+type persistedCache struct {
+	CheckedAt time.Time               `json:"checked_at"`
+	Refs      map[string]persistedRef `json:"refs"`
+}
+
+type persistedRef struct {
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// loadUpdateCache hydrates the cache from disk so the dashboard has data
+// immediately after a restart, before the first crawl completes.
+func (c *Client) loadUpdateCache() {
+	if c.updPath == "" {
+		return
+	}
+	data, err := os.ReadFile(c.updPath)
+	if err != nil {
+		return // first run / not mounted yet
+	}
+	var pc persistedCache
+	if err := json.Unmarshal(data, &pc); err != nil {
+		return
+	}
+	acc := make(map[string]refStatus, len(pc.Refs))
+	for ref, r := range pc.Refs {
+		acc[ref] = refStatus{status: r.Status, detail: r.Detail}
+	}
+	c.updMu.Lock()
+	c.updByRef = acc
+	c.updAt = pc.CheckedAt
+	c.updMu.Unlock()
+}
+
+// saveUpdateCache writes the cache to disk (best-effort) via a temp file rename.
+func (c *Client) saveUpdateCache() {
+	if c.updPath == "" {
+		return
+	}
+	c.updMu.RLock()
+	pc := persistedCache{CheckedAt: c.updAt, Refs: make(map[string]persistedRef, len(c.updByRef))}
+	for ref, r := range c.updByRef {
+		pc.Refs[ref] = persistedRef{Status: r.status, Detail: r.detail}
+	}
+	c.updMu.RUnlock()
+
+	data, err := json.Marshal(pc)
+	if err != nil {
+		return
+	}
+	if dir := filepath.Dir(c.updPath); dir != "" {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+	tmp := c.updPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, c.updPath)
 }
 
 // AllUpdates maps the running containers to the cached freshness verdicts and

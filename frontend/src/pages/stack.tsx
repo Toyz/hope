@@ -144,7 +144,7 @@ function aggMark(items: ContainerSummary[]): string {
   .gname { color: var(--hi); font-weight: 500; }
   .badge { border: 1px solid var(--line2); color: var(--mid); font-size: 11px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0; }
   .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px;
-    color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; }
+    color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; }
   tr.grp:hover .badge { border-color: var(--mid); color: var(--hi); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }

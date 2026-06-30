@@ -40,6 +40,7 @@ type Client struct {
 	updMu    sync.RWMutex
 	updByRef map[string]refStatus
 	updAt    time.Time
+	updPath  string // optional on-disk persistence (empty = memory only)
 }
 
 // New dials the Docker daemon at host (e.g. "unix:///var/run/docker.sock"

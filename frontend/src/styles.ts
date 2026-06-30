@@ -20,6 +20,7 @@ export const theme = `
     --ok: #46B27B;       /* running */
     --warn: #E0A23B;     /* degraded */
     --bad: #EC5C5C;      /* down / loop */
+    --upd: #4E9BD9;      /* image update available */
 
     --mono: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -42,6 +43,7 @@ export const theme = `
   .mark.ok { background: var(--ok); }
   .mark.warn { background: var(--warn); }
   .mark.bad { background: var(--bad); }
+  .mark.upd { background: var(--upd); }
   .mark.loop { background: var(--bad); animation: blink 1.1s steps(2,end) infinite; }
 
   /* buttons — flat, hairline, hover brightens the border only */
@@ -61,6 +63,7 @@ export const theme = `
   .seg > i.ok { background: var(--ok); }
   .seg > i.warn { background: var(--warn); }
   .seg > i.bad, .seg > i.loop { background: var(--bad); }
+  .seg > i.upd { background: var(--upd); }
 
   /* tooltip — flat, hairline, no shadow */
   [data-tip] { position: relative; }

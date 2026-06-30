@@ -41,8 +41,8 @@ const UNGROUPED = "(ungrouped)";
   .bar .verdict.ok { color: var(--ok); }
   .bar .verdict.warn { color: var(--warn); }
   .bar .verdict.bad { color: var(--bad); }
-  .bar .upd { gap: 7px; color: var(--warn); font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
-  .bar .upd loom-icon { color: var(--warn); }
+  .bar .upd { gap: 7px; color: var(--upd); font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar .upd loom-icon { color: var(--upd); }
   .bar .act { padding: 0; border-right: 1px solid var(--line); }
   .bar .act button {
     height: 100%; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
@@ -73,6 +73,7 @@ const UNGROUPED = "(ungrouped)";
   .ribbon i.down { background: var(--faint); }
   .ribbon i.warn { background: var(--warn); }
   .ribbon i.bad, .ribbon i.loop { background: var(--bad); }
+  .ribbon i.upd { background: var(--upd); }
   .ribbon i:hover { opacity: .7; }
   /* ribbon sits under the bar → tooltip points DOWN, not up into the bar */
   .ribbon [data-tip]:hover::after { top: calc(100% + 8px); bottom: auto; }
@@ -94,7 +95,7 @@ const UNGROUPED = "(ungrouped)";
   .urow .svcs { display: flex; flex-wrap: wrap; gap: 6px; }
   .urow .svc { font: 11px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 4px 7px; white-space: nowrap; }
   .urow .svc b { color: var(--hi); font-weight: 600; }
-  .urow .why.warn { color: var(--warn); font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+  .urow .why.upd { color: var(--upd); font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
 
   /* ── instrument rows ── */
   .rows { border: 1px solid var(--line); }
@@ -133,6 +134,7 @@ const UNGROUPED = "(ungrouped)";
   .tile .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tile .ct { font: 13px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tile .ct b { color: var(--hi); font-weight: 600; }
+  .tile .ct .tupd { color: var(--upd); display: inline-flex; vertical-align: middle; margin-right: 6px; }
   .tile .seg { --seg-h: 7px; }
 
   .empty { padding: 44px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
@@ -218,6 +220,13 @@ export class DashboardPage extends LoomElement {
     this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
 
+  // Projects with at least one outdated container (respects the loose flag).
+  private updSet(): Set<string> {
+    const s = new Set<string>();
+    for (const u of this.outdated()) if (u.project) s.add(u.project);
+    return s;
+  }
+
   private visible(): StackSummary[] {
     let list = this.showUngrouped ? this.stacks : this.stacks.filter((s) => s.project !== UNGROUPED);
     const q = this.query.trim().toLowerCase();
@@ -245,14 +254,22 @@ export class DashboardPage extends LoomElement {
 
   // segs renders a stack's containers as a thin heat-bar (one cell per
   // container, colored by state) — texture + density on each tile.
-  private segs(s: StackSummary) {
+  private segs(s: StackSummary, outIds: Set<string>) {
     return (
       <div class="seg">
-        {s.containers.map((c) => (
-          <i class={markClass(c.state)}></i>
-        ))}
+        {s.containers.map((c) => {
+          const st = markClass(c.state);
+          // running-but-outdated reads as an update; down/restarting stays as-is.
+          const cls = st === "ok" && outIds.has(c.id) ? "upd" : st;
+          return <i class={cls}></i>;
+        })}
       </div>
     );
+  }
+
+  // All outdated container ids (for tile heat-bars; not loose-filtered).
+  private outdatedIds(): Set<string> {
+    return new Set((this.updates?.updates ?? []).filter((u) => u.status === "outdated").map((u) => u.id));
   }
   private logout = () => {
     this.auth.clear();
@@ -262,6 +279,8 @@ export class DashboardPage extends LoomElement {
   update() {
     const all = this.ranked();
     const vis = this.visible();
+    const upd = this.updSet();
+    const outIds = this.outdatedIds();
     const issues = all.filter((s) => s.sev === "loop" || s.sev === "warn");
     const nominal = all.filter((s) => s.sev === "ok" || s.sev === "down");
     const runC = vis.reduce((a, s) => a + s.running, 0);
@@ -313,13 +332,17 @@ export class DashboardPage extends LoomElement {
 
           {all.length > 0 ? (
             <div class="ribbon">
-              {all.map((s) => (
-                <i
-                  class={s.sev}
-                  data-tip={`${s.project}   ${s.running}/${s.total}${s.restarting ? "   ⟳ restarting" : ""}`}
-                  onClick={() => this.go(s.project)}
-                ></i>
-              ))}
+              {all.map((s) => {
+                const hasUpd = upd.has(s.project);
+                const cls = (s.sev === "ok" || s.sev === "down") && hasUpd ? "upd" : s.sev;
+                return (
+                  <i
+                    class={cls}
+                    data-tip={`${s.project}   ${s.running}/${s.total}${s.restarting ? "   ⟳ restarting" : ""}${hasUpd ? "   ↑ update" : ""}`}
+                    onClick={() => this.go(s.project)}
+                  ></i>
+                );
+              })}
             </div>
           ) : null}
 
@@ -364,14 +387,14 @@ export class DashboardPage extends LoomElement {
                   const linkable = g.project !== UNGROUPED;
                   return (
                     <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? this.go(g.project) : null)}>
-                      <span class="mark warn"></span>
+                      <span class="mark upd"></span>
                       <span class="name">{g.project}</span>
                       <span class="svcs">
                         {g.services.map((s) => (
                           <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
                         ))}
                       </span>
-                      <span class="why warn">{g.count}</span>
+                      <span class="why upd">{g.count}</span>
                       {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
                     </div>
                   );
@@ -392,15 +415,16 @@ export class DashboardPage extends LoomElement {
                   <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={() => this.go(s.project)}>
                     <div class="top">
                       <span class="nm">
-                        <span class={"mark " + (s.sev === "ok" ? "ok" : "")}></span>
+                        <span class={"mark " + (s.sev === "ok" ? (upd.has(s.project) ? "upd" : "ok") : "")}></span>
                         <span class="t">{s.project}</span>
                       </span>
                       <span class="ct">
+                        {upd.has(s.project) ? <span class="tupd" title="updates available"><loom-icon name="download" size={12}></loom-icon></span> : null}
                         <b>{s.running}</b>
                         <span class="s">/{s.total}</span>
                       </span>
                     </div>
-                    {this.segs(s)}
+                    {this.segs(s, outIds)}
                   </div>
                 ))}
               </div>
