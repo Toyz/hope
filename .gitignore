@@ -1,5 +1,10 @@
 # Local config holds real secrets — never commit it. Use config.example.toml.
 /config.toml
+/agent.toml
+
+# Real deployment compose (host paths, hostnames) — never commit it. The tracked
+# template is docker-compose.example.yml.
+/docker-compose.yml
 
 # air build output
 /tmp/

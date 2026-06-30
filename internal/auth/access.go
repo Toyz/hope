@@ -31,7 +31,7 @@ type AccessVerifier struct {
 }
 
 // NewAccessVerifier builds a verifier for a Cloudflare Access team + app AUD.
-// team is the subdomain ("helba") or the full "helba.cloudflareaccess.com".
+// team is the subdomain ("yourteam") or the full "yourteam.cloudflareaccess.com".
 func NewAccessVerifier(team, aud string) *AccessVerifier {
 	domain := team
 	if !strings.Contains(domain, ".") {
