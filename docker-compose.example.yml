@@ -32,5 +32,32 @@ services:
       # [updates] cache_path = "/data/updates.json" in config.toml to use it.
       # - hope-data:/data
 
+  # hope-agent — run this on a REMOTE Docker host to manage it from a hope
+  # elsewhere. It dials OUT to the hub and tunnels this host's socket back, so
+  # the remote needs no inbound ports. Put this in the REMOTE host's compose,
+  # not next to the hope service above. Requires [agent] token set on that hope.
+  #
+  # Secrets come from a .env file next to this compose (docker compose reads it
+  # automatically): HOPE_AGENT_TOKEN, and — if the agent path is behind
+  # Cloudflare Access — CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET.
+  # hope-agent:
+  #   image: ghcr.io/OWNER/hope:latest
+  #   container_name: hope-agent
+  #   restart: unless-stopped
+  #   command:
+  #     - agent
+  #     # wss:// rides hope's main HTTPS port through Cloudflare (no extra port).
+  #     # Or a bare host:port / tcp://host:port for a raw [agent] listen.
+  #     - --connect=wss://hope.example.com/agent/connect
+  #     - --token=${HOPE_AGENT_TOKEN}
+  #     - --host-id=host-1
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     # Cloudflare Access service token (Service Auth policy on the agent path).
+  #     # Drop these two if you use an Access Bypass policy instead.
+  #     - CF_ACCESS_CLIENT_ID=${CF_ACCESS_CLIENT_ID}
+  #     - CF_ACCESS_CLIENT_SECRET=${CF_ACCESS_CLIENT_SECRET}
+
 # volumes:
 #   hope-data:
