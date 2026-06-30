@@ -800,11 +800,11 @@ export class StackPage extends LoomElement {
   }
 }
 
-// Human-readable bytes for the snapshot columns (MiB/GiB).
+// Human-readable bytes for the snapshot columns.
 function mb(b: number): string {
-  if (!b) return "0";
+  if (!b) return "0 MB";
   const gb = b / 1073741824;
-  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 1) + "G";
+  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 1) + " GB";
   const m = b / 1048576;
-  return m.toFixed(m >= 10 ? 0 : 1) + "M";
+  return m.toFixed(m >= 10 ? 0 : 1) + " MB";
 }
