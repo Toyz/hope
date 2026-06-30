@@ -556,6 +556,10 @@ export class ContainerPage extends LoomElement {
   private project() {
     return this.labels()["com.docker.compose.project"] || "";
   }
+  // Loose (no-compose) containers belong to the "(ungrouped)" pseudo-stack.
+  private stackId() {
+    return this.project() || "(ungrouped)";
+  }
   private state(): string {
     return this.info?.State?.Status ?? "";
   }
@@ -578,7 +582,7 @@ export class ContainerPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s">
-            <span class="back" onClick={() => this.project() ? this.router.navigate(`/stack/${encodeURIComponent(this.project())}`) : this.router.navigate("/")}>
+            <span class="back" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.stackId())}`)}>
               <loom-icon name="chevron-left" size={13}></loom-icon> back
             </span>
           </div>
@@ -589,12 +593,10 @@ export class ContainerPage extends LoomElement {
             <span class="crumb">
               <span class="p" onClick={() => this.router.navigate("/")}>{this.fleetBack ? "all hosts" : "fleet"}</span>
               <span class="sep"> / </span>
-              {this.project() ? (
-                <span class="p" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>
-                  {this.project()}
-                </span>
-              ) : null}
-              {this.project() ? <span class="sep"> / </span> : null}
+              <span class="p" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.stackId())}`)}>
+                {this.project() || "ungrouped"}
+              </span>
+              <span class="sep"> / </span>
               {this.service()}
             </span>
           </div>

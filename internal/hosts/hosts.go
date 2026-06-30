@@ -123,6 +123,21 @@ func (s *Set) All() []HostClient {
 	return out
 }
 
+// AgentHosts returns the live agent Host records (build info + connection +
+// docker client), for the agents detail view.
+func (s *Set) AgentHosts() []*agent.Host {
+	if s.reg == nil {
+		return nil
+	}
+	out := []*agent.Host{}
+	for _, hv := range s.reg.List() {
+		if h := s.reg.Host(hv.ID); h != nil {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // HostView is the frontend-facing summary of one selectable host.
 type HostView struct {
 	ID          string     `json:"id"`

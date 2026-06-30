@@ -245,6 +245,26 @@ export class System {
   fleetVolumes(): FleetVolumesHost[] {
     return undefined!;
   }
+  agents(): AgentView[] {
+    return undefined!;
+  }
+}
+
+// AgentView is one connected agent's detail (build info + daemon + counts).
+export interface AgentView {
+  id: string;
+  remote: string;
+  connected_at: string;
+  version: string;
+  revision: string;
+  go_version: string;
+  platform: string;
+  build_time: string;
+  docker_version: string;
+  containers: number;
+  running: number;
+  images: number;
+  online: boolean;
 }
 
 export interface FleetNetworksHost {

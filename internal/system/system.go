@@ -318,6 +318,57 @@ func (r *SystemRouter) FleetVolumes(ctx *rpc.Context) ([]FleetVolumesHost, error
 	return out, nil
 }
 
+// AgentView is one connected agent's detail (build info + daemon + counts).
+type AgentView struct {
+	ID            string `json:"id"`
+	Remote        string `json:"remote"`
+	ConnectedAt   string `json:"connected_at"`
+	Version       string `json:"version"`
+	Revision      string `json:"revision"`
+	GoVersion     string `json:"go_version"`
+	Platform      string `json:"platform"`
+	BuildTime     string `json:"build_time"`
+	DockerVersion string `json:"docker_version"`
+	Containers    int    `json:"containers"`
+	Running       int    `json:"running"`
+	Images        int    `json:"images"`
+	Online        bool   `json:"online"`
+}
+
+// Agents lists every connected agent with its build info, daemon version, and
+// container/image counts (each daemon queried concurrently).
+func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	hs := r.hosts.AgentHosts()
+	out := make([]AgentView, len(hs))
+	var wg sync.WaitGroup
+	for i, h := range hs {
+		out[i] = AgentView{
+			ID: h.ID, Remote: h.Remote, ConnectedAt: stamp(h.ConnectedAt),
+			Version: h.Info.Version, Revision: h.Info.Revision, GoVersion: h.Info.GoVersion,
+			Platform: h.Info.Platform, BuildTime: h.Info.BuildTime, Online: true,
+		}
+		wg.Add(1)
+		go func(i int, c *docker.Client) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			if si, err := c.ServerInfo(cctx); err == nil {
+				out[i].DockerVersion = si.Version
+				out[i].Containers = si.Containers
+				out[i].Running = si.Running
+				out[i].Images = si.Images
+			} else {
+				out[i].Online = false
+			}
+		}(i, h.Docker)
+	}
+	wg.Wait()
+	return out, nil
+}
+
 // Networks lists the active host's Docker networks with the containers attached
 // to each (the reverse "who's on this network" mapping).
 func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) {
