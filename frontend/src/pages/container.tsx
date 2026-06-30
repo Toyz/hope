@@ -6,7 +6,8 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
-import type { LogFrame, StackSummary, ContainerSummary } from "../contracts";
+import { ConfirmService } from "../confirm";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp } from "../contracts";
 import { theme, markClass } from "../styles";
 
 type Tab = "logs" | "stats" | "inspect";
@@ -46,6 +47,31 @@ const MAX_LINES = 600;
   .ritem .rst { color: var(--mid); }
   .rbadge { font: 600 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 6px 9px; }
   .bar .grow { flex: 1; }
+  .idrow { display: flex; align-items: center; gap: 16px; }
+  .idrow .id { flex: 0 1 auto; }
+  .toolbar { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .tbtn { padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
+    font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+  .tbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .tbtn:disabled { opacity: .4; cursor: not-allowed; }
+  .more { position: relative; display: flex; }
+  .more .tbtn { padding: 8px 11px; letter-spacing: .24em; }
+  .menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 168px;
+    background: var(--panel); border: 1px solid var(--line2); }
+  .mitem { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 11px 14px;
+    background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--mid);
+    font: 500 12px/1 var(--mono); cursor: pointer; }
+  .mitem loom-icon { color: var(--dim); flex-shrink: 0; }
+  .mitem:last-child { border-bottom: none; }
+  .mitem:hover { background: var(--raised); color: var(--hi); }
+  .mitem:hover loom-icon { color: var(--mid); }
+  .mitem.danger:hover { color: var(--bad); }
+  .mitem.danger:hover loom-icon { color: var(--bad); }
+  .mitem:disabled { opacity: .4; cursor: not-allowed; }
+  .toast { position: fixed; right: 22px; bottom: 22px; z-index: 60; background: var(--raised);
+    border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px;
+    max-width: 420px; }
+  .toast.bad { border-color: var(--bad); color: var(--bad); }
   .bar .act { padding: 0; border-left: 1px solid var(--line); }
   .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
@@ -137,6 +163,7 @@ const MAX_LINES = 600;
 export class ContainerPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -158,6 +185,10 @@ export class ContainerPage extends LoomElement {
   @reactive accessor inspectQuery = "";
   @reactive accessor siblings: ContainerSummary[] = [];
   @reactive accessor dropOpen = false;
+  @reactive accessor cbusy = ""; // op currently running
+  @reactive accessor actOpen = false; // action kebab menu
+  @reactive accessor toast = "";
+  @reactive accessor toastKind = "";
 
   // The route param, bound reactively. Watching it reloads the page on any
   // change — including container -> container (replica switches), which the
@@ -179,7 +210,71 @@ export class ContainerPage extends LoomElement {
 
   private closeDrop = () => {
     this.dropOpen = false;
+    this.actOpen = false;
   };
+
+  private containerOp = async (op: ContainerOp) => {
+    if (op === "stop" || op === "kill" || op === "redeploy") {
+      const ok = await this.confirm.ask({
+        title: op,
+        danger: op !== "redeploy",
+        warn: op === "redeploy",
+        confirmLabel: op === "kill" ? "Kill" : op === "stop" ? "Stop" : "Redeploy",
+        message:
+          op === "redeploy"
+            ? `Redeploy "${this.service()}"? Pulls the latest image and recreates the container.`
+            : `${op === "kill" ? "Kill" : "Stop"} "${this.service()}"?`,
+      });
+      if (!ok) return;
+    }
+    this.actOpen = false;
+    this.cbusy = op;
+    this.error = "";
+    const verb = op === "pull" ? "pulling" : op === "redeploy" ? "redeploying" : op;
+    this.showToast(`${verb} ${this.service()}…`, "", true);
+    try {
+      await this.rpc.call("Containers", op, [this.id]);
+      // Redeploy recreates the container under a new id — hop to it.
+      if (op === "redeploy") {
+        const newId = await this.findRecreated();
+        this.showToast(`redeployed ${this.service()}`);
+        if (newId && newId !== this.id) {
+          this.router.navigate(`/container/${encodeURIComponent(newId)}`);
+          return;
+        }
+      } else {
+        this.showToast(`${op} ${this.service()} — done`);
+      }
+      await this.loadInfo();
+    } catch (err: any) {
+      this.showToast(`${op} ${this.service()} — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.cbusy = "";
+    }
+  };
+
+  // After a recreate, find the new container for this same project/service/replica.
+  private async findRecreated(): Promise<string> {
+    const proj = this.project();
+    const svc = this.labels()["com.docker.compose.service"];
+    const num = this.currentNumber();
+    try {
+      const stacks = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
+      const st = stacks.find((s) => s.project === proj);
+      const match = (st?.containers ?? []).find((c) => c.service === svc && c.number === num);
+      return match?.id ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  private toastTimer: any = 0;
+  private showToast(msg: string, kind = "", sticky = false) {
+    this.toast = msg;
+    this.toastKind = kind;
+    clearTimeout(this.toastTimer);
+    if (!sticky) this.toastTimer = setTimeout(() => (this.toast = ""), 3500);
+  }
 
   private enter(id: string) {
     if (!this.auth.isAuthenticated) {
@@ -209,6 +304,7 @@ export class ContainerPage extends LoomElement {
   onUnmount() {
     this.ctrl.abort();
     removeEventListener("click", this.closeDrop);
+    clearTimeout(this.toastTimer);
   }
 
   private async loadInfo() {
@@ -441,12 +537,29 @@ export class ContainerPage extends LoomElement {
         <main>
           {this.error ? <div class="err">{this.error}</div> : null}
 
-          <div class="id">
-            <h1>{this.service()}</h1>
-            {this.siblings.length > 1 ? <span class="rbadge">#{this.currentNumber()}</span> : null}
-            {this.state() ? (
-              <span class={"state " + (running ? "ok" : "bad")}>{this.state()}</span>
-            ) : null}
+          <div class="idrow">
+            <div class="id">
+              <h1>{this.service()}</h1>
+              {this.siblings.length > 1 ? <span class="rbadge">#{this.currentNumber()}</span> : null}
+              {this.state() ? (
+                <span class={"state " + (running ? "ok" : "bad")}>{this.state()}</span>
+              ) : null}
+            </div>
+            <div class="toolbar">
+              <button class="tbtn" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}>{this.cbusy === "start" ? "start…" : "start"}</button>
+              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}>{this.cbusy === "restart" ? "restart…" : "restart"}</button>
+              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</button>
+              <div class="more">
+                <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.actOpen = !this.actOpen; }}>···</button>
+                {this.actOpen ? (
+                  <div class="menu">
+                    <button class="mitem" disabled={!!this.cbusy} onClick={() => this.containerOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull image</span></button>
+                    <button class="mitem danger" disabled={!!this.cbusy || !running} onClick={() => this.containerOp("stop")}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
+                    <button class="mitem danger" disabled={!!this.cbusy || !running} onClick={() => this.containerOp("kill")}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
           <div class="sub">{this.id.slice(0, 24)}</div>
 
@@ -515,6 +628,7 @@ export class ContainerPage extends LoomElement {
             </div>
           ) : null}
         </main>
+        {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
       </div>
     );
   }

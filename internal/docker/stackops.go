@@ -97,6 +97,15 @@ func (c *Client) PullImage(ctx context.Context, ref string) error {
 	return err
 }
 
+// ContainerImage returns the image reference a container was created from.
+func (c *Client) ContainerImage(ctx context.Context, id string) (string, error) {
+	info, err := c.cli.ContainerInspect(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", id, err)
+	}
+	return info.Config.Image, nil
+}
+
 // Recreate rebuilds a container in place so it picks up a freshly pulled image,
 // preserving its config, host config, name, labels (so it stays grouped in its
 // compose project), and network attachments. This is the API-only equivalent of

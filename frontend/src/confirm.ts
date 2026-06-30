@@ -13,6 +13,8 @@ export interface ConfirmOpts {
   cancelLabel?: string;
   /** Red/destructive styling on the confirm button + header. */
   danger?: boolean;
+  /** Amber/warning styling — for reversible-but-disruptive actions (redeploy). */
+  warn?: boolean;
 }
 
 export class ConfirmService {

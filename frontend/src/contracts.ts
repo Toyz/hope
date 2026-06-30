@@ -113,6 +113,12 @@ export class Containers {
   kill(_id: string): OpResult {
     return undefined!;
   }
+  pull(_id: string): OpResult {
+    return undefined!;
+  }
+  redeploy(_id: string): OpResult {
+    return undefined!;
+  }
 }
 
 @service("System")
@@ -127,4 +133,4 @@ export class System {
 
 // Stack lifecycle operations exposed in the UI (all Docker-API based).
 export type StackOp = "restart" | "redeploy" | "pull" | "start" | "stop";
-export type ContainerOp = "start" | "stop" | "restart" | "kill";
+export type ContainerOp = "start" | "stop" | "restart" | "kill" | "pull" | "redeploy";

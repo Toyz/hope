@@ -22,6 +22,8 @@ import type { ConfirmOpts } from "../confirm";
   .btn:hover { color: var(--hi); border-color: var(--line2); }
   .btn.go { color: #fff; border-color: var(--bad); background: color-mix(in srgb, var(--bad) 78%, #000); }
   .btn.go:hover { background: var(--bad); }
+  .btn.gowarn { color: #06080d; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 82%, #000); }
+  .btn.gowarn:hover { background: var(--warn); }
 `)
 export default class ConfirmModalImpl extends LoomElement {
   @reactive accessor open = false;
@@ -65,7 +67,7 @@ export default class ConfirmModalImpl extends LoomElement {
           <p class="msg">{o.message}</p>
           <div class="acts">
             <button class="btn" onClick={() => this.settle(false)}>{o.cancelLabel || "Cancel"}</button>
-            <button class={"btn" + (o.danger ? " go" : "")} onClick={() => this.settle(true)}>
+            <button class={"btn" + (o.danger ? " go" : o.warn ? " gowarn" : "")} onClick={() => this.settle(true)}>
               {o.confirmLabel || "Confirm"}
             </button>
           </div>
