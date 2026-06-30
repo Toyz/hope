@@ -14,6 +14,7 @@ export const resourceStyles = `
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
   .bar .nav .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
   .bar .nav .navlink:hover { color: var(--hi); }
+  .bar .nav .navlink.on { color: var(--hi); }
   .bar .act { padding: 0; }
   .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }

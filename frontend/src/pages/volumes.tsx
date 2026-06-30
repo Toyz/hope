@@ -72,9 +72,10 @@ export class VolumesPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack() ? "all hosts" : "fleet"}</span></div>
-          <div class="s"><span class="crumb">volumes</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
+          <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="grow"></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>

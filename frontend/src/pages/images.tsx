@@ -31,6 +31,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
   .bar .nav .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
   .bar .nav .navlink:hover { color: var(--hi); }
+  .bar .nav .navlink.on { color: var(--hi); }
 
   main { padding: 24px 24px 64px; max-width: 1120px; margin: 0 auto; }
 
@@ -213,6 +214,9 @@ export class ImagesPage extends LoomElement {
         if (!h.online) continue;
         for (const i of h.images || []) combined.push({ ...i, tags: i.tags || [], used_by: i.used_by || [], host: h.id });
       }
+      // Sort biggest-first so hosts interleave (otherwise it's all of host A
+      // then all of host B) and the heavy images surface for cleanup.
+      combined.sort((a, b) => b.size - a.size);
       this.images = combined;
       this.error = "";
       this.loaded = true;
@@ -543,6 +547,7 @@ export class ImagesPage extends LoomElement {
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s"><span class="crumb">images</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
+          <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="grow"></div>
