@@ -123,7 +123,7 @@ const STACK_OPS: { op: StackOp; label: string; danger?: boolean }[] = [
   tr.grp:hover .caret { color: var(--hi); }
   tr.grp.open .caret { transform: rotate(90deg); }
   .gname { color: var(--hi); font-weight: 500; }
-  .badge { border: 1px solid var(--line2); color: var(--mid); font-size: 11px; padding: 2px 7px; }
+  .badge { border: 1px solid var(--line2); color: var(--mid); font-size: 11px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0; }
   tr.grp:hover .badge { border-color: var(--mid); color: var(--hi); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -205,9 +205,10 @@ export class StackPage extends LoomElement {
       this.router.navigate("/login");
       return;
     }
-    if (project === this.project && this.stack) return; // already loaded this stack
+    if (project === this.project) return; // already on this stack (mount + watch both fire)
     this.project = project;
     this.stack = null;
+    this.stats = {};
     this.closeLogs();
     this.expanded = {};
     this.opLog = "";
@@ -220,6 +221,7 @@ export class StackPage extends LoomElement {
       const all = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
       this.stack = all.find((s) => s.project === this.project) ?? null;
       this.error = this.stack ? "" : `Stack "${this.project}" not found.`;
+      if (this.stack) this.snapshot(); // auto-fill the CPU/MEM columns
     } catch (err: any) {
       this.error = err?.message ?? "Failed to load.";
     }
