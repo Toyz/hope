@@ -89,7 +89,8 @@ const MAX_LINES = 600;
   main { padding: 26px 28px 56px; max-width: 1120px; margin: 0 auto; }
 
   /* identity */
-  .id { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  .id { display: flex; align-items: center; gap: 13px; margin-bottom: 4px; }
+  .id .mark { width: 9px; height: 9px; flex: none; }
   .id h1 { font: 600 22px/1 var(--mono); margin: 0; }
   .id .state { display: flex; align-items: center; gap: 8px; font: 600 11px/1 var(--mono);
     letter-spacing: .12em; text-transform: uppercase; padding: 6px 11px; border: 1px solid var(--line); }
@@ -97,16 +98,24 @@ const MAX_LINES = 600;
   .id .state.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .sub { font: 12px/1 var(--mono); color: var(--dim); margin-bottom: 20px; }
 
-  /* overview readout */
-  .ov { display: flex; flex-wrap: wrap; border: 1px solid var(--line); margin-bottom: 22px; }
+  /* overview readout — short metrics strip */
+  .ov { display: flex; flex-wrap: wrap; border: 1px solid var(--line); margin-bottom: 14px; }
   .ov .c { display: flex; flex-direction: column; gap: 6px; padding: 12px 18px; border-right: 1px solid var(--line); min-width: 0; }
+  .ov .c:last-child { border-right: 0; }
   .ov .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
-  .ov .v { font: 13px/1.3 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ov .v.warn { color: var(--warn); }
   .ov .v.bad { color: var(--bad); }
   .ov .v.slink { color: var(--hi); cursor: pointer; }
   .ov .v.slink:hover { color: #fff; text-decoration: underline; }
-  .ov .c.wide { flex: 1; }
+
+  /* long values — image / ports / id as full-width rows */
+  .kv { border: 1px solid var(--line); margin-bottom: 22px; }
+  .kv .r { display: flex; gap: 18px; align-items: baseline; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  .kv .r:last-child { border-bottom: 0; }
+  .kv .k { flex: 0 0 92px; font: 600 9.5px/1.6 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .kv .v { flex: 1; min-width: 0; font: 13px/1.5 var(--mono); color: var(--hi); word-break: break-all; }
+  .kv .v.dim { color: var(--mid); }
 
   .netblk { border: 1px solid var(--line); margin-bottom: 22px; }
   .netlbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
@@ -652,6 +661,7 @@ export class ContainerPage extends LoomElement {
 
           <div class="idrow">
             <div class="id">
+              <span class={"mark " + markClass(this.state())}></span>
               <h1>{this.service()}</h1>
               {this.siblings.length > 1 ? <span class="rbadge">#{this.currentNumber()}</span> : null}
               {this.state() ? (
@@ -682,15 +692,6 @@ export class ContainerPage extends LoomElement {
           <div class="sub">{this.id.slice(0, 24)}</div>
 
           <div class="ov">
-            {this.project() ? (
-              <div class="c">
-                <span class="k">Stack</span>
-                <span class="v slink" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>
-                  {this.project()} <loom-icon name="chevron-right" size={12}></loom-icon>
-                </span>
-              </div>
-            ) : null}
-            <div class="c"><span class="k">Image</span><span class="v">{this.info?.Config?.Image ?? "—"}</span></div>
             <div class="c"><span class="k">Uptime</span><span class="v">{uptime(this.info?.State?.StartedAt)}</span></div>
             <div class="c">
               <span class="k">Restarts</span>
@@ -702,7 +703,20 @@ export class ContainerPage extends LoomElement {
                 {this.health() || "—"}
               </span>
             </div>
-            <div class="c wide"><span class="k">Ports</span><span class="v">{this.ports()}</span></div>
+            {this.project() ? (
+              <div class="c">
+                <span class="k">Stack</span>
+                <span class="v slink" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>
+                  {this.project()} <loom-icon name="chevron-right" size={12}></loom-icon>
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div class="kv">
+            <div class="r"><span class="k">Image</span><span class="v">{this.info?.Config?.Image ?? "—"}</span></div>
+            <div class="r"><span class="k">Ports</span><span class="v">{this.ports()}</span></div>
+            <div class="r"><span class="k">Container</span><span class="v dim">{this.id}</span></div>
           </div>
 
           {this.netList().length ? (
