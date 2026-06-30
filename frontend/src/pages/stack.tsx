@@ -74,7 +74,7 @@ function aggMark(items: ContainerSummary[]): string {
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 24px 24px 64px; max-width: 1080px; margin: 0 auto; }
+  main { padding: 24px 32px 64px; max-width: 1340px; margin: 0 auto; }
 
   .shead { margin-bottom: 22px; }
   .row1 { display: flex; align-items: center; gap: 16px; }
@@ -143,7 +143,7 @@ function aggMark(items: ContainerSummary[]): string {
     transition: transform .12s ease, color .12s ease, border-color .12s ease; }
   tr.grp:hover .caret { color: var(--hi); border-color: var(--line2); }
   tr.grp.open .caret { transform: rotate(90deg); color: var(--hi); border-color: var(--line2); }
-  .gname { color: var(--hi); font-weight: 500; }
+  .gname { color: var(--hi); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .badge { border: 1px solid var(--line); color: var(--dim); font: 11px/1 var(--mono); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
   .badge b { color: var(--hi); font-weight: 600; }
   .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; background: transparent;
@@ -193,6 +193,35 @@ function aggMark(items: ContainerSummary[]): string {
   .toast.bad { border-color: var(--bad); color: var(--bad); }
   .toast.warn { border-color: var(--warn); color: var(--warn); }
 
+  /* advanced redeploy dialog */
+  .rdmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  .rdbox { width: 480px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--warn);
+    display: flex; flex-direction: column; max-height: calc(100vh - 40px); }
+  .rdhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px 0; }
+  .rdhead .rdt { font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--warn); }
+  .rdhead .grow { flex: 1; }
+  .rdx { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .rdx:hover { color: var(--hi); }
+  .rdmsg { margin: 0; padding: 12px 18px 14px; font: 13px/1.6 var(--sans); color: var(--hi); }
+  .rdbody { overflow: auto; border-top: 1px solid var(--line); }
+  .rdrow { display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .rdrow:last-child { border-bottom: none; }
+  .rdrow:hover { background: var(--raised); }
+  .rdrow.off { opacity: .5; }
+  .rdrow .rdname { font: 500 13px/1 var(--mono); color: var(--hi); }
+  .rdrow .grow { flex: 1; }
+  .rdrow .rdpods { font: 11px/1 var(--mono); color: var(--dim); }
+  .rdacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .rdacts .rdnote { font: 11px/1 var(--mono); color: var(--dim); }
+  .rdacts .grow { flex: 1; }
+  .tbtn.warnbtn { color: #06080d; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 85%, #000); }
+  .tbtn.warnbtn:hover { background: var(--warn); }
+  .tbtn.warnbtn:disabled { opacity: .4; cursor: not-allowed; }
+  .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); }
+  .ck.on { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--panel); }
+
   @media (max-width: 720px) { td.ports, th.ports { display: none; } }
 `)
 export class StackPage extends LoomElement {
@@ -221,6 +250,8 @@ export class StackPage extends LoomElement {
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
+  @reactive accessor rdOpen = false; // advanced redeploy dialog
+  @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
   private logsCtrl: AbortController | null = null;
   private opCtrl?: AbortController;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -398,23 +429,62 @@ export class StackPage extends LoomElement {
   }
 
   private stackOp = async (op: StackOp) => {
-    if (op === "stop" || op === "redeploy") {
+    if (op === "redeploy") {
+      this.rdExcluded = [];
+      this.rdOpen = true;
+      return;
+    }
+    if (op === "stop") {
       const ok = await this.confirm.ask({
-        title: op,
-        danger: op === "stop",
-        warn: op === "redeploy",
-        confirmLabel: op === "stop" ? "Stop stack" : "Redeploy",
-        message:
-          (op === "stop" ? "Stop" : "Redeploy (recreate)") +
-          ` the entire "${this.project}" stack — all ${this.stack?.total ?? ""} containers?`,
+        title: "stop",
+        danger: true,
+        confirmLabel: "Stop stack",
+        message: `Stop the entire "${this.project}" stack — all ${this.stack?.total ?? ""} containers?`,
       });
       if (!ok) return;
     }
-    if (op === "redeploy") {
-      this.runRedeploy("redeployStack", [this.project], this.project, "stack:redeploy");
-      return;
-    }
     this.runStackOp(op);
+  };
+
+  // Toggle a whole service in/out of the redeploy.
+  private rdToggle = (service: string) => {
+    this.rdExcluded = this.rdExcluded.includes(service) ? this.rdExcluded.filter((s) => s !== service) : [...this.rdExcluded, service];
+  };
+
+  private rdRun = () => {
+    if (!this.stack) return;
+    const svcName = (c: ContainerSummary) => c.service || c.name;
+    const include = this.stack.containers.filter((c) => !this.rdExcluded.includes(svcName(c)));
+    this.rdOpen = false;
+    if (!include.length) return;
+    // Whole stack -> one efficient stack stream; a subset -> per-container.
+    if (include.length === this.stack.containers.length) {
+      this.runRedeploy("redeployStack", [this.project], this.project, "stack:redeploy");
+    } else {
+      this.runRedeployList(include.map((c) => c.id), this.project);
+    }
+  };
+
+  // Redeploy a specific set of containers, streaming each into the output panel.
+  private runRedeployList = async (ids: string[], label: string) => {
+    this.busy = "stack:redeploy";
+    this.opLog = "";
+    this.opCtrl = new AbortController();
+    this.showToast(`redeploy ${label}…`, "", true);
+    try {
+      for (const id of ids) {
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id], this.opCtrl.signal)) {
+          if (f.type === "log") this.opLog += (this.opLog ? "\n" : "") + f.data;
+          else if (f.type === "done" && !f.ok) this.showToast(`redeploy — ${f.error}`, "bad");
+        }
+      }
+      this.showToast(`redeploy ${label} — done`);
+      await this.load();
+    } catch (err: any) {
+      if (!this.opCtrl?.signal.aborted) this.showToast(`redeploy ${label} — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.busy = "";
+    }
   };
 
   // Redeploy with live output: stream pull/recreate progress into the output
@@ -731,12 +801,12 @@ export class StackPage extends LoomElement {
 
               <table>
                 <colgroup>
-                  <col style="width:24%" />
+                  <col style="width:28%" />
                   <col style="width:9%" />
                   <col style="width:7%" />
                   <col style="width:7%" />
-                  <col style="width:15%" />
-                  <col style="width:22%" />
+                  <col style="width:13%" />
+                  <col style="width:20%" />
                   <col style="width:16%" />
                 </colgroup>
                 <thead>
@@ -840,6 +910,49 @@ export class StackPage extends LoomElement {
           ) : null}
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
+        {this.rdOpen && s ? this.renderRedeploy(s) : null}
+      </div>
+    );
+  }
+
+  // Advanced redeploy: a checklist of services so you can skip some (e.g. a
+  // database) instead of recreating the whole stack.
+  private renderRedeploy(s: StackSummary) {
+    const groups = this.groups(s);
+    const included = groups.filter((g) => !this.rdExcluded.includes(g.service));
+    const count = included.reduce((a, g) => a + g.items.length, 0);
+    return (
+      <div class="rdmodal" onClick={() => (this.rdOpen = false)}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name="redeploy" size={15} color="var(--warn)"></loom-icon>
+            <span class="rdt">redeploy {s.project}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.rdOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <p class="rdmsg">Pulls the latest image and recreates each checked service. Uncheck any to leave it running as-is.</p>
+          <div class="rdbody">
+            {groups.map((g) => {
+              const on = !this.rdExcluded.includes(g.service);
+              return (
+                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.rdToggle(g.service)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class={"mark " + aggMark(g.items)}></span>
+                  <span class="rdname">{g.service}</span>
+                  <span class="grow"></span>
+                  {g.items.length > 1 ? <span class="rdpods">{g.items.length} pods</span> : null}
+                  {this.groupUpdate(g.items) === "outdated" ? <span class="upd static">update</span> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div class="rdacts">
+            <span class="rdnote">{count} of {s.total} container(s)</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.rdOpen = false)}>cancel</button>
+            <button class="tbtn warnbtn" disabled={count === 0} onClick={this.rdRun}>redeploy {count}</button>
+          </div>
+        </div>
       </div>
     );
   }
