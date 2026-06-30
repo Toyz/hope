@@ -231,6 +231,10 @@ function aggMark(items: ContainerSummary[]): string {
     font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
   .rmtoggle:hover { color: var(--hi); }
   .rmtoggle .ck.on { background: var(--bad); border-color: var(--bad); }
+  .rdtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin-right: 6px;
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
+  .rdtoggle:hover { color: var(--hi); }
+  .rdtoggle .ck.on { background: var(--warn); border-color: var(--warn); }
   .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); }
   .ck.on { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--panel); }
 
@@ -266,6 +270,8 @@ export class StackPage extends LoomElement {
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
+  @reactive accessor rdPull = true; // "pull latest" toggle (default on)
+  @reactive accessor rdForce = false; // "force recreate" toggle (default off)
   @reactive accessor stopOpen = false; // stop/remove picker dialog
   @reactive accessor stopExcluded: string[] = []; // services excluded from the stop
   @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
@@ -470,6 +476,8 @@ export class StackPage extends LoomElement {
   private stackOp = async (op: StackOp) => {
     if (op === "redeploy") {
       this.rdExcluded = [];
+      this.rdPull = true;
+      this.rdForce = false;
       this.rdOpen = true;
       return;
     }
@@ -498,20 +506,20 @@ export class StackPage extends LoomElement {
     if (!include.length) return;
     // Whole stack -> one efficient stack stream; a subset -> per-container.
     if (include.length === this.stack.containers.length) {
-      this.runRedeploy("redeployStack", [this.project], this.project, "stack:redeploy");
+      this.runRedeploy("redeployStack", [this.project], this.project, "stack:redeploy", this.rdPull, this.rdForce);
     } else {
-      this.runRedeployList(include.map((c) => c.id), this.project);
+      this.runRedeployList(include.map((c) => c.id), this.project, this.rdPull, this.rdForce);
     }
   };
 
   // Redeploy a specific set of containers, streaming each into the dialog.
-  private runRedeployList = async (ids: string[], label: string) => {
+  private runRedeployList = async (ids: string[], label: string, pull = true, force = false) => {
     this.busy = "stack:redeploy";
     try {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
         let ok = true;
         for (const id of ids) {
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id], signal)) {
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id, String(pull), String(force)], signal)) {
             if (f.type === "log" && f.data) emit(f.data);
             else if (f.type === "done" && !f.ok) {
               ok = false;
@@ -529,12 +537,12 @@ export class StackPage extends LoomElement {
   };
 
   // Redeploy with live output streamed into the shared processing dialog.
-  private runRedeploy = async (method: "redeploy" | "redeployStack", args: string[], label: string, busyKey: string) => {
+  private runRedeploy = async (method: "redeploy" | "redeployStack", args: string[], label: string, busyKey: string, pull = true, force = true) => {
     this.busy = busyKey;
     try {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
         let ok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, [...args, String(pull), String(force)], signal)) {
           if (f.type === "log" && f.data) emit(f.data);
           else if (f.type === "done" && !f.ok) {
             ok = false;
@@ -1001,7 +1009,15 @@ export class StackPage extends LoomElement {
             })}
           </div>
           <div class="rdacts">
-            <span class="rdnote">{count} of {s.total} container(s)</span>
+            <span class="rdtoggle" title="pull the newest image before recreating" onClick={() => (this.rdPull = !this.rdPull)}>
+              <span class={"ck" + (this.rdPull ? " on" : "")}></span>
+              <span>pull latest</span>
+            </span>
+            <span class="rdtoggle" title="recreate even containers already on the current image" onClick={() => (this.rdForce = !this.rdForce)}>
+              <span class={"ck" + (this.rdForce ? " on" : "")}></span>
+              <span>force recreate</span>
+            </span>
+            <span class="rdnote">{count} of {s.total}</span>
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.rdOpen = false)}>cancel</button>
             <button class="tbtn warnbtn" disabled={count === 0} onClick={this.rdRun}>redeploy {count}</button>

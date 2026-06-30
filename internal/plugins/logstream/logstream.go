@@ -129,14 +129,18 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		id := args[0]
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployContainer(ctx, id, emit) })
+		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
+		force := len(args) > 2 && args[2] == "true"
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployContainer(ctx, id, pull, force, emit) })
 
 	case pathRedeployStack:
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "project required")
 		}
 		project := args[0]
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployProject(ctx, project, emit) })
+		pull := !(len(args) > 1 && args[1] == "false")
+		force := len(args) > 2 && args[2] == "true"
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployProject(ctx, project, pull, force, emit) })
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"

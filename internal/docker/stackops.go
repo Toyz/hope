@@ -172,16 +172,22 @@ func (c *Client) PullImageStream(ctx context.Context, ref string, emit func(stri
 
 // RedeployContainer pulls a container's image (streaming progress to emit) then
 // recreates it, emitting step lines. The terminal "done" frame is the caller's.
-func (c *Client) RedeployContainer(ctx context.Context, id string, emit func(string)) error {
+func (c *Client) RedeployContainer(ctx context.Context, id string, pull, force bool, emit func(string)) error {
 	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", id, err)
 	}
 	img := info.Config.Image
 	name := strings.TrimPrefix(info.Name, "/")
-	emit("pull " + img)
-	if err := c.PullImageStream(ctx, img, emit); err != nil {
-		return err
+	if pull {
+		emit("pull " + img)
+		if err := c.PullImageStream(ctx, img, emit); err != nil {
+			return err
+		}
+	}
+	if !force && c.onCurrentImage(ctx, info.Image, img) {
+		emit("skip " + name + " — already on the current image")
+		return nil
 	}
 	emit("recreate " + name)
 	if err := c.RecreateManaged(ctx, id); err != nil {
@@ -192,16 +198,19 @@ func (c *Client) RedeployContainer(ctx context.Context, id string, emit func(str
 }
 
 // RedeployProject pulls every image in a project then recreates each container,
-// streaming progress to emit.
-func (c *Client) RedeployProject(ctx context.Context, project string, emit func(string)) error {
-	imgs, err := c.ImagesForProject(ctx, project)
-	if err != nil {
-		return err
-	}
-	for _, img := range imgs {
-		emit("pull " + img)
-		if err := c.PullImageStream(ctx, img, emit); err != nil {
+// streaming progress to emit. With pull off it skips the pull; with force off it
+// leaves containers already running the current image untouched.
+func (c *Client) RedeployProject(ctx context.Context, project string, pull, force bool, emit func(string)) error {
+	if pull {
+		imgs, err := c.ImagesForProject(ctx, project)
+		if err != nil {
 			return err
+		}
+		for _, img := range imgs {
+			emit("pull " + img)
+			if err := c.PullImageStream(ctx, img, emit); err != nil {
+				return err
+			}
 		}
 	}
 	ids, err := c.ProjectContainerIDs(ctx, project)
@@ -213,6 +222,12 @@ func (c *Client) RedeployProject(ctx context.Context, project string, emit func(
 		if len(short) > 12 {
 			short = short[:12]
 		}
+		if !force {
+			if info, e := c.sdk().ContainerInspect(ctx, id); e == nil && c.onCurrentImage(ctx, info.Image, info.Config.Image) {
+				emit("skip " + short + " — already on the current image")
+				continue
+			}
+		}
 		emit("recreate " + short)
 		if err := c.RecreateManaged(ctx, id); err != nil {
 			return fmt.Errorf("recreate %s: %w", short, err)
@@ -220,6 +235,19 @@ func (c *Client) RedeployProject(ctx context.Context, project string, emit func(
 	}
 	c.RefreshProjectStatus(ctx, project)
 	return nil
+}
+
+// onCurrentImage reports whether a container's running image id already matches
+// the local image the ref now resolves to (so a redeploy would be a no-op).
+func (c *Client) onCurrentImage(ctx context.Context, runningImageID, ref string) bool {
+	if runningImageID == "" || ref == "" {
+		return false
+	}
+	insp, _, err := c.sdk().ImageInspectWithRaw(ctx, ref)
+	if err != nil {
+		return false
+	}
+	return insp.ID == runningImageID
 }
 
 // ContainerImage returns the image reference a container was created from.
