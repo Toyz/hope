@@ -1,7 +1,7 @@
 // Container detail — identity, a live overview, stat gauges, the log terminal,
 // and raw inspect. Inspect drives the header/overview; logs + stats stream over
 // NDJSON and tear down on unmount.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
@@ -421,6 +421,17 @@ export class ContainerPage extends LoomElement {
     }
   }
 
+  // Poll inspect so state/health transitions (e.g. "starting" -> "running")
+  // appear without a manual refresh.
+  @interval(5000)
+  private pollInfo() {
+    if (!this.id || !this.info) return;
+    this.rpc
+      .call<any>("Containers", "inspect", [this.id])
+      .then((i) => (this.info = i))
+      .catch(() => {});
+  }
+
   private selectTab = (t: Tab) => {
     this.tab = t;
   };
@@ -520,6 +531,8 @@ export class ContainerPage extends LoomElement {
           </div>
           <div class="s">
             <span class="crumb">
+              <span class="p" onClick={() => this.router.navigate("/")}>fleet</span>
+              <span class="sep"> / </span>
               {this.project() ? (
                 <span class="p" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>
                   {this.project()}

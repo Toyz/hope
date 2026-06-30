@@ -41,6 +41,11 @@ type Client struct {
 	updByRef map[string]refStatus
 	updAt    time.Time
 	updPath  string // optional on-disk persistence (empty = memory only)
+
+	// Docker disk-usage cache (df is expensive, so it's crawled, not live).
+	duMu    sync.RWMutex
+	duCache any
+	duAt    time.Time
 }
 
 // New dials the Docker daemon at host (e.g. "unix:///var/run/docker.sock"

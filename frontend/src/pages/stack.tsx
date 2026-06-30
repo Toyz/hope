@@ -318,6 +318,21 @@ export class StackPage extends LoomElement {
     if (this.stack && !this.statsBusy) this.snapshot();
   }
 
+  // Refresh container states (cheap) so transitions show without a reload.
+  @interval(5000)
+  private tickList() {
+    if (this.stack) this.refreshList();
+  }
+
+  private async refreshList() {
+    try {
+      const all = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
+      this.stack = all.find((s) => s.project === this.project) ?? this.stack;
+    } catch {
+      /* keep last good state */
+    }
+  }
+
   private enter(project: string) {
     if (!this.auth.isAuthenticated) {
       this.router.navigate("/login");

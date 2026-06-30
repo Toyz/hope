@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Toyz/sov"
 	"github.com/Toyz/sov/gateway/builtin/static"
@@ -66,6 +67,8 @@ func main() {
 		dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
 		lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
 	}
+	// Docker disk usage (`df`) is expensive, so crawl it hourly and serve cached.
+	dock.StartDiskCrawler(ctx, time.Hour)
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)

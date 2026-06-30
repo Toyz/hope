@@ -7,7 +7,7 @@
 #   docker build --secret id=netrc,src=$HOME/.netrc --build-arg GOPRIVATE=github.com/Toyz/* .
 
 # 1) Build the frontend.
-FROM node:22-alpine AS ui
+FROM node:lts-alpine AS ui
 WORKDIR /ui
 COPY frontend/package*.json ./
 RUN npm ci || npm install
@@ -15,8 +15,8 @@ COPY frontend/ ./
 RUN npm run build
 
 # 2) Build the Go binary with the SPA embedded.
-FROM golang:1.25-alpine AS build
-RUN apk add --no-cache git
+FROM golang:alpine AS build
+RUN apk add --no-cache git ca-certificates
 ARG GOPRIVATE=""
 ENV GOPRIVATE=${GOPRIVATE}
 WORKDIR /src
@@ -28,10 +28,12 @@ RUN rm -rf frontend/dist
 COPY --from=ui /ui/dist ./frontend/dist
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /hope ./cmd/hope
 
-# 3) Minimal runtime.
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
-WORKDIR /app
+# 3) Minimal runtime — scratch. The binary is a static (CGO_ENABLED=0) pure-Go
+# build, hope reaches the daemon over the mounted socket (or tcp), and the
+# daemon does the registry calls — so no shell, no CLI, no libc needed. CA
+# certs are carried for a tcp+tls:// daemon. Code uses UTC only, so no tzdata.
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /hope /usr/local/bin/hope
 EXPOSE 8080
 ENTRYPOINT ["hope", "-config", "/app/config.toml"]

@@ -78,6 +78,11 @@ export interface UpdatesResult {
   checked_at: string;
 }
 
+export interface DiskResult {
+  usage: any; // raw docker df (LayersSize, Images, Containers, Volumes, BuildCache)
+  checked_at: string;
+}
+
 // NDJSON stream frames.
 export interface LogFrame {
   type: "stdout" | "stderr";
@@ -155,10 +160,13 @@ export class System {
   info(): unknown {
     return undefined!;
   }
-  diskUsage(): unknown {
+  updates(): UpdatesResult {
     return undefined!;
   }
-  updates(): UpdatesResult {
+  diskUsage(): DiskResult {
+    return undefined!;
+  }
+  refreshDiskUsage(): DiskResult {
     return undefined!;
   }
 }

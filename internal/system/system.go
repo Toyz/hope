@@ -64,14 +64,39 @@ func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
 	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: checkedAt}, nil
 }
 
-// DiskUsage returns the daemon's disk-usage breakdown.
-func (r *SystemRouter) DiskUsage(ctx *rpc.Context) (any, error) {
+// DiskResult wraps a disk-usage snapshot with the time it was taken.
+type DiskResult struct {
+	Usage     any    `json:"usage"`
+	CheckedAt string `json:"checked_at"`
+}
+
+// DiskUsage returns the cached disk-usage snapshot (crawled hourly — df is too
+// expensive to run on every dashboard load).
+func (r *SystemRouter) DiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	du, err := r.docker.DiskUsage(ctx)
+	du, at := r.docker.DiskUsageCached()
+	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
+}
+
+// RefreshDiskUsage runs a live df (user-triggered) and updates the cache.
+func (r *SystemRouter) RefreshDiskUsage(ctx *rpc.Context) (*DiskResult, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	du, at, err := r.docker.RefreshDiskUsage(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	return du, nil
+	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
+}
+
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }

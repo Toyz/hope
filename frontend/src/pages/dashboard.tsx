@@ -7,7 +7,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
-import type { StackSummary, UpdatesResult } from "../contracts";
+import type { StackSummary, UpdatesResult, DiskResult } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
@@ -59,6 +59,12 @@ const UNGROUPED = "(ungrouped)";
   .hostbar .hk { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
   .hostbar .hv { font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
   .hostbar .hv .t { color: var(--dim); }
+  .hostbar .hi.grow { flex: 1; border-right: 0; padding: 0; }
+  .hrefresh { display: inline-flex; align-items: center; gap: 7px; align-self: stretch; padding: 0 16px;
+    background: transparent; border: 0; border-left: 1px solid var(--line); color: var(--dim);
+    font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; cursor: pointer; }
+  .hrefresh:hover { color: var(--hi); background: var(--raised); }
+  .hrefresh:disabled { opacity: .6; cursor: not-allowed; }
 
   /* search */
   .search { position: relative; margin-bottom: 22px; }
@@ -168,6 +174,8 @@ export class DashboardPage extends LoomElement {
   @reactive accessor query = "";
   @reactive accessor updates: UpdatesResult | null = null;
   @reactive accessor host: any = null;
+  @reactive accessor disk: DiskResult | null = null;
+  @reactive accessor diskBusy = false;
 
   @mount
   onMount() {
@@ -176,6 +184,43 @@ export class DashboardPage extends LoomElement {
       return;
     }
     this.load();
+    this.loadHost(); // host identity + cached disk usage — once, not on the tick
+  }
+
+  // Docker host identity + cached disk usage. Both cheap (df is cached
+  // server-side, crawled hourly); fetched once on mount.
+  private async loadHost() {
+    try {
+      this.host = await this.rpc.call<any>("System", "info", []);
+    } catch {
+      /* host strip stays hidden */
+    }
+    try {
+      this.disk = await this.rpc.call<DiskResult>("System", "diskUsage", []);
+    } catch {
+      /* storage cells stay hidden */
+    }
+  }
+
+  private refreshDisk = async () => {
+    this.diskBusy = true;
+    try {
+      this.disk = await this.rpc.call<DiskResult>("System", "refreshDiskUsage", []);
+    } catch {
+      /* ignore */
+    } finally {
+      this.diskBusy = false;
+    }
+  };
+
+  private diskTotals() {
+    const d = this.disk?.usage;
+    if (!d) return null;
+    const images = d.LayersSize || 0;
+    const volumes = (d.Volumes || []).reduce((a: number, v: any) => a + (v?.UsageData?.Size > 0 ? v.UsageData.Size : 0), 0);
+    const cache = (d.BuildCache || []).reduce((a: number, b: any) => a + (b?.Size || 0), 0);
+    const containers = (d.Containers || []).reduce((a: number, c: any) => a + (c?.SizeRw || 0), 0);
+    return { images, volumes, cache, containers, total: images + volumes + cache + containers };
   }
 
   @interval(5000)
@@ -196,12 +241,6 @@ export class DashboardPage extends LoomElement {
       this.updates = await this.rpc.call<UpdatesResult>("System", "updates", []);
     } catch {
       /* updates section just stays hidden */
-    }
-    // Docker host identity / capacity — insight into the daemon we're driving.
-    try {
-      this.host = await this.rpc.call<any>("System", "info", []);
-    } catch {
-      /* host strip stays hidden */
     }
   }
 
@@ -339,6 +378,17 @@ export class DashboardPage extends LoomElement {
               <span class="hi"><i class="hk">mem</i><i class="hv">{gb(this.host.MemTotal)}</i></span>
               <span class="hi"><i class="hk">containers</i><i class="hv">{this.host.ContainersRunning ?? 0}<i class="t">/{this.host.Containers ?? 0}</i></i></span>
               <span class="hi"><i class="hk">images</i><i class="hv">{this.host.Images ?? 0}</i></span>
+              {this.diskTotals() ? (
+                <>
+                  <span class="hi"><i class="hk">disk</i><i class="hv">{gb(this.diskTotals()!.total)}</i></span>
+                  <span class="hi"><i class="hk">volumes</i><i class="hv">{gb(this.diskTotals()!.volumes)}</i></span>
+                  <span class="hi"><i class="hk">build cache</i><i class="hv">{gb(this.diskTotals()!.cache)}</i></span>
+                </>
+              ) : null}
+              <span class="hi grow"></span>
+              <button class="hrefresh" disabled={this.diskBusy} title={this.disk?.checked_at ? `disk usage · ${ago(this.disk.checked_at)}` : "compute disk usage"} onClick={this.refreshDisk}>
+                <loom-icon name="rotate" size={13}></loom-icon>{this.diskBusy ? "scanning…" : "df"}
+              </button>
             </div>
           ) : null}
 
