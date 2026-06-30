@@ -215,6 +215,8 @@ function aggMark(items: ContainerSummary[]): string {
   .rdrow .rdname { font: 500 13px/1 var(--mono); color: var(--hi); }
   .rdrow .grow { flex: 1; }
   .rdrow .rdpods { font: 11px/1 var(--mono); color: var(--dim); }
+  .rdopts { display: flex; align-items: center; gap: 22px; padding: 11px 18px; border-top: 1px solid var(--line); }
+  .rdopts .ck { width: 14px; height: 14px; }
   .rdacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .rdacts .rdnote { font: 11px/1 var(--mono); color: var(--dim); }
@@ -227,11 +229,11 @@ function aggMark(items: ContainerSummary[]): string {
   .tbtn.danger:disabled { opacity: .4; cursor: not-allowed; color: var(--bad); background: transparent; }
   .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
     padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; }
-  .rmtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  .rmtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;
     font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
   .rmtoggle:hover { color: var(--hi); }
   .rmtoggle .ck.on { background: var(--bad); border-color: var(--bad); }
-  .rdtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin-right: 6px;
+  .rdtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;
     font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
   .rdtoggle:hover { color: var(--hi); }
   .rdtoggle .ck.on { background: var(--warn); border-color: var(--warn); }
@@ -992,7 +994,7 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="rdx" onClick={() => (this.rdOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
-          <p class="rdmsg">Pulls the latest image and recreates each checked service. Uncheck any to leave it running as-is.</p>
+          <p class="rdmsg">Recreates each checked service. Uncheck any to leave it as-is.</p>
           <div class="rdbody">
             {groups.map((g) => {
               const on = !this.rdExcluded.includes(g.service);
@@ -1008,7 +1010,7 @@ export class StackPage extends LoomElement {
               );
             })}
           </div>
-          <div class="rdacts">
+          <div class="rdopts">
             <span class="rdtoggle" title="pull the newest image before recreating" onClick={() => (this.rdPull = !this.rdPull)}>
               <span class={"ck" + (this.rdPull ? " on" : "")}></span>
               <span>pull latest</span>
@@ -1017,6 +1019,8 @@ export class StackPage extends LoomElement {
               <span class={"ck" + (this.rdForce ? " on" : "")}></span>
               <span>force recreate</span>
             </span>
+          </div>
+          <div class="rdacts">
             <span class="rdnote">{count} of {s.total}</span>
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.rdOpen = false)}>cancel</button>
@@ -1100,11 +1104,13 @@ export class StackPage extends LoomElement {
               );
             })}
           </div>
-          <div class="rdacts">
-            <span class="rmtoggle" onClick={() => (this.stopRemove = !this.stopRemove)}>
+          <div class="rdopts">
+            <span class="rmtoggle" title="stop and permanently delete the containers, not just stop them" onClick={() => (this.stopRemove = !this.stopRemove)}>
               <span class={"ck" + (this.stopRemove ? " on" : "")}></span>
               <span>also remove</span>
             </span>
+          </div>
+          <div class="rdacts">
             <span class="rdnote">{count} of {s.total}</span>
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.stopOpen = false)}>cancel</button>
