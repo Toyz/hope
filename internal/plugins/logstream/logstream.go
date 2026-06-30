@@ -28,10 +28,12 @@ import (
 // so they ride the same transport, but a RouteHandler intercepts them before
 // business dispatch (there is no "Stream" RPC router).
 const (
-	pathLogs        = "/rpc/Stream/logs"
-	pathStats       = "/rpc/Stream/stats"
-	pathStackLogs   = "/rpc/Stream/stackLogs"   // args: [project]
-	pathServiceLogs = "/rpc/Stream/serviceLogs" // args: [project, service]
+	pathLogs          = "/rpc/Stream/logs"
+	pathStats         = "/rpc/Stream/stats"
+	pathStackLogs     = "/rpc/Stream/stackLogs"     // args: [project]
+	pathServiceLogs   = "/rpc/Stream/serviceLogs"   // args: [project, service]
+	pathRedeploy      = "/rpc/Stream/redeploy"      // args: [container id]
+	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project]
 )
 
 // multiTail caps per-container backlog when fanning in many containers.
@@ -66,7 +68,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -114,9 +116,51 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		}
 		return p.streamMulti(ctx, refs)
 
+	case pathRedeploy:
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "container id required")
+		}
+		if !p.docker.Exists(ctx, args[0]) {
+			return errResp(http.StatusNotFound, "container not found")
+		}
+		id := args[0]
+		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.RedeployContainer(ctx, id, emit) })
+
+	case pathRedeployStack:
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "project required")
+		}
+		project := args[0]
+		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.RedeployProject(ctx, project, emit) })
+
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
 	}
+}
+
+// opFrame is one NDJSON line of a streamed operation (redeploy): progress "log"
+// lines, then a terminal "done" frame carrying success/failure.
+type opFrame struct {
+	Type  string `json:"type"` // "log" | "done"
+	Data  string `json:"data,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// streamOp runs a long operation, forwarding each progress line as an opFrame
+// and finishing with a terminal done frame (so the client knows the outcome
+// even though the HTTP status is already committed).
+func (p *Plugin) streamOp(ctx context.Context, run func(emit func(string)) error) *gateway.Response {
+	_ = ctx
+	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		emit := func(line string) { _ = enc.Encode(opFrame{Type: "log", Data: line}) }
+		err := run(emit)
+		if err != nil {
+			return enc.Encode(opFrame{Type: "done", OK: false, Error: err.Error()})
+		}
+		return enc.Encode(opFrame{Type: "done", OK: true})
+	}))
 }
 
 // authenticate resolves the bearer token from the Authorization header.

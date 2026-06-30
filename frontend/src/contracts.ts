@@ -90,6 +90,15 @@ export interface LogFrame {
   source?: string; // set on multiplexed stack/service streams
 }
 
+// Streamed operation (redeploy) frames: progress "log" lines then a terminal
+// "done" frame with the outcome.
+export interface OpFrame {
+  type: "log" | "done";
+  data?: string;
+  ok: boolean;
+  error?: string;
+}
+
 // ---- service contracts (wire names) ----
 
 @service("Auth")

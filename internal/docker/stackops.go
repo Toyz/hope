@@ -121,6 +121,107 @@ func (c *Client) PullImage(ctx context.Context, ref string) error {
 	}
 }
 
+// PullImageStream pulls ref and forwards human-readable progress to emit, one
+// line per layer status change (chatty per-chunk progress is deduped). Returns
+// the registry's error on failure, like PullImage.
+func (c *Client) PullImageStream(ctx context.Context, ref string, emit func(string)) error {
+	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
+	if err != nil {
+		return fmt.Errorf("pull %s: %w", ref, err)
+	}
+	defer rc.Close()
+
+	dec := json.NewDecoder(rc)
+	last := map[string]string{}
+	for {
+		var m struct {
+			Status      string `json:"status"`
+			ID          string `json:"id"`
+			Error       string `json:"error"`
+			ErrorDetail struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := dec.Decode(&m); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("pull %s: %w", ref, err)
+		}
+		if m.Error != "" {
+			d := m.Error
+			if m.ErrorDetail.Message != "" {
+				d = m.ErrorDetail.Message
+			}
+			return fmt.Errorf("pull %s: %s", ref, d)
+		}
+		if m.Status == "" {
+			continue
+		}
+		if m.ID != "" {
+			if last[m.ID] == m.Status {
+				continue // same layer phase — skip the progress spam
+			}
+			last[m.ID] = m.Status
+			emit(m.ID + ": " + m.Status)
+		} else {
+			emit(m.Status)
+		}
+	}
+}
+
+// RedeployContainer pulls a container's image (streaming progress to emit) then
+// recreates it, emitting step lines. The terminal "done" frame is the caller's.
+func (c *Client) RedeployContainer(ctx context.Context, id string, emit func(string)) error {
+	info, err := c.cli.ContainerInspect(ctx, id)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", id, err)
+	}
+	img := info.Config.Image
+	name := strings.TrimPrefix(info.Name, "/")
+	emit("pull " + img)
+	if err := c.PullImageStream(ctx, img, emit); err != nil {
+		return err
+	}
+	emit("recreate " + name)
+	if err := c.RecreateManaged(ctx, id); err != nil {
+		return err
+	}
+	c.RefreshImageStatus(ctx, img)
+	return nil
+}
+
+// RedeployProject pulls every image in a project then recreates each container,
+// streaming progress to emit.
+func (c *Client) RedeployProject(ctx context.Context, project string, emit func(string)) error {
+	imgs, err := c.ImagesForProject(ctx, project)
+	if err != nil {
+		return err
+	}
+	for _, img := range imgs {
+		emit("pull " + img)
+		if err := c.PullImageStream(ctx, img, emit); err != nil {
+			return err
+		}
+	}
+	ids, err := c.ProjectContainerIDs(ctx, project)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		short := id
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		emit("recreate " + short)
+		if err := c.RecreateManaged(ctx, id); err != nil {
+			return fmt.Errorf("recreate %s: %w", short, err)
+		}
+	}
+	c.RefreshProjectStatus(ctx, project)
+	return nil
+}
+
 // ContainerImage returns the image reference a container was created from.
 func (c *Client) ContainerImage(ctx context.Context, id string) (string, error) {
 	info, err := c.cli.ContainerInspect(ctx, id)

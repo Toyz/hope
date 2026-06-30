@@ -6,7 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat, ImageUpdate, UpdatesResult } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
 
@@ -222,6 +222,7 @@ export class StackPage extends LoomElement {
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
   private logsCtrl: AbortController | null = null;
+  private opCtrl?: AbortController;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   private showToast(msg: string, kind = "", sticky = false) {
@@ -409,7 +410,31 @@ export class StackPage extends LoomElement {
       });
       if (!ok) return;
     }
+    if (op === "redeploy") {
+      this.runRedeploy("redeployStack", [this.project], this.project, "stack:redeploy");
+      return;
+    }
     this.runStackOp(op);
+  };
+
+  // Redeploy with live output: stream pull/recreate progress into the output
+  // panel instead of blocking on a single RPC.
+  private runRedeploy = async (method: "redeploy" | "redeployStack", args: string[], label: string, busyKey: string) => {
+    this.busy = busyKey;
+    this.opLog = "";
+    this.opCtrl = new AbortController();
+    this.showToast(`redeploy ${label}…`, "", true);
+    try {
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, this.opCtrl.signal)) {
+        if (f.type === "log") this.opLog += (this.opLog ? "\n" : "") + f.data;
+        else if (f.type === "done") this.showToast(f.ok ? `redeploy ${label} — done` : `redeploy ${label} — ${f.error}`, f.ok ? "" : "bad");
+      }
+      await this.load();
+    } catch (err: any) {
+      if (!this.opCtrl?.signal.aborted) this.showToast(`redeploy ${label} — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.busy = "";
+    }
   };
 
   private runStackOp = async (op: StackOp) => {
@@ -441,6 +466,10 @@ export class StackPage extends LoomElement {
             : `${op === "kill" ? "Kill" : "Stop"} "${label}"?`,
       });
       if (!ok) return;
+    }
+    if (op === "redeploy") {
+      this.runRedeploy("redeploy", [id], label, `${id}:redeploy`);
+      return;
     }
     this.runContainerOp(id, op, label);
   };
@@ -519,6 +548,7 @@ export class StackPage extends LoomElement {
   @unmount
   onUnmount() {
     this.logsCtrl?.abort();
+    this.opCtrl?.abort();
     if (this.toastTimer) clearTimeout(this.toastTimer);
     removeEventListener("click", this.closeMenu);
   }
