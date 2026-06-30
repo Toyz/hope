@@ -6,7 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
-import type { ImageInfo, PruneResult } from "../contracts";
+import type { ImageInfo, PruneResult, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
 type Filter = "all" | "used" | "unused" | "dangling";
@@ -59,6 +59,17 @@ type Filter = "all" | "used" | "unused" | "dangling";
     border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px; max-width: 420px; }
   .toast.bad { border-color: var(--bad); color: var(--bad); }
 
+  .proc { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  .pbox { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
+  .phead { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .phead .pt { font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--hi); }
+  .phead .grow { flex: 1; }
+  .phead .pn { font: 600 12px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+  .plog { height: 320px; border: 0; border-bottom: 1px solid var(--line); background: #070a0f;
+    overflow: auto; white-space: pre-wrap; word-break: break-all; font: 12px/1.6 var(--mono); color: #bfc9d8; }
+  .pacts { display: flex; justify-content: flex-end; padding: 13px 16px; }
+
   .search { position: relative; margin-bottom: 18px; }
   .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
     font: 13px/1 var(--mono); padding: 11px 12px 11px 38px; }
@@ -67,11 +78,11 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .search .ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
 
   table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
-  colgroup col.c-repo { width: 40%; }
-  colgroup col.c-id { width: 15%; }
-  colgroup col.c-size { width: 11%; }
-  colgroup col.c-age { width: 12%; }
-  colgroup col.c-use { width: 14%; }
+  colgroup col.c-repo { width: 31%; }
+  colgroup col.c-id { width: 13%; }
+  colgroup col.c-size { width: 9%; }
+  colgroup col.c-age { width: 9%; }
+  colgroup col.c-use { width: 30%; }
   colgroup col.c-act { width: 8%; }
   thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
@@ -84,6 +95,40 @@ type Filter = "all" | "used" | "unused" | "dangling";
   td.repo .untag { color: var(--dim); }
   td.repo .extra { color: var(--dim); margin-left: 7px; font-size: 11px; }
   td.id, td.size, td.age { color: var(--mid); font-variant-numeric: tabular-nums; }
+  tr.irow { cursor: pointer; }
+  td.usedby { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mid); }
+  .ucount { color: var(--mid); }
+  .ub { display: inline-block; font: 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; cursor: pointer; }
+  .ub:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .ub .ubp { color: var(--dim); }
+  .ubmore { color: var(--dim); }
+
+  /* image detail modal */
+  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  .dbox { width: 600px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
+  .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .dhead .dt { font: 600 14px/1.2 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dhead .grow { flex: 1; }
+  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .dx:hover { color: var(--hi); }
+  .dfacts { display: flex; border-bottom: 1px solid var(--line); }
+  .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .dbody { padding: 6px 18px 12px; }
+  .drow { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .drow:last-child { border-bottom: 0; }
+  .drow.top { align-items: flex-start; }
+  .dk { flex: 0 0 84px; font: 600 10px/1.8 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .dv { flex: 1; min-width: 0; font: 12.5px/1.6 var(--mono); color: var(--hi); display: flex; flex-wrap: wrap; align-items: center; }
+  .dv.mono { font-family: var(--mono); }
+  .dv .dim { color: var(--dim); }
+  .tagchip { font: 12px/1 var(--mono); color: var(--hi); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; }
+  .dacts { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .dacts .grow { flex: 1; }
+  .dnote { font: 11px/1.4 var(--mono); color: var(--warn); max-width: 360px; }
   .chip { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 7px;
     border: 1px solid var(--line2); color: var(--mid); }
   .chip.use { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
@@ -106,6 +151,13 @@ export class ImagesPage extends LoomElement {
   @reactive accessor filter: Filter = "all";
   @reactive accessor toast = "";
   @reactive accessor toastKind = "";
+  @reactive accessor procOpen = false;
+  @reactive accessor procTitle = "";
+  @reactive accessor procLines: string[] = [];
+  @reactive accessor procDone = false;
+  @reactive accessor procOk = true;
+  private procCtrl?: AbortController;
+  @reactive accessor detail: ImageInfo | null = null;
 
   @mount
   onMount() {
@@ -120,8 +172,8 @@ export class ImagesPage extends LoomElement {
     this.busy = true;
     try {
       const list = await this.rpc.call<ImageInfo[]>("System", "images", []);
-      // Go sends a nil tag slice as JSON null for dangling images — normalize.
-      this.images = (list || []).map((i) => ({ ...i, tags: i.tags || [] }));
+      // Go nil slices arrive as JSON null — normalize tags + used_by to arrays.
+      this.images = (list || []).map((i) => ({ ...i, tags: i.tags || [], used_by: i.used_by || [] }));
       this.error = "";
       this.loaded = true;
     } catch (err: any) {
@@ -188,14 +240,131 @@ export class ImagesPage extends LoomElement {
       ],
     });
     if (!ok) return;
+    // Live processing dialog: remove one at a time, streaming progress.
+    this.procTitle = all ? "pruning unused images" : "pruning dangling images";
+    this.procLines = [];
+    this.procDone = false;
+    this.procOk = true;
+    this.procOpen = true;
+    this.procCtrl = new AbortController();
     try {
-      const res = await this.rpc.call<PruneResult>("System", "pruneImages", [all]);
-      this.showToast(`pruned ${res.deleted} image(s), freed ${bytes(res.reclaimed)}`);
-      await this.load();
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], this.procCtrl.signal)) {
+        if (f.type === "log" && f.data) this.appendProc(f.data);
+        else if (f.type === "done") this.procOk = f.ok;
+      }
     } catch (err: any) {
-      this.showToast(`prune — ${err?.message ?? "failed"}`, "bad");
+      if (!this.procCtrl?.signal.aborted) {
+        this.appendProc("error: " + (err?.message ?? "failed"));
+        this.procOk = false;
+      }
+    } finally {
+      this.procDone = true;
+      await this.load();
     }
   };
+
+  private appendProc(line: string) {
+    this.procLines = [...this.procLines, line];
+    requestAnimationFrame(() => {
+      const el = this.shadowRoot?.querySelector(".plog") as HTMLElement | null;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  private procClose = () => {
+    this.procCtrl?.abort();
+    this.procOpen = false;
+  };
+
+  // Redeploy every container using this image so they move onto their current
+  // tag — which frees the old (often untagged) image to be removed.
+  private redeployUsers = async (i: ImageInfo) => {
+    const users = i.used_by;
+    if (!users.length) return;
+    const ok = await this.confirm.ask({
+      title: "redeploy & free",
+      warn: true,
+      confirmLabel: "Redeploy",
+      message: "Redeploy each container onto its current image tag. That recreates them and frees this old image.",
+      stats: [{ label: "containers", value: String(users.length) }],
+    });
+    if (!ok) return;
+    this.detail = null;
+    this.procTitle = "redeploying containers";
+    this.procLines = [];
+    this.procDone = false;
+    this.procOk = true;
+    this.procOpen = true;
+    this.procCtrl = new AbortController();
+    try {
+      for (const u of users) {
+        this.appendProc("> " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [u.id], this.procCtrl.signal)) {
+          if (f.type === "log" && f.data) this.appendProc("  " + f.data);
+          else if (f.type === "done" && !f.ok) {
+            this.procOk = false;
+            this.appendProc("  failed: " + (f.error ?? ""));
+          }
+        }
+      }
+      this.appendProc("done — the old image is now free; remove it from the list");
+    } catch (err: any) {
+      if (!this.procCtrl?.signal.aborted) {
+        this.appendProc("error: " + (err?.message ?? "failed"));
+        this.procOk = false;
+      }
+    } finally {
+      this.procDone = true;
+      await this.load();
+    }
+  };
+
+  private renderDetail(i: ImageInfo) {
+    const title = i.tags.length ? i.tags[0] : "<untagged>";
+    return (
+      <div class="dmodal" onClick={() => (this.detail = null)}>
+        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt" title={title}>{title}</span>
+            <span class="grow"></span>
+            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="dfacts">
+            <span class="st"><i class="sk">size</i><i class="sv">{bytes(i.size)}</i></span>
+            <span class="st"><i class="sk">age</i><i class="sv">{age(i.created)}</i></span>
+            <span class="st"><i class="sk">status</i><i class="sv">{i.in_use ? "in use" : i.dangling ? "dangling" : "unused"}</i></span>
+            <span class="st"><i class="sk">containers</i><i class="sv">{i.used_by.length}</i></span>
+          </div>
+          <div class="dbody">
+            <div class="drow"><span class="dk">id</span><span class="dv mono">{shortId(i.id)}</span></div>
+            <div class="drow"><span class="dk">tags</span>
+              <span class="dv">{i.tags.length ? i.tags.map((t) => <span class="tagchip">{t}</span>) : <span class="dim">untagged</span>}</span>
+            </div>
+            <div class="drow top"><span class="dk">used by</span>
+              <span class="dv">
+                {i.used_by.length ? (
+                  i.used_by.map((u) => (
+                    <span class="ub" onClick={() => { this.detail = null; this.router.navigate(`/container/${encodeURIComponent(u.id)}`); }}>
+                      {u.project ? <span class="ubp">{u.project} / </span> : null}
+                      {u.service || u.name || shortId(u.id)}
+                    </span>
+                  ))
+                ) : (
+                  <span class="dim">nothing — safe to remove</span>
+                )}
+              </span>
+            </div>
+          </div>
+          <div class="dacts">
+            {i.used_by.length ? <span class="dnote">in use — redeploy frees it cleanly; remove force-deletes it from under the containers</span> : null}
+            <span class="grow"></span>
+            {i.used_by.length ? <button class="pbtn" onClick={() => this.redeployUsers(i)}>redeploy {i.used_by.length} &amp; free</button> : null}
+            <button class="pbtn danger" onClick={() => { const im = i; this.detail = null; this.removeImg(im); }}>remove</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   private logout = () => {
     this.auth.clear();
@@ -273,13 +442,13 @@ export class ImagesPage extends LoomElement {
                   <th>Image ID</th>
                   <th class="r">Size</th>
                   <th>Age</th>
-                  <th>Usage</th>
+                  <th>Used by</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {vis.map((i) => (
-                  <tr>
+                  <tr class="irow" onClick={() => (this.detail = i)}>
                     <td class="repo" title={i.tags.join(", ")}>
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
                       {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
@@ -287,11 +456,20 @@ export class ImagesPage extends LoomElement {
                     <td class="id">{shortId(i.id)}</td>
                     <td class="size r">{bytes(i.size)}</td>
                     <td class="age">{age(i.created)}</td>
-                    <td>
-                      {i.in_use ? <span class="chip use">in use</span> : i.dangling ? <span class="chip dang">dangling</span> : <span class="chip">unused</span>}
+                    <td class="usedby">
+                      {i.used_by.length ? (
+                        <span class="ucount">
+                          {i.used_by[0].service || i.used_by[0].name || shortId(i.used_by[0].id)}
+                          {i.used_by.length > 1 ? <span class="ubmore"> +{i.used_by.length - 1}</span> : null}
+                        </span>
+                      ) : i.dangling ? (
+                        <span class="chip dang">dangling</span>
+                      ) : (
+                        <span class="chip">unused</span>
+                      )}
                     </td>
                     <td class="r">
-                      <button class="rm" title={i.in_use ? "force-remove (in use)" : "remove image"} onClick={() => this.removeImg(i)}>
+                      <button class="rm" title={i.in_use ? "force-remove (in use)" : "remove image"} onClick={(e: Event) => { e.stopPropagation(); this.removeImg(i); }}>
                         <loom-icon name="x" size={14}></loom-icon>
                       </button>
                     </td>
@@ -304,6 +482,23 @@ export class ImagesPage extends LoomElement {
           ) : null}
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
+        {this.detail ? this.renderDetail(this.detail) : null}
+        {this.procOpen ? (
+          <div class="proc">
+            <div class="pbox">
+              <div class="phead">
+                <span class={"mark " + (this.procDone ? (this.procOk ? "ok" : "bad") : "loop")}></span>
+                <span class="pt">{this.procTitle}</span>
+                <span class="grow"></span>
+                <span class="pn">{this.procLines.length}</span>
+              </div>
+              <pre class="plog">{this.procLines.join("\n") || "starting…"}</pre>
+              <div class="pacts">
+                <button class="btn" disabled={!this.procDone} onClick={this.procClose}>{this.procDone ? "Close" : "Working…"}</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }

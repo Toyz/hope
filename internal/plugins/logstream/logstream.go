@@ -34,6 +34,7 @@ const (
 	pathServiceLogs   = "/rpc/Stream/serviceLogs"   // args: [project, service]
 	pathRedeploy      = "/rpc/Stream/redeploy"      // args: [container id]
 	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project]
+	pathPruneImages   = "/rpc/Stream/pruneImages"   // args: ["true"|"false"]  (all unused vs dangling)
 )
 
 // multiTail caps per-container backlog when fanning in many containers.
@@ -68,7 +69,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPruneImages}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -132,6 +133,10 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		}
 		project := args[0]
 		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.RedeployProject(ctx, project, emit) })
+
+	case pathPruneImages:
+		all := len(args) > 0 && args[0] == "true"
+		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.PruneImagesStream(ctx, all, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")

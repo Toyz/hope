@@ -83,6 +83,13 @@ export interface DiskResult {
   checked_at: string;
 }
 
+export interface ImageUser {
+  id: string;
+  name: string;
+  service: string;
+  project: string;
+}
+
 export interface ImageInfo {
   id: string;
   tags: string[];
@@ -90,6 +97,7 @@ export interface ImageInfo {
   created: number; // unix seconds
   dangling: boolean;
   in_use: boolean;
+  used_by: ImageUser[];
 }
 
 export interface PruneResult {
