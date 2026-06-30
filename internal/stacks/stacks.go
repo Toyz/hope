@@ -116,6 +116,21 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, 
 	return &OpResult{OK: true, Output: log.String()}, nil
 }
 
+// Stats returns a point-in-time CPU/memory snapshot for every running container
+// in the project (the stack page's "snapshot" button).
+func (r *StacksRouter) Stats(ctx *rpc.Context, p *ProjectParams) ([]docker.ContainerStat, error) {
+	if err := r.gate(ctx, p); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	stats, err := r.docker.ProjectStats(cctx, p.Project)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return stats, nil
+}
+
 // ComposeFile returns the stack's compose file text — only available when hope
 // can read the file (ComposeAvailable). Hidden in the UI otherwise.
 func (r *StacksRouter) ComposeFile(ctx *rpc.Context, p *ProjectParams) (*ComposeFileResult, error) {

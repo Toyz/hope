@@ -48,6 +48,13 @@ export interface ComposeFileResult {
   content: string;
 }
 
+export interface ContainerStat {
+  id: string;
+  cpu_percent: number;
+  mem_used: number;
+  mem_limit: number;
+}
+
 // NDJSON stream frames.
 export interface LogFrame {
   type: "stdout" | "stderr";

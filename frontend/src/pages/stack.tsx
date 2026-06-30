@@ -6,7 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
 
@@ -131,6 +131,9 @@ const STACK_OPS: { op: StackOp; label: string; danger?: boolean }[] = [
   td.svc.rep a { color: var(--mid); }
   .repn { color: var(--faint); margin-left: 7px; }
   td.state { color: var(--mid); white-space: nowrap; }
+  .snap { white-space: nowrap; text-align: right; width: 1%; padding-right: 18px; }
+  td.snap { color: var(--hi); font: 12px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  th.snap { text-align: right; }
   td.statusc { color: var(--dim); white-space: nowrap; }
   td.ports { color: var(--faint); font-size: 12px; white-space: nowrap;
     max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
@@ -171,6 +174,8 @@ export class StackPage extends LoomElement {
   @reactive accessor wrap = false;
   @reactive accessor toast = "";
   @reactive accessor toastKind = "";
+  @reactive accessor stats: Record<string, ContainerStat> = {};
+  @reactive accessor statsBusy = false;
   private logsCtrl: AbortController | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -380,6 +385,39 @@ export class StackPage extends LoomElement {
     this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
 
+  // Point-in-time CPU/memory snapshot of the stack's running containers.
+  private snapshot = async () => {
+    this.statsBusy = true;
+    try {
+      const rows = await this.rpc.call<ContainerStat[]>("Stacks", "stats", [this.project]);
+      const map: Record<string, ContainerStat> = {};
+      for (const s of rows) map[s.id] = s;
+      this.stats = map;
+    } catch (err: any) {
+      this.showToast(`snapshot — ${err?.message ?? "failed"}`, "bad");
+    } finally {
+      this.statsBusy = false;
+    }
+  };
+
+  private cpuCell(id: string) {
+    const s = this.stats[id];
+    return s ? s.cpu_percent.toFixed(1) + "%" : "—";
+  }
+  private memCell(id: string) {
+    const s = this.stats[id];
+    return s ? mb(s.mem_used) : "—";
+  }
+  // Aggregate a replica group's snapshot (sum cpu, sum mem).
+  private groupStat(items: ContainerSummary[]) {
+    const have = items.map((c) => this.stats[c.id]).filter(Boolean) as ContainerStat[];
+    if (!have.length) return { cpu: "—", mem: "—" };
+    return {
+      cpu: have.reduce((a, s) => a + s.cpu_percent, 0).toFixed(1) + "%",
+      mem: mb(have.reduce((a, s) => a + s.mem_used, 0)),
+    };
+  }
+
   private logout = () => {
     this.auth.clear();
     this.router.navigate("/login");
@@ -417,6 +455,7 @@ export class StackPage extends LoomElement {
                       </button>
                     ))}
                     <button class="btn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</button>
+                    <button class="btn" disabled={this.statsBusy} onClick={this.snapshot}>{this.statsBusy ? "snapshot…" : "snapshot"}</button>
                     {s.compose_available ? <button class="btn" onClick={this.viewCompose}>compose</button> : null}
                   </div>
                 </div>
@@ -447,6 +486,8 @@ export class StackPage extends LoomElement {
                   <tr>
                     <th>Service</th>
                     <th>State</th>
+                    <th class="snap">CPU</th>
+                    <th class="snap">MEM</th>
                     <th>Status</th>
                     <th class="ports">Ports</th>
                     <th style="text-align:right">Actions</th>
@@ -465,6 +506,8 @@ export class StackPage extends LoomElement {
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
+                          <td class="snap num">{this.cpuCell(c.id)}</td>
+                          <td class="snap num">{this.memCell(c.id)}</td>
                           <td class="statusc">{c.status}</td>
                           <td class="ports">{(c.ports || []).join(", ") || "—"}</td>
                           <td onClick={(e: Event) => e.stopPropagation()}>
@@ -483,6 +526,7 @@ export class StackPage extends LoomElement {
 
                     const running = g.items.filter((c) => c.state === "running").length;
                     const open = !!this.expanded[g.service];
+                    const gs = this.groupStat(g.items);
                     const rows = [
                       <tr class={"grp" + (open ? " open" : "")} onClick={() => this.toggle(g.service)}>
                         <td class="svc">
@@ -494,6 +538,8 @@ export class StackPage extends LoomElement {
                           </span>
                         </td>
                         <td class="state">{running}/{g.items.length} up</td>
+                        <td class="snap num">{gs.cpu}</td>
+                        <td class="snap num">{gs.mem}</td>
                         <td class="statusc"></td>
                         <td class="ports"></td>
                         <td>
@@ -522,6 +568,8 @@ export class StackPage extends LoomElement {
                               </span>
                             </td>
                             <td class="state">{c.state}</td>
+                            <td class="snap num">{this.cpuCell(c.id)}</td>
+                            <td class="snap num">{this.memCell(c.id)}</td>
                             <td class="statusc">{c.status}</td>
                             <td class="ports">{(c.ports || []).join(", ") || "—"}</td>
                             <td onClick={(e: Event) => e.stopPropagation()}>
@@ -562,4 +610,13 @@ export class StackPage extends LoomElement {
       </div>
     );
   }
+}
+
+// Human-readable bytes for the snapshot columns (MiB/GiB).
+function mb(b: number): string {
+  if (!b) return "0";
+  const gb = b / 1073741824;
+  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 1) + "G";
+  const m = b / 1048576;
+  return m.toFixed(m >= 10 ? 0 : 1) + "M";
 }
