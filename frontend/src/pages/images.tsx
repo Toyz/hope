@@ -36,6 +36,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .summary .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
   .summary .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
   .summary .v.warnv { color: var(--warn); }
+  .summary .v .t { color: var(--dim); font-weight: 400; }
 
   .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
   .toolbar .grow { flex: 1; }
@@ -155,7 +156,11 @@ export class ImagesPage extends LoomElement {
       title: "remove image",
       danger: true,
       confirmLabel: "Remove",
-      message: i.in_use ? `Force-remove "${label}"? A container references it.` : `Remove image "${label}"?`,
+      message: i.in_use ? `${label} is referenced by a container — it'll be force-removed.` : `Remove ${label}.`,
+      stats: [
+        { label: "image", value: label },
+        { label: "frees", value: bytes(i.size) },
+      ],
     });
     if (!ok) return;
     try {
@@ -168,13 +173,19 @@ export class ImagesPage extends LoomElement {
   };
 
   private prune = async (all: boolean) => {
+    const targets = this.images.filter((i) => (all ? !i.in_use : i.dangling));
+    const est = targets.reduce((a, i) => a + i.size, 0);
     const ok = await this.confirm.ask({
       title: all ? "prune unused images" : "prune dangling images",
       danger: true,
       confirmLabel: "Prune",
       message: all
-        ? "Remove ALL images not used by a container? This frees space but re-pulls are needed to use them again."
-        : "Remove all dangling (untagged) images?",
+        ? "Remove every image no container is using. They'll need re-pulling to use again."
+        : "Remove all dangling (untagged) images.",
+      stats: [
+        { label: all ? "unused" : "dangling", value: String(targets.length) },
+        { label: "reclaims up to", value: "~" + bytes(est) },
+      ],
     });
     if (!ok) return;
     try {
@@ -194,8 +205,12 @@ export class ImagesPage extends LoomElement {
   update() {
     const vis = this.visible();
     const total = this.images.reduce((a, i) => a + i.size, 0);
-    const dangling = this.images.filter((i) => i.dangling).length;
-    const unused = this.images.filter((i) => !i.in_use).length;
+    const danglingImgs = this.images.filter((i) => i.dangling);
+    const unusedImgs = this.images.filter((i) => !i.in_use);
+    const dangling = danglingImgs.length;
+    const unused = unusedImgs.length;
+    const danglingSize = danglingImgs.reduce((a, i) => a + i.size, 0);
+    const unusedSize = unusedImgs.reduce((a, i) => a + i.size, 0);
 
     return (
       <div>
@@ -214,8 +229,8 @@ export class ImagesPage extends LoomElement {
             <div class="summary">
               <span class="stat"><i class="k">images</i><i class="v">{this.images.length}</i></span>
               <span class="stat"><i class="k">total size</i><i class="v">{bytes(total)}</i></span>
-              {unused > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused}</i></span> : null}
-              {dangling > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling}</i></span> : null}
+              {unused > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused}<i class="t"> · {bytes(unusedSize)}</i></i></span> : null}
+              {dangling > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling}<i class="t"> · {bytes(danglingSize)}</i></i></span> : null}
             </div>
           ) : null}
 

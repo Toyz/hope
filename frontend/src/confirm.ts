@@ -15,6 +15,8 @@ export interface ConfirmOpts {
   danger?: boolean;
   /** Amber/warning styling — for reversible-but-disruptive actions (redeploy). */
   warn?: boolean;
+  /** Optional clean key/value figures shown under the message (count, size…). */
+  stats?: { label: string; value: string }[];
 }
 
 export class ConfirmService {
