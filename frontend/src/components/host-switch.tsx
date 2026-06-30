@@ -2,7 +2,7 @@
 // local daemon plus every connected agent and flips which one the whole UI
 // operates on. Switching is global server state, so after SetActiveHost we
 // reload so every view re-fetches against the new host.
-import { LoomElement, component, styles, css, reactive, mount } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import type { HostView } from "../contracts";
@@ -80,9 +80,9 @@ export class HostSwitch extends LoomElement {
     document.addEventListener("click", this.onClickAway);
   }
 
-  disconnectedCallback() {
+  @unmount
+  unbindAway() {
     document.removeEventListener("click", this.onClickAway);
-    super.disconnectedCallback?.();
   }
 
   async pick(id: string) {
@@ -97,7 +97,7 @@ export class HostSwitch extends LoomElement {
     }
   }
 
-  render() {
+  update() {
     const a = this.active;
     const label = a ? (a.kind === "local" ? "local" : a.id) : "—";
     const kind = a?.kind === "agent" ? "agent" : "local";
