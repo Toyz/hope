@@ -164,7 +164,8 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .chip.use { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
   .chip.dang { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
-  .repo .htag { display: inline-block; margin-right: 9px; vertical-align: middle;
+  .repo .htag { display: inline-flex; justify-content: center; align-items: center; min-width: 78px; box-sizing: border-box;
+    margin-right: 11px; vertical-align: middle;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
     padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
 `)
@@ -328,19 +329,58 @@ export class ImagesPage extends LoomElement {
   }
 
   // ---- selection ----
-  private toggleSel = (id: string, e: Event) => {
+  // Selection key — the same image id can exist on multiple hosts in the all
+  // view, so key by host+id, not id alone.
+  private imgKey = (i: ImageInfo & { host?: string }) => (i.host ? i.host + "|" : "") + i.id;
+  private toggleSel = (key: string, e: Event) => {
     e.stopPropagation();
-    this.selected = this.selected.includes(id) ? this.selected.filter((x) => x !== id) : [...this.selected, id];
+    this.selected = this.selected.includes(key) ? this.selected.filter((x) => x !== key) : [...this.selected, key];
   };
   private clearSel = () => (this.selected = []);
+
+  // Cross-fleet prune: run the prune stream on every connected host in turn,
+  // piping each host's output into the shared processing dialog.
+  private pruneFleet = async (all: boolean) => {
+    const ok = await this.confirm.ask({
+      title: all ? "prune unused — all hosts" : "prune dangling — all hosts",
+      danger: all,
+      warn: !all,
+      confirmLabel: "Prune",
+      message: `Prune ${all ? "all unused" : "dangling"} images across every connected host.`,
+    });
+    if (!ok) return;
+    const hosts = ((await this.rpc.call<{ id: string; connected: boolean }[]>("System", "hosts", [])) || []).filter((h) => h.connected);
+    await this.proc.run(all ? "prune unused — all hosts" : "prune dangling — all hosts", async (emit, signal) => {
+      let okv = true;
+      for (const h of hosts) {
+        emit(`> ${h.id}`);
+        try {
+          await this.rpc.call("System", "setActiveHost", [h.id]);
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal)) {
+            if (f.type === "log" && f.data) emit("  " + f.data);
+            else if (f.type === "done" && !f.ok) { okv = false; emit("  failed: " + (f.error ?? "")); }
+          }
+        } catch (e: any) {
+          okv = false;
+          emit("  " + (e?.message ?? "failed"));
+        }
+      }
+      emit("done");
+      return okv;
+    });
+    await this.load();
+  };
+
+  // Only images with no containers using them are selectable for bulk removal.
+  private removable = () => this.visible().filter((i) => !i.used_by.length);
   private selectAllVisible = (e: Event) => {
     e.stopPropagation();
-    const vis = this.visible().map((i) => i.id);
-    const allSel = vis.length > 0 && vis.every((id) => this.selected.includes(id));
-    this.selected = allSel ? this.selected.filter((id) => !vis.includes(id)) : Array.from(new Set([...this.selected, ...vis]));
+    const keys = this.removable().map((i) => this.imgKey(i));
+    const allSel = keys.length > 0 && keys.every((k) => this.selected.includes(k));
+    this.selected = allSel ? this.selected.filter((k) => !keys.includes(k)) : Array.from(new Set([...this.selected, ...keys]));
   };
-  private selImages(): ImageInfo[] {
-    return this.images.filter((i) => this.selected.includes(i.id));
+  private selImages(): (ImageInfo & { host?: string })[] {
+    return this.images.filter((i) => this.selected.includes(this.imgKey(i)));
   }
 
   private removeSelected = async () => {
@@ -361,8 +401,9 @@ export class ImagesPage extends LoomElement {
     await this.proc.run("removing selected images", async (emit) => {
       let okv = true;
       for (const i of imgs) {
-        const label = i.tags[0] || shortId(i.id);
+        const label = (i.host ? i.host + " / " : "") + (i.tags[0] || shortId(i.id));
         try {
+          if (i.host) await this.rpc.call("System", "setActiveHost", [i.host]);
           await this.rpc.call("System", "removeImage", [i.id, true]);
           emit("removed " + label);
         } catch (err: any) {
@@ -578,13 +619,18 @@ export class ImagesPage extends LoomElement {
                 ))}
               </div>
               <div class="grow"></div>
-              {this.fleetMode ? null : this.selected.length > 0 ? (
+              {this.selected.length > 0 ? (
                 <>
                   <span class="seln">{this.selected.length} selected</span>
                   <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
-                  {this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
+                  {!this.fleetMode && this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
                   <button class="pbtn danger" onClick={this.removeSelected}>remove</button>
                   <button class="pbtn" onClick={this.clearSel}>clear</button>
+                </>
+              ) : this.fleetMode ? (
+                <>
+                  {dangling > 0 ? <button class="pbtn" onClick={() => this.pruneFleet(false)}>prune dangling · all</button> : null}
+                  {unused > 0 ? <button class="pbtn danger" onClick={() => this.pruneFleet(true)}>prune unused · all</button> : null}
                 </>
               ) : (
                 <>
@@ -616,7 +662,7 @@ export class ImagesPage extends LoomElement {
               </colgroup>
               <thead>
                 <tr>
-                  <th class="sel">{this.fleetMode ? null : <span class={"ck" + (vis.length > 0 && vis.every((i) => this.selected.includes(i.id)) ? " on" : "")} onClick={this.selectAllVisible}></span>}</th>
+                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((i) => this.selected.includes(this.imgKey(i))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
                   <th>Repository</th>
                   <th>Image ID</th>
                   <th class="r">Size</th>
@@ -627,16 +673,16 @@ export class ImagesPage extends LoomElement {
               </thead>
               <tbody>
                 {vis.map((i) => (
-                  <tr class={"irow" + (this.selected.includes(i.id) ? " sel" : "")} onClick={() => (this.detail = i)}>
-                    {this.fleetMode ? (
+                  <tr class={"irow" + (this.selected.includes(this.imgKey(i)) ? " sel" : "")} onClick={() => (this.detail = i)}>
+                    {i.used_by.length ? (
                       <td class="sel"></td>
                     ) : (
-                      <td class="sel" onClick={(e: Event) => this.toggleSel(i.id, e)}>
-                        <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")}></span>
+                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.imgKey(i), e)}>
+                        <span class={"ck" + (this.selected.includes(this.imgKey(i)) ? " on" : "")}></span>
                       </td>
                     )}
                     <td class="repo" title={i.tags.join(", ")}>
-                      {i.host ? <span class="htag">{i.host}</span> : null}
+                      {i.host ? <span class="htag" title={i.host}>{i.host}</span> : null}
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
                       {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
                     </td>

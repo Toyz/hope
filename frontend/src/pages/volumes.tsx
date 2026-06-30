@@ -44,6 +44,43 @@ export class VolumesPage extends LoomElement {
   @reactive accessor query = "";
   @reactive accessor filter: Filter = "all";
   @reactive accessor detail: (VolumeInfo & { host?: string }) | null = null;
+  @reactive accessor selected: string[] = []; // volume names (unused only)
+
+  // Only unused volumes are selectable for bulk removal.
+  private removable = () => this.visible().filter((v) => !v.used_by.length);
+  private toggleSel = (name: string, e: Event) => {
+    e.stopPropagation();
+    this.selected = this.selected.includes(name) ? this.selected.filter((n) => n !== name) : [...this.selected, name];
+  };
+  private selectAllVisible = () => {
+    const names = this.removable().map((v) => v.name);
+    this.selected = names.every((n) => this.selected.includes(n)) ? [] : names;
+  };
+  private clearSel = () => (this.selected = []);
+  private removeSelected = async () => {
+    const vols = this.vols.filter((v) => this.selected.includes(v.name));
+    if (!vols.length) return;
+    const ok = await this.confirm.ask({
+      title: "remove volumes",
+      danger: true,
+      confirmLabel: `Remove ${vols.length}`,
+      message: `Remove ${vols.length} unused volume(s)? Their data is deleted.`,
+    });
+    if (!ok) return;
+    this.busy = true;
+    try {
+      for (const v of vols) {
+        if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
+        await this.rpc.call("System", "removeVolume", [v.name]);
+      }
+      this.selected = [];
+      await this.load();
+    } catch (err: any) {
+      this.error = err?.message ?? "remove failed";
+    } finally {
+      this.busy = false;
+    }
+  };
 
   get fleetMode() {
     return localStorage.getItem("hope.fleet") === "1";
@@ -169,6 +206,14 @@ export class VolumesPage extends LoomElement {
                   </button>
                 ))}
               </div>
+              <div class="grow"></div>
+              {this.selected.length > 0 ? (
+                <div class="selbar">
+                  <span class="seln">{this.selected.length} selected</span>
+                  <button class="pbtn danger" disabled={this.busy} onClick={this.removeSelected}>remove</button>
+                  <button class="pbtn" onClick={this.clearSel}>clear</button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -182,18 +227,25 @@ export class VolumesPage extends LoomElement {
           {vis.length > 0 ? (
             <table>
               <colgroup>
+                <col class="c-sel" />
                 <col class="c-name" />
                 <col class="c-meta" />
                 <col class="c-use" />
                 <col class="c-act" />
               </colgroup>
               <thead>
-                <tr><th>Name</th><th>Driver</th><th>Mounted by</th><th></th></tr>
+                <tr>
+                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((v) => this.selected.includes(v.name)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                  <th>Name</th><th>Driver</th><th>Mounted by</th><th></th>
+                </tr>
               </thead>
               <tbody>
                 {vis.map((v) => (
-                  <tr onClick={() => (this.detail = v)}>
-                    <td class="rname">{v.host ? <span class="htag">{v.host}</span> : null}{v.name}</td>
+                  <tr class={this.selected.includes(v.name) ? "sel" : ""} onClick={() => (this.detail = v)}>
+                    {v.used_by.length ? <td class="sel"></td> : (
+                      <td class="sel" onClick={(e: Event) => this.toggleSel(v.name, e)}><span class={"ck" + (this.selected.includes(v.name) ? " on" : "")}></span></td>
+                    )}
+                    <td class="rname">{v.host ? <span class="htag" title={v.host}>{v.host}</span> : null}{v.name}</td>
                     <td class="rmeta">{v.driver}</td>
                     <td class="use">{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="ubmore"> +{v.used_by.length - 1}</span> : null}</span> : <span class="none">unused</span>}</td>
                     <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>

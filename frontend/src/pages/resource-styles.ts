@@ -59,9 +59,11 @@ export const resourceStyles = `
   .users .user .sep { color: var(--dim); }
 
   /* host pill + toolbar/filters (match the images page) */
-  .htag { display: inline-block; margin-right: 9px; vertical-align: middle;
+  .htag { display: inline-block; width: 96px; box-sizing: border-box; text-align: center; vertical-align: middle;
+    margin-right: 11px;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
-    padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
+    padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
   .toolbar .grow { flex: 1; }
   .filters { display: flex; gap: 6px; }
@@ -80,10 +82,21 @@ export const resourceStyles = `
 
   /* resource table (same shape as the images table) */
   table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
+  colgroup col.c-sel { width: 40px; }
   colgroup col.c-name { width: 40%; }
   colgroup col.c-meta { width: 22%; }
   colgroup col.c-use { width: 30%; }
   colgroup col.c-act { width: 8%; }
+  th.sel, td.sel { padding-left: 16px; padding-right: 0; }
+  td.sel { cursor: pointer; }
+  td.sel:hover .ck { border-color: var(--mid); }
+  .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
+  .ck:hover { border-color: var(--mid); }
+  .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
+  tr.sel td { background: color-mix(in srgb, var(--upd) 8%, transparent); }
+  .selbar { display: flex; align-items: center; gap: 12px; margin-left: 12px; }
+  .selbar .seln { font: 600 12px/1 var(--mono); color: var(--upd); }
+  .selbar .grow { flex: 1; }
   thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
   th.r, td.r { text-align: right; }

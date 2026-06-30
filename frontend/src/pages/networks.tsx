@@ -39,6 +39,43 @@ export class NetworksPage extends LoomElement {
   @reactive accessor error = "";
   @reactive accessor query = "";
   @reactive accessor detail: (NetworkInfo & { host?: string }) | null = null;
+  @reactive accessor selected: string[] = []; // keys: host|id (empty networks only)
+
+  private key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
+  private removable = () => this.visible().filter((n) => !n.used_by.length);
+  private toggleSel = (k: string, e: Event) => {
+    e.stopPropagation();
+    this.selected = this.selected.includes(k) ? this.selected.filter((x) => x !== k) : [...this.selected, k];
+  };
+  private selectAllVisible = () => {
+    const keys = this.removable().map((n) => this.key(n));
+    this.selected = keys.length > 0 && keys.every((k) => this.selected.includes(k)) ? this.selected.filter((k) => !keys.includes(k)) : Array.from(new Set([...this.selected, ...keys]));
+  };
+  private clearSel = () => (this.selected = []);
+  private removeSelected = async () => {
+    const nets = this.nets.filter((n) => this.selected.includes(this.key(n)));
+    if (!nets.length) return;
+    const ok = await this.confirm.ask({
+      title: "remove networks",
+      danger: true,
+      confirmLabel: `Remove ${nets.length}`,
+      message: `Remove ${nets.length} empty network(s)?`,
+    });
+    if (!ok) return;
+    this.busy = true;
+    try {
+      for (const n of nets) {
+        if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
+        await this.rpc.call("System", "removeNetwork", [n.id]);
+      }
+      this.selected = [];
+      await this.load();
+    } catch (err: any) {
+      this.error = err?.message ?? "remove failed";
+    } finally {
+      this.busy = false;
+    }
+  };
 
   get fleetMode() {
     return localStorage.getItem("hope.fleet") === "1";
@@ -145,6 +182,17 @@ export class NetworksPage extends LoomElement {
             </div>
           ) : null}
 
+          {this.selected.length > 0 ? (
+            <div class="toolbar">
+              <div class="grow"></div>
+              <div class="selbar">
+                <span class="seln">{this.selected.length} selected</span>
+                <button class="pbtn danger" disabled={this.busy} onClick={this.removeSelected}>remove</button>
+                <button class="pbtn" onClick={this.clearSel}>clear</button>
+              </div>
+            </div>
+          ) : null}
+
           {this.nets.length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
@@ -155,6 +203,7 @@ export class NetworksPage extends LoomElement {
           {vis.length > 0 ? (
             <table>
               <colgroup>
+                <col class="c-sel" />
                 <col class="c-name" />
                 <col class="c-meta" />
                 <col class="c-meta" />
@@ -162,12 +211,18 @@ export class NetworksPage extends LoomElement {
                 <col class="c-act" />
               </colgroup>
               <thead>
-                <tr><th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th></tr>
+                <tr>
+                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((n) => this.selected.includes(this.key(n))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                  <th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th>
+                </tr>
               </thead>
               <tbody>
                 {vis.map((n) => (
-                  <tr onClick={() => (this.detail = n)}>
-                    <td class="rname">{n.host ? <span class="htag">{n.host}</span> : null}{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
+                  <tr class={this.selected.includes(this.key(n)) ? "sel" : ""} onClick={() => (this.detail = n)}>
+                    {n.used_by.length ? <td class="sel"></td> : (
+                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
+                    )}
+                    <td class="rname">{n.host ? <span class="htag" title={n.host}>{n.host}</span> : null}{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
                     <td class="rmeta">{n.driver}</td>
                     <td class="rmeta">{n.scope}</td>
                     <td class="use">{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="ubmore"> +{n.used_by.length - 1}</span> : null}</span> : <span class="none">—</span>}</td>
