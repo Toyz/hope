@@ -10,6 +10,19 @@ import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
+const bytes = (n: number) => {
+  if (n < 0) return "—";
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+};
+
 const agoStr = (iso: string) => {
   if (!iso) return "—";
   const t = Date.parse(iso);
@@ -99,7 +112,9 @@ export class VolumesPage extends LoomElement {
     if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
-      this.vols = ((await this.rpc.call<VolumeInfo[]>("System", "volumes", [])) || []).map((v) => ({ ...v, used_by: v.used_by || [] }));
+      this.vols = ((await this.rpc.call<VolumeInfo[]>("System", "volumes", [])) || [])
+        .map((v) => ({ ...v, used_by: v.used_by || [] }))
+        .sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
       this.error = "";
     } catch (err: any) {
       this.error = err?.message ?? "Can't list volumes.";
@@ -117,7 +132,7 @@ export class VolumesPage extends LoomElement {
         if (!h.online) continue;
         for (const v of h.volumes || []) combined.push({ ...v, used_by: v.used_by || [], host: h.id });
       }
-      combined.sort((a, b) => b.used_by.length - a.used_by.length || a.name.localeCompare(b.name));
+      combined.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
       this.vols = combined;
       this.error = "";
     } catch (err: any) {
@@ -191,6 +206,7 @@ export class VolumesPage extends LoomElement {
           {this.vols.length > 0 ? (
             <div class="summary">
               <span class="stat"><i class="k">volumes</i><i class="v">{this.vols.length}</i></span>
+              <span class="stat"><i class="k">total size</i><i class="v">{bytes(this.vols.reduce((a, v) => a + (v.size > 0 ? v.size : 0), 0))}</i></span>
               <span class="stat"><i class="k">mounted</i><i class="v">{mounted}</i></span>
               <span class="stat"><i class="k">unused</i><i class={"v" + (unused > 0 ? " warnv" : "")}>{unused}</i></span>
             </div>
@@ -230,13 +246,14 @@ export class VolumesPage extends LoomElement {
                 <col class="c-sel" />
                 <col class="c-name" />
                 <col class="c-meta" />
+                <col class="c-meta" />
                 <col class="c-use" />
                 <col class="c-act" />
               </colgroup>
               <thead>
                 <tr>
                   <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((v) => this.selected.includes(v.name)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                  <th>Name</th><th>Driver</th><th>Mounted by</th><th></th>
+                  <th>Name</th><th>Driver</th><th class="r">Size</th><th>Mounted by</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -247,6 +264,7 @@ export class VolumesPage extends LoomElement {
                     )}
                     <td class="rname">{v.host ? <span class="htag" title={v.host}>{v.host}</span> : null}{v.name}</td>
                     <td class="rmeta">{v.driver}</td>
+                    <td class="rmeta r">{bytes(v.size)}</td>
                     <td class="use">{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="ubmore"> +{v.used_by.length - 1}</span> : null}</span> : <span class="none">unused</span>}</td>
                     <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
                   </tr>
@@ -275,6 +293,7 @@ export class VolumesPage extends LoomElement {
           <div class="dfacts">
             {v.host ? <span class="st"><i class="sk">host</i><i class="sv">{v.host}</i></span> : null}
             <span class="st"><i class="sk">driver</i><i class="sv">{v.driver}</i></span>
+            <span class="st"><i class="sk">size</i><i class="sv">{bytes(v.size)}</i></span>
             <span class="st"><i class="sk">created</i><i class="sv">{agoStr(v.created_at)}</i></span>
             <span class="st"><i class="sk">status</i><i class="sv">{v.used_by.length ? "mounted" : "unused"}</i></span>
             <span class="st"><i class="sk">mounted</i><i class="sv">{v.used_by.length}</i></span>

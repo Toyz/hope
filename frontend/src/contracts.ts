@@ -285,6 +285,7 @@ export interface VolumeInfo {
   driver: string;
   mountpoint: string;
   created_at: string;
+  size: number; // bytes; -1 if the daemon didn't compute it
   used_by: ResourceUser[];
 }
 

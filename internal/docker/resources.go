@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
@@ -36,6 +37,7 @@ type VolumeInfo struct {
 	Driver     string         `json:"driver"`
 	Mountpoint string         `json:"mountpoint"`
 	CreatedAt  string         `json:"created_at"`
+	Size       int64          `json:"size"` // bytes; -1 when the daemon didn't compute it
 	UsedBy     []ResourceUser `json:"used_by"`
 }
 
@@ -109,6 +111,16 @@ func (c *Client) Volumes(ctx context.Context) ([]VolumeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Per-volume size comes from `system df` (VolumeList omits it). -1 when the
+	// daemon couldn't compute it.
+	sizes := map[string]int64{}
+	if du, e := c.sdk().DiskUsage(ctx, types.DiskUsageOptions{Types: []types.DiskUsageObject{types.VolumeObject}}); e == nil {
+		for _, v := range du.Volumes {
+			if v != nil && v.UsageData != nil {
+				sizes[v.Name] = v.UsageData.Size
+			}
+		}
+	}
 	byVol := map[string][]ResourceUser{}
 	if conts, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true}); err == nil {
 		for _, ct := range conts {
@@ -129,11 +141,16 @@ func (c *Client) Volumes(ctx context.Context) ([]VolumeInfo, error) {
 		if users == nil {
 			users = []ResourceUser{}
 		}
+		sz, ok := sizes[v.Name]
+		if !ok {
+			sz = -1
+		}
 		out = append(out, VolumeInfo{
 			Name:       v.Name,
 			Driver:     v.Driver,
 			Mountpoint: v.Mountpoint,
 			CreatedAt:  v.CreatedAt,
+			Size:       sz,
 			UsedBy:     users,
 		})
 	}
