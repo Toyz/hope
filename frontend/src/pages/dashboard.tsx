@@ -52,6 +52,14 @@ const UNGROUPED = "(ungrouped)";
 
   main { padding: 30px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
+  /* docker host strip */
+  .hostbar { display: flex; flex-wrap: wrap; align-items: stretch; border: 1px solid var(--line);
+    margin-bottom: 22px; }
+  .hostbar .hi { display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; border-right: 1px solid var(--line); }
+  .hostbar .hk { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .hostbar .hv { font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .hostbar .hv .t { color: var(--dim); }
+
   /* search */
   .search { position: relative; margin-bottom: 22px; }
   .search input {
@@ -159,6 +167,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor showUngrouped = false;
   @reactive accessor query = "";
   @reactive accessor updates: UpdatesResult | null = null;
+  @reactive accessor host: any = null;
 
   @mount
   onMount() {
@@ -187,6 +196,12 @@ export class DashboardPage extends LoomElement {
       this.updates = await this.rpc.call<UpdatesResult>("System", "updates", []);
     } catch {
       /* updates section just stays hidden */
+    }
+    // Docker host identity / capacity — insight into the daemon we're driving.
+    try {
+      this.host = await this.rpc.call<any>("System", "info", []);
+    } catch {
+      /* host strip stays hidden */
     }
   }
 
@@ -315,6 +330,18 @@ export class DashboardPage extends LoomElement {
         </div>
 
         <main>
+          {this.host ? (
+            <div class="hostbar">
+              <span class="hi"><i class="hk">host</i><i class="hv">{this.host.Name || "—"}</i></span>
+              <span class="hi"><i class="hk">docker</i><i class="hv">{this.host.ServerVersion || "—"}</i></span>
+              <span class="hi"><i class="hk">os</i><i class="hv">{this.host.OperatingSystem || this.host.OSType}{this.host.Architecture ? ` · ${this.host.Architecture}` : ""}</i></span>
+              <span class="hi"><i class="hk">cpu</i><i class="hv">{this.host.NCPU ?? "—"}</i></span>
+              <span class="hi"><i class="hk">mem</i><i class="hv">{gb(this.host.MemTotal)}</i></span>
+              <span class="hi"><i class="hk">containers</i><i class="hv">{this.host.ContainersRunning ?? 0}<i class="t">/{this.host.Containers ?? 0}</i></i></span>
+              <span class="hi"><i class="hk">images</i><i class="hv">{this.host.Images ?? 0}</i></span>
+            </div>
+          ) : null}
+
           {this.error ? <div class="empty">{this.error}</div> : null}
 
           {this.stacks.length > 0 ? (
@@ -438,6 +465,14 @@ export class DashboardPage extends LoomElement {
       </div>
     );
   }
+}
+
+// Bytes → a compact GiB/MiB label for the host memory readout.
+function gb(b: number): string {
+  if (!b || b <= 0) return "—";
+  const g = b / 1073741824;
+  if (g >= 1) return g.toFixed(g >= 100 ? 0 : 1) + " GiB";
+  return Math.round(b / 1048576) + " MiB";
 }
 
 // Relative time for the "checked Xm ago" label on the updates section.

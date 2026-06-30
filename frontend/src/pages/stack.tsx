@@ -6,7 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat, ImageUpdate } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, ContainerStat, ImageUpdate, UpdatesResult } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
 
@@ -112,6 +112,7 @@ function aggMark(items: ContainerSummary[]): string {
   .summary .v .t { color: var(--dim); }
   .summary .v.warnv { color: var(--warn); }
   .summary .v.badv { color: var(--bad); }
+  .summary .v.updv { color: var(--upd); }
   .summary .wd { padding: 0 16px; font: 12px/1 var(--mono); color: var(--faint); word-break: break-all; }
 
   .logs { margin-bottom: 22px; border: 1px solid var(--line2); }
@@ -137,15 +138,20 @@ function aggMark(items: ContainerSummary[]): string {
   tr.grp td { background: #11161f; }
   tr.grp:hover td { background: var(--raised); }
   tr.grp td.svc .cell { gap: 9px; }
-  .caret { display: inline-block; width: 11px; color: var(--mid); font-size: 11px;
-    transition: transform .12s ease, color .12s ease; }
-  tr.grp:hover .caret { color: var(--hi); }
-  tr.grp.open .caret { transform: rotate(90deg); }
+  .caret { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    color: var(--mid); border: 1px solid var(--line); flex-shrink: 0;
+    transition: transform .12s ease, color .12s ease, border-color .12s ease; }
+  tr.grp:hover .caret { color: var(--hi); border-color: var(--line2); }
+  tr.grp.open .caret { transform: rotate(90deg); color: var(--hi); border-color: var(--line2); }
   .gname { color: var(--hi); font-weight: 500; }
-  .badge { border: 1px solid var(--line2); color: var(--mid); font-size: 11px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0; }
-  .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px;
-    color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; }
-  tr.grp:hover .badge { border-color: var(--mid); color: var(--hi); }
+  .badge { border: 1px solid var(--line); color: var(--dim); font: 11px/1 var(--mono); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
+  .badge b { color: var(--hi); font-weight: 600; }
+  .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; background: transparent;
+    color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; cursor: pointer; }
+  .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
+  .upd.static { cursor: default; }
+  .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
   td.svc.rep .cell { padding-left: 26px; }
@@ -334,10 +340,45 @@ export class StackPage extends LoomElement {
       const all = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
       this.stack = all.find((s) => s.project === this.project) ?? null;
       this.error = this.stack ? "" : `Stack "${this.project}" not found.`;
-      if (this.stack) this.snapshot(); // auto-fill the CPU/MEM columns
+      if (this.stack) {
+        this.snapshot(); // auto-fill the CPU/MEM columns
+        this.loadUpdates(); // surface cached image-freshness chips immediately
+      }
     } catch (err: any) {
       this.error = err?.message ?? "Failed to load.";
     }
+  }
+
+  // Pull the cached cluster freshness (cheap) and keep this project's rows.
+  private async loadUpdates() {
+    try {
+      const res = await this.rpc.call<UpdatesResult>("System", "updates", []);
+      const map: Record<string, ImageUpdate> = {};
+      for (const u of res.updates) {
+        if (u.project === this.project) map[u.id] = { id: u.id, image: u.image, status: u.status, detail: u.detail };
+      }
+      this.updates = map;
+    } catch {
+      /* updates are optional */
+    }
+  }
+
+  private outdatedCount(): number {
+    return Object.values(this.updates).filter((u) => u.status === "outdated").length;
+  }
+
+  // The "update" chip — click it to open the redeploy (update) confirm modal.
+  private updChip(c: ContainerSummary) {
+    if (this.updates[c.id]?.status !== "outdated") return null;
+    return (
+      <button
+        class="upd"
+        title={this.updates[c.id]?.detail || "update available — redeploy to the latest image"}
+        onClick={(e: Event) => { e.stopPropagation(); this.containerOp(c.id, "redeploy", c.service || c.name); }}
+      >
+        update
+      </button>
+    );
   }
 
   private stackOp = async (op: StackOp) => {
@@ -625,6 +666,7 @@ export class StackPage extends LoomElement {
                   <span class="stat"><i class="k">containers</i><i class="v">{s.running}<i class="t">/{s.total}</i></i></span>
                   {stopped > 0 ? <span class="stat"><i class="k">stopped</i><i class="v warnv">{stopped}</i></span> : null}
                   {restarting > 0 ? <span class="stat"><i class="k">restarting</i><i class="v badv">{restarting}</i></span> : null}
+                  {this.outdatedCount() > 0 ? <span class="stat"><i class="k">updates</i><i class="v updv">{this.outdatedCount()}</i></span> : null}
                   <span class="wd">{s.working_dir || "—"}</span>
                 </div>
               </div>
@@ -673,7 +715,7 @@ export class StackPage extends LoomElement {
                             <span class="cell">
                               <span class={"mark " + markClass(c.state)}></span>
                               <span class="link">{c.service || c.name}</span>
-                              {this.updates[c.id]?.status === "outdated" ? <span class="upd" title={this.updates[c.id]?.detail || "update available"}>update</span> : null}
+                              {this.updChip(c)}
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
@@ -690,14 +732,14 @@ export class StackPage extends LoomElement {
                     const open = !!this.expanded[g.service];
                     const gs = this.groupStat(g.items);
                     const rows = [
-                      <tr class={"grp" + (open ? " open" : "")} onClick={() => this.toggle(g.service)}>
+                      <tr class={"grp" + (open ? " open" : "")} onClick={() => this.toggle(g.service)} title={open ? "collapse replicas" : "expand replicas"}>
                         <td class="svc">
                           <span class="cell">
-                            <loom-icon class="caret" name="chevron-right" size={13}></loom-icon>
+                            <loom-icon class="caret" name="chevron-right" size={14}></loom-icon>
                             <span class={"mark " + aggMark(g.items)}></span>
                             <span class="gname">{g.service}</span>
-                            <span class="badge">{g.items.length} replicas</span>
-                            {this.groupUpdate(g.items) === "outdated" ? <span class="upd" title="one or more replicas have an update available">update</span> : null}
+                            <span class="badge"><b>{g.items.length}</b> pods</span>
+                            {this.groupUpdate(g.items) === "outdated" ? <span class="upd static" title="one or more replicas have an update available">update</span> : null}
                           </span>
                         </td>
                         <td class="state">{running}/{g.items.length} up</td>
@@ -719,7 +761,7 @@ export class StackPage extends LoomElement {
                                   {c.service || c.name}
                                   <span class="repn">#{c.number || "—"}</span>
                                 </span>
-                                {this.updates[c.id]?.status === "outdated" ? <span class="upd" title={this.updates[c.id]?.detail || "update available"}>update</span> : null}
+                                {this.updChip(c)}
                               </span>
                             </td>
                             <td class="state">{c.state}</td>
