@@ -1,9 +1,9 @@
 // Container detail — identity, a live overview, stat gauges, the log terminal,
 // and raw inspect. Inspect drives the header/overview; logs + stats stream over
 // NDJSON and tear down on unmount.
-import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
-import { route, LoomRouter, onRouteEnter } from "@toyz/loom/router";
+import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import type { LogFrame, StackSummary, ContainerSummary } from "../contracts";
@@ -159,27 +159,27 @@ export class ContainerPage extends LoomElement {
   @reactive accessor siblings: ContainerSummary[] = [];
   @reactive accessor dropOpen = false;
 
+  // The route param, bound reactively. Watching it reloads the page on any
+  // change — including container -> container (replica switches), which the
+  // outlet handles by re-injecting params without re-mounting.
+  @prop({ param: "id" }) accessor routeId = "";
+
   private ctrl = new AbortController();
 
   @mount
   onMount() {
-    this.enter(this.idFromPath());
     addEventListener("click", this.closeDrop);
+    if (this.routeId) this.enter(this.routeId);
+  }
+
+  @watch("routeId")
+  private onRouteId() {
+    if (this.routeId) this.enter(this.routeId);
   }
 
   private closeDrop = () => {
     this.dropOpen = false;
   };
-
-  @onRouteEnter
-  entered(params: Record<string, string>) {
-    this.enter(params.id ? decodeURIComponent(params.id) : this.idFromPath());
-  }
-
-  private idFromPath(): string {
-    const m = location.pathname.match(/^\/container\/(.+)$/);
-    return m ? decodeURIComponent(m[1]) : "";
-  }
 
   private enter(id: string) {
     if (!this.auth.isAuthenticated) {
@@ -190,15 +190,19 @@ export class ContainerPage extends LoomElement {
     this.id = id;
     this.ctrl.abort();
     this.ctrl = new AbortController();
+    const signal = this.ctrl.signal;
+    // Swap the container's data + restart its streams. Keep the active tab and
+    // the replica list (siblings are shared across a set) so switching a pod is
+    // a smooth data swap, not a page reset.
     this.info = null;
+    this.dropOpen = false;
     this.logLines = [];
     this.cpu = this.mem = this.net = this.blk = this.pids = "—";
     this.cpuBar = this.memBar = 0;
-    this.tab = "logs";
     this.error = "";
     this.loadInfo();
-    this.runLogs();
-    this.runStats();
+    this.runLogs(signal);
+    this.runStats(signal);
   }
 
   @unmount
@@ -243,9 +247,9 @@ export class ContainerPage extends LoomElement {
     return n ? parseInt(n, 10) : 0;
   }
 
-  private async runLogs() {
+  private async runLogs(signal: AbortSignal) {
     try {
-      for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", "logs", [this.id], this.ctrl.signal)) {
+      for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", "logs", [this.id], signal)) {
         const next = this.logLines.concat(stripAnsi(f.data).replace(/\n$/, ""));
         this.logLines = next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
         requestAnimationFrame(() => {
@@ -254,17 +258,18 @@ export class ContainerPage extends LoomElement {
         });
       }
     } catch (err: any) {
-      if (!this.ctrl.signal.aborted) this.error = `logs: ${err?.message ?? err}`;
+      // Ignore aborts from switching containers — only surface real failures.
+      if (!signal.aborted) this.error = `logs: ${err?.message ?? err}`;
     }
   }
 
-  private async runStats() {
+  private async runStats(signal: AbortSignal) {
     try {
-      for await (const s of this.rpc.streamWithSignal<any>("Stream", "stats", [this.id], this.ctrl.signal)) {
+      for await (const s of this.rpc.streamWithSignal<any>("Stream", "stats", [this.id], signal)) {
         this.applyStats(s);
       }
     } catch (err: any) {
-      if (!this.ctrl.signal.aborted) this.error = `stats: ${err?.message ?? err}`;
+      if (!signal.aborted) this.error = `stats: ${err?.message ?? err}`;
     }
   }
 
@@ -564,7 +569,13 @@ function flatten(obj: any, prefix = ""): [string, any][] {
       else if (v.every((x) => x === null || typeof x !== "object")) {
         // array of primitives → one joined row instead of .0 / .1 / .2
         rows.push([path, v.map((x) => (x === null ? "null" : String(x))).join(", ")]);
-      } else rows.push(...flatten(v, path));
+      } else {
+        // array of objects → one summarized row per element, not a field explosion
+        v.forEach((el, idx) => {
+          if (el !== null && typeof el === "object") rows.push([`${path}.${idx}`, summarize(el)]);
+          else rows.push([`${path}.${idx}`, el]);
+        });
+      }
     } else if (v !== null && typeof v === "object") {
       if (Object.keys(v).length === 0) rows.push([path, "(empty)"]);
       else rows.push(...flatten(v, path));
@@ -573,6 +584,15 @@ function flatten(obj: any, prefix = ""): [string, any][] {
     }
   }
   return rows;
+}
+
+// summarize collapses an object into a one-line "k=v · k=v" summary of its
+// primitive fields — used for array-of-object rows (e.g. each Mount).
+function summarize(obj: any): string {
+  const parts = Object.entries(obj)
+    .filter(([, x]) => x === null || typeof x !== "object")
+    .map(([k, x]) => `${k}=${x === null ? "null" : x}`);
+  return parts.join("  ·  ") || "{…}";
 }
 
 // fmtVal renders a leaf value as readable JSX (boolean pills, dim null, etc).

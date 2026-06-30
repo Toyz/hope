@@ -1,8 +1,8 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
-import { route, LoomRouter, onRouteEnter } from "@toyz/loom/router";
+import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
@@ -181,22 +181,18 @@ export class StackPage extends LoomElement {
     this.toastTimer = setTimeout(() => (this.toast = ""), 2800);
   }
 
-  // @mount handles the initial / deep-linked load (onRouteEnter does NOT fire on
-  // first activation); @onRouteEnter handles navigating between two stacks (the
-  // router reuses the element). The guard prevents a redundant double-load.
+  // Route param bound reactively; watching it reloads on any change, including
+  // stack -> stack navigation (the outlet re-injects params without remounting).
+  @prop({ param: "project" }) accessor routeProject = "";
+
   @mount
   onMount() {
-    this.enter(this.projectFromPath());
+    if (this.routeProject) this.enter(this.routeProject);
   }
 
-  @onRouteEnter
-  entered(params: Record<string, string>) {
-    this.enter(params.project ? decodeURIComponent(params.project) : this.projectFromPath());
-  }
-
-  private projectFromPath(): string {
-    const m = location.pathname.match(/^\/stack\/(.+)$/);
-    return m ? decodeURIComponent(m[1]) : "";
+  @watch("routeProject")
+  private onProject() {
+    if (this.routeProject) this.enter(this.routeProject);
   }
 
   private enter(project: string) {
