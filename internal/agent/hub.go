@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/toyz/hope/internal/docker"
 )
@@ -90,6 +92,23 @@ func NewHub(token, configPath string, log Logger) *Hub {
 // Registry exposes the live hosts for routing.
 func (h *Hub) Registry() *Registry { return h.reg }
 
+// ServeWS upgrades an HTTP request to a WebSocket and runs the agent tunnel
+// over it, so the agent can reach the hub on hope's main HTTPS port (through
+// Cloudflare) with no extra port. Cloudflare Access auth (service token or a
+// bypass policy) is enforced at the edge before the request arrives; the shared
+// token in the handshake is the second factor. ctx bounds the tunnel lifetime.
+func (h *Hub) ServeWS(ctx context.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+		if err != nil {
+			return // Accept already wrote the error
+		}
+		c.SetReadLimit(-1) // yamux frames span the whole tunnel; no per-message cap
+		conn := websocket.NetConn(ctx, c, websocket.MessageBinary)
+		h.handle(ctx, conn) // blocks until the tunnel closes, keeping the conn open
+	}
+}
+
 // Listen accepts agents on addr until ctx is cancelled.
 func (h *Hub) Listen(ctx context.Context, addr string) error {
 	ln, err := net.Listen("tcp", addr)
@@ -130,7 +149,7 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 
 	// Hope opens streams; the agent serves them. A docker.Client over the
 	// session reaches the remote daemon as if it were local.
-	sess, err := yamux.Client(conn, nil)
+	sess, err := yamux.Client(conn, yamuxCfg())
 	if err != nil {
 		conn.Close()
 		return

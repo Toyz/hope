@@ -12,9 +12,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 )
 
@@ -28,12 +31,40 @@ type Logger interface {
 	Error(msg string, kv ...any)
 }
 
+// Options configures a hope-agent.
+type Options struct {
+	// Connect is the hub endpoint. A ws://host/path or wss://host/path URL rides
+	// hope's main HTTPS port through Cloudflare (no extra port); a bare host:port
+	// or tcp://host:port uses a raw TCP hub listener (LAN/overlay).
+	Connect string
+	Token   string // shared enrollment secret the hub checks
+	HostID  string // stable id this host registers under
+	Docker  string // local docker endpoint to expose (unix:// or tcp://)
+	// CFAccessClientID/Secret, when set, are sent as the Cloudflare Access
+	// service-token headers so the agent passes Access as a machine identity
+	// (leave empty if you instead bypass Access for the agent path).
+	CFAccessClientID     string
+	CFAccessClientSecret string
+	Log                  Logger
+}
+
+// yamuxCfg enables application-level keepalive so a dead peer or an idle
+// Cloudflare connection is detected (and kept warm) within ~30s.
+func yamuxCfg() *yamux.Config {
+	c := yamux.DefaultConfig()
+	c.EnableKeepAlive = true
+	c.KeepAliveInterval = 15 * time.Second
+	c.ConnectionWriteTimeout = 15 * time.Second
+	c.LogOutput = io.Discard
+	return c
+}
+
 // Run connects to a hope hub and serves the local Docker socket over the tunnel
 // until ctx is cancelled, reconnecting on drop.
-func Run(ctx context.Context, hubAddr, token, hostID, dockerHost string, log Logger) error {
+func Run(ctx context.Context, opts Options) error {
 	for {
-		if err := serveOnce(ctx, hubAddr, token, hostID, dockerHost, log); err != nil && ctx.Err() == nil {
-			log.Warn("agent disconnected", "err", err)
+		if err := serveOnce(ctx, opts); err != nil && ctx.Err() == nil {
+			opts.Log.Warn("agent disconnected", "err", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -43,14 +74,14 @@ func Run(ctx context.Context, hubAddr, token, hostID, dockerHost string, log Log
 	}
 }
 
-func serveOnce(ctx context.Context, hubAddr, token, hostID, dockerHost string, log Logger) error {
-	conn, err := net.DialTimeout("tcp", hubAddr, 10*time.Second)
+func serveOnce(ctx context.Context, opts Options) error {
+	conn, err := dialHub(ctx, opts)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	if _, err := fmt.Fprintf(conn, "%s %s %s\n", protoVersion, token, hostID); err != nil {
+	if _, err := fmt.Fprintf(conn, "%s %s %s\n", protoVersion, opts.Token, opts.HostID); err != nil {
 		return err
 	}
 	reply, err := readLine(conn)
@@ -60,10 +91,10 @@ func serveOnce(ctx context.Context, hubAddr, token, hostID, dockerHost string, l
 	if strings.TrimSpace(reply) != "OK" {
 		return fmt.Errorf("hub rejected: %s", strings.TrimSpace(reply))
 	}
-	log.Info("agent connected", "hub", hubAddr, "host", hostID)
+	opts.Log.Info("agent connected", "hub", opts.Connect, "host", opts.HostID)
 
 	// Agent accepts streams; hope (the hub) opens them.
-	sess, err := yamux.Server(conn, nil)
+	sess, err := yamux.Server(conn, yamuxCfg())
 	if err != nil {
 		return err
 	}
@@ -79,8 +110,41 @@ func serveOnce(ctx context.Context, hubAddr, token, hostID, dockerHost string, l
 		if err != nil {
 			return err // session closed
 		}
-		go proxyToDocker(stream, dockerHost)
+		go proxyToDocker(stream, opts.Docker)
 	}
+}
+
+// dialHub opens the transport to the hub: a WebSocket (ws://, wss://) so the
+// tunnel rides hope's main HTTPS port through Cloudflare, or a raw TCP socket
+// (tcp://host:port or bare host:port) for a LAN/overlay hub listener.
+func dialHub(ctx context.Context, opts Options) (net.Conn, error) {
+	if strings.HasPrefix(opts.Connect, "ws://") || strings.HasPrefix(opts.Connect, "wss://") {
+		return dialWS(ctx, opts)
+	}
+	addr := strings.TrimPrefix(opts.Connect, "tcp://")
+	return net.DialTimeout("tcp", addr, 10*time.Second)
+}
+
+// dialWS connects over WebSocket, attaching the Cloudflare Access service-token
+// headers when configured, and adapts the connection to a net.Conn for yamux.
+func dialWS(ctx context.Context, opts Options) (net.Conn, error) {
+	if _, err := url.Parse(opts.Connect); err != nil {
+		return nil, fmt.Errorf("bad connect url %q: %w", opts.Connect, err)
+	}
+	hdr := http.Header{}
+	if opts.CFAccessClientID != "" && opts.CFAccessClientSecret != "" {
+		hdr.Set("CF-Access-Client-Id", opts.CFAccessClientID)
+		hdr.Set("CF-Access-Client-Secret", opts.CFAccessClientSecret)
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(dialCtx, opts.Connect, &websocket.DialOptions{HTTPHeader: hdr})
+	if err != nil {
+		return nil, err
+	}
+	c.SetReadLimit(-1) // yamux frames span the whole tunnel; no per-message cap
+	// Tie the conn lifetime to the parent ctx, not the short dial ctx.
+	return websocket.NetConn(ctx, c, websocket.MessageBinary), nil
 }
 
 // proxyToDocker pipes one tunnel stream to the local Docker endpoint.

@@ -44,14 +44,14 @@ type ClusterUpdate struct {
 // current digest. It uses DistributionInspect (a manifest lookup, NOT a pull) so
 // it never downloads layers.
 func (c *Client) imageStatus(ctx context.Context, ref string) (string, string) {
-	insp, _, err := c.cli.ImageInspectWithRaw(ctx, ref)
+	insp, _, err := c.sdk().ImageInspectWithRaw(ctx, ref)
 	if err != nil {
 		return "unknown", "image not found locally"
 	}
 	if len(insp.RepoDigests) == 0 {
 		return "unknown", "no registry digest (local build?)"
 	}
-	dist, err := c.cli.DistributionInspect(ctx, ref, c.registryAuth(ref))
+	dist, err := c.sdk().DistributionInspect(ctx, ref, c.registryAuth(ref))
 	if err != nil {
 		return "unknown", "registry unreachable"
 	}
@@ -68,7 +68,7 @@ func (c *Client) imageStatus(ctx context.Context, ref string) (string, string) {
 // registry lookup is done once per distinct image ref (deduped), concurrently.
 func (c *Client) ProjectUpdates(ctx context.Context, project string) ([]ImageUpdate, error) {
 	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (c *Client) RefreshUpdates(ctx context.Context) { c.crawlUpdates(ctx) }
 // crawlUpdates checks every distinct image ref across all containers and stores
 // the verdicts in the cache.
 func (c *Client) crawlUpdates(ctx context.Context) {
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return
 	}
@@ -260,7 +260,7 @@ func (c *Client) RefreshImageStatus(ctx context.Context, ref string) {
 // merges the results into the cache (used after stack-wide pull/redeploy).
 func (c *Client) RefreshProjectStatus(ctx context.Context, project string) {
 	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 	if err != nil {
 		return
 	}
@@ -279,7 +279,7 @@ func (c *Client) RefreshProjectStatus(ctx context.Context, project string) {
 // returns them with the time of the last crawl. Containers whose ref hasn't
 // been crawled yet read as "unknown".
 func (c *Client) AllUpdates(ctx context.Context) ([]ClusterUpdate, time.Time, error) {
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, time.Time{}, err
 	}

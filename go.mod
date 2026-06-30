@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/Toyz/sov v0.0.0-20260602060215-8df018fce62e
+	github.com/coder/websocket v1.8.15
 	github.com/docker/docker v28.0.4+incompatible
 	github.com/hashicorp/yamux v0.1.2
 	github.com/spf13/cobra v1.10.2

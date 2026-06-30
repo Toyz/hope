@@ -52,7 +52,12 @@ func TestTunnel(t *testing.T) {
 	defer cancel()
 
 	// Agent dials the hub and serves backend over the tunnel.
-	go func() { _ = serveOnce(ctx, hubLn.Addr().String(), "secret", "host-1", "tcp://"+backend, nopLog{}) }()
+	go func() {
+		_ = serveOnce(ctx, Options{
+			Connect: hubLn.Addr().String(), Token: "secret", HostID: "host-1",
+			Docker: "tcp://" + backend, Log: nopLog{},
+		})
+	}()
 
 	conn, err := hubLn.Accept()
 	if err != nil {

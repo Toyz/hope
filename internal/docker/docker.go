@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -33,9 +34,12 @@ const (
 // ungrouped is the synthetic project name for containers with no compose label.
 const ungrouped = "(ungrouped)"
 
-// Client is hope's Docker facade over a single daemon endpoint.
+// Client is hope's Docker facade over a single daemon endpoint. The underlying
+// SDK handle is held atomically so the active daemon can be retargeted at
+// runtime (Adopt) — e.g. binding a late-connecting agent tunnel as the primary
+// host without rebuilding the routers that hold this client.
 type Client struct {
-	cli *client.Client
+	cli atomic.Pointer[client.Client]
 
 	// Registry auth. authMu guards `auths` (rebuilt by the cred watcher when
 	// config.json changes). regCreds are the explicit [[registry]] credentials,
@@ -83,20 +87,34 @@ func newClient(configPath string, opts ...client.Opt) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	c := &Client{cli: cli, auths: map[string]string{}, updByRef: map[string]refStatus{}}
+	c := &Client{auths: map[string]string{}, updByRef: map[string]refStatus{}}
+	c.cli.Store(cli)
 	c.initAuths(configPath)
 	return c, nil
 }
 
 // Close releases the underlying client.
-func (c *Client) Close() error { return c.cli.Close() }
+func (c *Client) Close() error { return c.sdk().Close() }
+
+// sdk returns the live SDK handle (atomic, so Adopt can retarget it).
+func (c *Client) sdk() *client.Client { return c.cli.Load() }
 
 // SDK exposes the raw client for streaming callers (logstream plugin).
-func (c *Client) SDK() *client.Client { return c.cli }
+func (c *Client) SDK() *client.Client { return c.sdk() }
+
+// Adopt retargets this client to another's daemon connection, closing the one
+// it replaces. Used to bind a late-connecting agent tunnel as the primary host
+// without rebuilding the routers that already hold this *Client.
+func (c *Client) Adopt(o *Client) {
+	old := c.cli.Swap(o.cli.Load())
+	if old != nil && old != o.cli.Load() {
+		_ = old.Close()
+	}
+}
 
 // Ping verifies the daemon is reachable.
 func (c *Client) Ping(ctx context.Context) error {
-	_, err := c.cli.Ping(ctx)
+	_, err := c.sdk().Ping(ctx)
 	return err
 }
 
@@ -136,7 +154,7 @@ type StackSummary struct {
 // Stacks lists all containers (running and stopped) grouped by compose
 // project. Containers without a compose project land under "(ungrouped)".
 func (c *Client) Stacks(ctx context.Context) ([]StackSummary, error) {
-	containers, err := c.cli.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -185,7 +203,7 @@ func (c *Client) Stacks(ctx context.Context) ([]StackSummary, error) {
 // Inspect returns the full raw inspect JSON for a container (rendered as-is
 // in the UI's inspect panel).
 func (c *Client) Inspect(ctx context.Context, id string) (any, error) {
-	info, err := c.cli.ContainerInspect(ctx, id)
+	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("inspect %s: %w", id, err)
 	}
@@ -194,34 +212,34 @@ func (c *Client) Inspect(ctx context.Context, id string) (any, error) {
 
 // Start starts a stopped container.
 func (c *Client) Start(ctx context.Context, id string) error {
-	return c.cli.ContainerStart(ctx, id, container.StartOptions{})
+	return c.sdk().ContainerStart(ctx, id, container.StartOptions{})
 }
 
 // Stop stops a running container with the daemon's default grace period.
 func (c *Client) Stop(ctx context.Context, id string) error {
-	return c.cli.ContainerStop(ctx, id, container.StopOptions{})
+	return c.sdk().ContainerStop(ctx, id, container.StopOptions{})
 }
 
 // Restart restarts a container.
 func (c *Client) Restart(ctx context.Context, id string) error {
-	return c.cli.ContainerRestart(ctx, id, container.StopOptions{})
+	return c.sdk().ContainerRestart(ctx, id, container.StopOptions{})
 }
 
 // Kill sends SIGKILL to a container.
 func (c *Client) Kill(ctx context.Context, id string) error {
-	return c.cli.ContainerKill(ctx, id, "SIGKILL")
+	return c.sdk().ContainerKill(ctx, id, "SIGKILL")
 }
 
 // Exists reports whether a container id/name resolves — used by the
 // logstream plugin to reject a stream before the first byte.
 func (c *Client) Exists(ctx context.Context, id string) bool {
-	_, err := c.cli.ContainerInspect(ctx, id)
+	_, err := c.sdk().ContainerInspect(ctx, id)
 	return err == nil
 }
 
 // Info returns daemon-wide info (version, container/image counts, resources).
 func (c *Client) Info(ctx context.Context) (any, error) {
-	info, err := c.cli.Info(ctx)
+	info, err := c.sdk().Info(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("docker info: %w", err)
 	}
@@ -230,7 +248,7 @@ func (c *Client) Info(ctx context.Context) (any, error) {
 
 // DiskUsage returns the daemon's disk-usage breakdown.
 func (c *Client) DiskUsage(ctx context.Context) (any, error) {
-	du, err := c.cli.DiskUsage(ctx, types.DiskUsageOptions{})
+	du, err := c.sdk().DiskUsage(ctx, types.DiskUsageOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("docker disk usage: %w", err)
 	}

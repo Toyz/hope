@@ -26,7 +26,7 @@ func (c *Client) StartDiskCrawler(ctx context.Context, every time.Duration) {
 }
 
 func (c *Client) crawlDisk(ctx context.Context) {
-	du, err := c.cli.DiskUsage(ctx, types.DiskUsageOptions{})
+	du, err := c.sdk().DiskUsage(ctx, types.DiskUsageOptions{})
 	if err != nil {
 		return
 	}
@@ -46,7 +46,7 @@ func (c *Client) DiskUsageCached() (any, time.Time) {
 // RefreshDiskUsage runs a live df, updates the cache, and returns it — for the
 // user-triggered "refresh" button.
 func (c *Client) RefreshDiskUsage(ctx context.Context) (any, time.Time, error) {
-	du, err := c.cli.DiskUsage(ctx, types.DiskUsageOptions{})
+	du, err := c.sdk().DiskUsage(ctx, types.DiskUsageOptions{})
 	if err != nil {
 		return nil, time.Time{}, err
 	}

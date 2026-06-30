@@ -35,7 +35,7 @@ func (c *Client) ProjectContainers(ctx context.Context, project, service string)
 	if service != "" {
 		args.Add("label", labelService+"="+service)
 	}
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: args})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: args})
 	if err != nil {
 		return nil, fmt.Errorf("list project %q: %w", project, err)
 	}
@@ -63,7 +63,7 @@ func (c *Client) ProjectContainers(ctx context.Context, project, service string)
 // by service then container-number for stable operation order.
 func (c *Client) ProjectContainerIDs(ctx context.Context, project string) ([]string, error) {
 	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 	if err != nil {
 		return nil, fmt.Errorf("list project %q: %w", project, err)
 	}
@@ -91,7 +91,7 @@ func (c *Client) ProjectContainerIDs(ctx context.Context, project string) ([]str
 // those as JSON `error` lines, not as a transport error — so draining blindly
 // would make a throttled pull look successful and a redeploy keep the old image.
 func (c *Client) PullImage(ctx context.Context, ref string) error {
-	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
+	rc, err := c.sdk().ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}
@@ -125,7 +125,7 @@ func (c *Client) PullImage(ctx context.Context, ref string) error {
 // line per layer status change (chatty per-chunk progress is deduped). Returns
 // the registry's error on failure, like PullImage.
 func (c *Client) PullImageStream(ctx context.Context, ref string, emit func(string)) error {
-	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
+	rc, err := c.sdk().ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}
@@ -173,7 +173,7 @@ func (c *Client) PullImageStream(ctx context.Context, ref string, emit func(stri
 // RedeployContainer pulls a container's image (streaming progress to emit) then
 // recreates it, emitting step lines. The terminal "done" frame is the caller's.
 func (c *Client) RedeployContainer(ctx context.Context, id string, emit func(string)) error {
-	info, err := c.cli.ContainerInspect(ctx, id)
+	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", id, err)
 	}
@@ -224,7 +224,7 @@ func (c *Client) RedeployProject(ctx context.Context, project string, emit func(
 
 // ContainerImage returns the image reference a container was created from.
 func (c *Client) ContainerImage(ctx context.Context, id string) (string, error) {
-	info, err := c.cli.ContainerInspect(ctx, id)
+	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("inspect %s: %w", id, err)
 	}
@@ -236,7 +236,7 @@ func (c *Client) ContainerImage(ctx context.Context, id string) (string, error) 
 // compose project), and network attachments. This is the API-only equivalent of
 // `docker compose up -d --force-recreate` for one container.
 func (c *Client) Recreate(ctx context.Context, id string) error {
-	info, err := c.cli.ContainerInspect(ctx, id)
+	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", id, err)
 	}
@@ -273,24 +273,24 @@ func (c *Client) Recreate(ctx context.Context, id string) error {
 		netConfig.EndpointsConfig[nets[0].name] = nets[0].ep
 	}
 
-	if err := c.cli.ContainerStop(ctx, id, container.StopOptions{}); err != nil {
+	if err := c.sdk().ContainerStop(ctx, id, container.StopOptions{}); err != nil {
 		return fmt.Errorf("stop %s: %w", name, err)
 	}
-	if err := c.cli.ContainerRemove(ctx, id, container.RemoveOptions{}); err != nil {
+	if err := c.sdk().ContainerRemove(ctx, id, container.RemoveOptions{}); err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 
-	created, err := c.cli.ContainerCreate(ctx, info.Config, info.HostConfig, netConfig, nil, name)
+	created, err := c.sdk().ContainerCreate(ctx, info.Config, info.HostConfig, netConfig, nil, name)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
 	// Connect remaining networks before start.
 	for _, n := range nets[1:] {
-		if err := c.cli.NetworkConnect(ctx, n.name, created.ID, n.ep); err != nil {
+		if err := c.sdk().NetworkConnect(ctx, n.name, created.ID, n.ep); err != nil {
 			return fmt.Errorf("connect %s to %s: %w", name, n.name, err)
 		}
 	}
-	if err := c.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+	if err := c.sdk().ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("start %s: %w", name, err)
 	}
 	return nil
@@ -326,7 +326,7 @@ func (c *Client) RecreateManaged(ctx context.Context, id string) error {
 // image that runs `hope self-recreate <id>` with the docker socket mounted. It
 // outlives the old hope, so it can stop/remove/recreate it cleanly.
 func (c *Client) recreateDetached(ctx context.Context, id string) error {
-	info, err := c.cli.ContainerInspect(ctx, id)
+	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", id, err)
 	}
@@ -339,11 +339,11 @@ func (c *Client) recreateDetached(ctx context.Context, id string) error {
 		AutoRemove: true,
 		Binds:      []string{"/var/run/docker.sock:/var/run/docker.sock"},
 	}
-	created, err := c.cli.ContainerCreate(ctx, helper, host, nil, nil, "")
+	created, err := c.sdk().ContainerCreate(ctx, helper, host, nil, nil, "")
 	if err != nil {
 		return fmt.Errorf("create self-updater: %w", err)
 	}
-	if err := c.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+	if err := c.sdk().ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("start self-updater: %w", err)
 	}
 	return nil
@@ -353,7 +353,7 @@ func (c *Client) recreateDetached(ctx context.Context, id string) error {
 // containers, for a stack-wide pull.
 func (c *Client) ImagesForProject(ctx context.Context, project string) ([]string, error) {
 	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 	if err != nil {
 		return nil, fmt.Errorf("list project %q: %w", project, err)
 	}

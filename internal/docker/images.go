@@ -33,14 +33,14 @@ type ImageInfo struct {
 // Images lists local top-level images, tagging each with whether a container
 // uses it and whether it's dangling (untagged). Sorted largest first.
 func (c *Client) Images(ctx context.Context) ([]ImageInfo, error) {
-	imgs, err := c.cli.ImageList(ctx, image.ListOptions{})
+	imgs, err := c.sdk().ImageList(ctx, image.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
 	// Which containers reference each image (running or not).
 	usedBy := map[string][]ImageUser{}
-	if conts, err := c.cli.ContainerList(ctx, container.ListOptions{All: true}); err == nil {
+	if conts, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true}); err == nil {
 		for _, ct := range conts {
 			name := ""
 			if len(ct.Names) > 0 {
@@ -89,7 +89,7 @@ type PruneResult struct {
 // RemoveImage deletes a single image (force allows removing a tagged image even
 // if it has stopped containers / multiple tags).
 func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
-	_, err := c.cli.ImageRemove(ctx, id, image.RemoveOptions{Force: force, PruneChildren: true})
+	_, err := c.sdk().ImageRemove(ctx, id, image.RemoveOptions{Force: force, PruneChildren: true})
 	return err
 }
 
@@ -157,7 +157,7 @@ func (c *Client) PruneImages(ctx context.Context, all bool) (PruneResult, error)
 	// dangling=false tells the daemon to prune ALL unused images, not just the
 	// untagged ones; dangling=true (the default) prunes only dangling.
 	f.Add("dangling", map[bool]string{true: "false", false: "true"}[all])
-	rep, err := c.cli.ImagesPrune(ctx, f)
+	rep, err := c.sdk().ImagesPrune(ctx, f)
 	if err != nil {
 		return PruneResult{}, err
 	}

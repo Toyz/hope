@@ -27,8 +27,15 @@ type Config struct {
 // AgentConfig is the hub side: hope listens here for hope-agents dialing in
 // from remote Docker hosts. Empty Listen disables the hub.
 type AgentConfig struct {
-	Listen string `mapstructure:"listen"` // hub address for incoming agents, e.g. ":9443"
-	Token  string `mapstructure:"token"`  // shared enrollment secret an agent must present
+	// Token is the shared enrollment secret an agent must present. Setting it
+	// enables the agent hub: a WebSocket endpoint (WSPath) on hope's main port
+	// so agents can dial in over 443 through Cloudflare with no extra port.
+	Token string `mapstructure:"token"`
+	// WSPath is the path of that WebSocket endpoint (default "/agent/connect").
+	WSPath string `mapstructure:"ws_path"`
+	// Listen optionally also runs a RAW TCP hub listener on this address (e.g.
+	// ":9443") for agents on a trusted LAN/overlay. Empty = WebSocket only.
+	Listen string `mapstructure:"listen"`
 	// Use, when set, makes hope drive a connected agent's Docker as its PRIMARY
 	// source instead of the local socket — hope waits for that host-id to dial
 	// in at boot. (Single-host for now; the multi-host switcher comes next.)

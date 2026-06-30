@@ -45,7 +45,7 @@ type cpuStats struct {
 // delta, so it reads two frames of the stats stream (the second carries a valid
 // precpu) and then closes.
 func (c *Client) StatsSnapshot(ctx context.Context, id string) (ContainerStat, error) {
-	resp, err := c.cli.ContainerStats(ctx, id, true)
+	resp, err := c.sdk().ContainerStats(ctx, id, true)
 	if err != nil {
 		return ContainerStat{}, fmt.Errorf("stats %s: %w", id, err)
 	}
@@ -89,7 +89,7 @@ func cpuPercent(s statsRaw) float64 {
 // dropped so one bad container doesn't fail the whole snapshot.
 func (c *Client) ProjectStats(ctx context.Context, project string) ([]ContainerStat, error) {
 	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 	if err != nil {
 		return nil, fmt.Errorf("list project %q: %w", project, err)
 	}

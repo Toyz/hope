@@ -67,19 +67,29 @@ interval = "6h"
 cache_path = ""
 
 [agent]
-# Remote-host hub. When set, hope listens here for hope-agents dialing in from
-# remote Docker hosts (run `hope agent --connect <this-addr> --token <token>`
-# on the remote). Each agent tunnels its Docker socket back, so hope manages it
-# with no inbound ports on the remote. Empty = disabled.
+# Remote-host hub. Setting a token turns on the agent hub: hope-agents on remote
+# Docker hosts dial IN and tunnel their socket back, so hope manages them with no
+# inbound ports on the remote. The hub endpoint is a WebSocket on hope's MAIN
+# port (ws_path below) — it rides 443 through Cloudflare like the UI, so you do
+# NOT need to expose a second port. Empty token = hub disabled.
 # SECURITY: the token is a shared enrollment secret and the tunnel grants Docker
-# (root-equivalent) control of the remote host — keep the listener on a trusted
-# network/overlay and use a long random token.
+# (root-equivalent) control of the remote host. Use a long random token, and
+# keep the agent path behind Cloudflare Access (service token) or your overlay.
+# token   = "change-me-to-a-long-random-string"
+# ws_path = "/agent/connect"   # WebSocket endpoint path (default shown)
+# Optionally ALSO run a raw TCP hub listener for agents on a trusted LAN/overlay
+# (no Cloudflare in between). Empty = WebSocket only.
 # listen = ":9443"
-# token  = "change-me-to-a-long-random-string"
 # Drive a connected agent's Docker as hope's PRIMARY source instead of the local
-# socket — hope waits for this host-id to dial in at boot. (Single remote host
-# for now; a multi-host switcher is next.)
+# socket — hope waits for this host-id to dial in, then runs entirely against it.
+# (Single remote host for now; a multi-host switcher is next.)
 # use = "remote-1"
+#
+# On the remote host, run the agent (same binary):
+#   hope agent --connect wss://hope.example.com/agent/connect \
+#     --token <token> --host-id remote-1 --docker unix:///var/run/docker.sock \
+#     --cf-access-id <id> --cf-access-secret <secret>   # if behind CF Access
+# Use a bare host:port (or tcp://host:port) instead of wss:// to hit [listen].
 
 [socketproxy]
 # Opt-in LAN-facing reverse proxy that forwards the Docker API to the unix

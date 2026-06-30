@@ -54,6 +54,13 @@ func waitForAgent(ctx context.Context, reg *agent.Registry, id string, timeout t
 	return nil
 }
 
+func wsPathOr(p string) string {
+	if p == "" {
+		return "/agent/connect"
+	}
+	return p
+}
+
 func runServe(configPath string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -73,69 +80,78 @@ func runServe(configPath string) error {
 	defer stop()
 
 	// Remote-host hub: accept hope-agents dialing in and route their Docker over
-	// the tunnel (the host switcher is built on this registry).
+	// the tunnel (the host switcher is built on this registry). Setting a token
+	// enables the WebSocket endpoint on hope's main port (no extra port — it
+	// rides 443 through Cloudflare); an optional raw TCP listener serves agents
+	// on a trusted LAN/overlay.
+	var hub *agent.Hub
 	var hubReg *agent.Registry
-	if cfg.Agent.Listen != "" && cfg.Agent.Token != "" {
-		hub := agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
+	if cfg.Agent.Token != "" {
+		hub = agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
 		hubReg = hub.Registry()
-		go func() {
-			if err := hub.Listen(ctx, cfg.Agent.Listen); err != nil && ctx.Err() == nil {
-				lg.Warn("agent hub stopped", "err", err)
-			}
-		}()
-		lg.Info("agent hub listening", "addr", cfg.Agent.Listen)
+		if cfg.Agent.Listen != "" {
+			go func() {
+				if err := hub.Listen(ctx, cfg.Agent.Listen); err != nil && ctx.Err() == nil {
+					lg.Warn("agent hub (tcp) stopped", "err", err)
+				}
+			}()
+			lg.Info("agent hub listening (tcp)", "addr", cfg.Agent.Listen)
+		}
 	}
 
-	// Docker source: either the local socket, or a connected agent's tunnel when
-	// [agent] use is set (hope then waits for that host to dial in).
-	var dock *docker.Client
-	if cfg.Agent.Use != "" {
-		if hubReg == nil {
-			fatal("agent.use set but the hub is disabled", "hint", "set [agent] listen + token")
+	// dock is the swappable handle the routers hold for the WHOLE run. It starts
+	// pointed at the local socket; when [agent] use is set it's retargeted
+	// (Adopt) to the chosen agent's tunnel once that agent dials in — which can
+	// only happen after the server (and its WebSocket endpoint) is up, so the
+	// adoption is deferred until after gw.Run starts below.
+	dock, err := docker.New(cfg.Docker.Host, cfg.Docker.Config)
+	if err != nil {
+		fatal("docker client", "err", err)
+	}
+	defer dock.Close()
+
+	// startBackground wires the live daemon's auth + crawlers. It runs once the
+	// active daemon is settled (immediately for local; after Adopt for use).
+	startBackground := func() {
+		for _, r := range cfg.Registries {
+			dock.AddRegistryCreds(r.Server, r.Username, r.Password)
+			lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
 		}
-		lg.Info("waiting for agent to use as primary docker", "host", cfg.Agent.Use)
-		dock = waitForAgent(ctx, hubReg, cfg.Agent.Use, 90*time.Second)
-		if dock == nil {
-			fatal("agent did not connect", "host", cfg.Agent.Use)
+		dock.StartCredWatcher(ctx, 30*time.Second)
+		if regs := dock.AuthedRegistries(); len(regs) > 0 {
+			lg.Info("registry auth ready", "registries", strings.Join(regs, ","))
+		} else {
+			lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
 		}
-		lg.Info("using remote agent docker", "host", cfg.Agent.Use)
-	} else {
-		dock, err = docker.New(cfg.Docker.Host, cfg.Docker.Config)
-		if err != nil {
-			fatal("docker client", "err", err)
+		if cfg.Updates.Enabled {
+			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
+			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
 		}
-		defer dock.Close()
+		dock.StartDiskCrawler(ctx, time.Hour) // df is expensive: crawl hourly, serve cached
 	}
-	if err := dock.Ping(ctx); err != nil {
-		fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
+
+	if cfg.Agent.Use == "" {
+		if err := dock.Ping(ctx); err != nil {
+			fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
+		}
+		startBackground()
+	} else if hubReg == nil {
+		fatal("agent.use set but the hub is disabled", "hint", "set [agent] token")
 	}
-	// Explicit registry credentials from config (e.g. a Docker Hub account +
-	// token) override config.json and avoid anonymous-pull rate limits.
-	for _, r := range cfg.Registries {
-		dock.AddRegistryCreds(r.Server, r.Username, r.Password)
-		lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
-	}
-	// Hot-reload registry creds when the mounted config.json changes (e.g. a
-	// fresh `docker login`) — no restart needed.
-	dock.StartCredWatcher(ctx, 30*time.Second)
-	if regs := dock.AuthedRegistries(); len(regs) > 0 {
-		lg.Info("registry auth ready", "registries", strings.Join(regs, ","))
-	} else {
-		lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
-	}
-	// Background crawler keeps the cluster-wide image-freshness cache warm for
-	// the dashboard "updates" section (manifest lookups, no layer pulls).
-	if cfg.Updates.Enabled {
-		dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
-		lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
-	}
-	// Docker disk usage (`df`) is expensive, so crawl it hourly and serve cached.
-	dock.StartDiskCrawler(ctx, time.Hour)
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
 
-	gw := sov.New()
+	// Front the listener with the agent WebSocket endpoint when the hub is on,
+	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
+	// traffic passes to sov untouched.
+	var gw *sov.Gateway
+	if hub != nil {
+		gw = sov.New(sov.WithServer(agent.NewFrontServer(hub, cfg.Agent.WSPath)))
+		lg.Info("agent hub websocket enabled", "path", wsPathOr(cfg.Agent.WSPath))
+	} else {
+		gw = sov.New()
+	}
 	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
 	gw.Register(stacks.NewStacksRouter(dock, comp))
@@ -170,6 +186,29 @@ func runServe(configPath string) error {
 			if err := proxy.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
 				lg.Warn("socket proxy stopped", "err", err)
 			}
+		}()
+	}
+
+	// When using an agent as the primary daemon, the agent reaches hope over the
+	// WebSocket endpoint — which is only live once the server runs. So start the
+	// server, then wait for the agent and retarget dock onto its tunnel.
+	if cfg.Agent.Use != "" {
+		go func() {
+			lg.Info("waiting for agent to use as primary docker", "host", cfg.Agent.Use)
+			agentDock := waitForAgent(ctx, hubReg, cfg.Agent.Use, 5*time.Minute)
+			if agentDock == nil {
+				if ctx.Err() == nil {
+					lg.Error("agent did not connect", "host", cfg.Agent.Use)
+				}
+				return
+			}
+			dock.Adopt(agentDock)
+			if err := dock.Ping(ctx); err != nil {
+				lg.Error("agent connected but its docker is unreachable", "host", cfg.Agent.Use, "err", err)
+				return
+			}
+			lg.Info("using remote agent docker", "host", cfg.Agent.Use)
+			startBackground()
 		}()
 	}
 
