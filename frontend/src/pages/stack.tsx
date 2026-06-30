@@ -1,6 +1,6 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter, onRouteEnter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -109,7 +109,10 @@ const STACK_OPS: { op: StackOp; label: string; danger?: boolean }[] = [
   tbody tr:last-child td { border-bottom: none; }
   tbody tr:hover { background: var(--raised); }
   td.svc .cell { display: flex; align-items: center; gap: 10px; }
-  td.svc a:hover { color: #fff; }
+  tr.crow { cursor: pointer; }
+  .link { color: var(--hi); }
+  tr.crow:hover .link { color: #fff; }
+  td.svc.rep .link { color: var(--mid); }
   /* group (expandable) rows read as headers */
   tr.grp { cursor: pointer; }
   tr.grp td { background: #11161f; }
@@ -178,15 +181,31 @@ export class StackPage extends LoomElement {
     this.toastTimer = setTimeout(() => (this.toast = ""), 2800);
   }
 
-  // Fires on every activation — including navigating from one stack to another
-  // (the router reuses the element), so the data always reloads for the new param.
+  // @mount handles the initial / deep-linked load (onRouteEnter does NOT fire on
+  // first activation); @onRouteEnter handles navigating between two stacks (the
+  // router reuses the element). The guard prevents a redundant double-load.
+  @mount
+  onMount() {
+    this.enter(this.projectFromPath());
+  }
+
   @onRouteEnter
   entered(params: Record<string, string>) {
+    this.enter(params.project ? decodeURIComponent(params.project) : this.projectFromPath());
+  }
+
+  private projectFromPath(): string {
+    const m = location.pathname.match(/^\/stack\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  private enter(project: string) {
     if (!this.auth.isAuthenticated) {
       this.router.navigate("/login");
       return;
     }
-    this.project = decodeURIComponent(params.project ?? "");
+    if (project === this.project && this.stack) return; // already loaded this stack
+    this.project = project;
     this.stack = null;
     this.closeLogs();
     this.expanded = {};
@@ -361,6 +380,10 @@ export class StackPage extends LoomElement {
     });
   }
 
+  private openContainer(id: string) {
+    this.router.navigate(`/container/${encodeURIComponent(id)}`);
+  }
+
   private logout = () => {
     this.auth.clear();
     this.router.navigate("/login");
@@ -375,7 +398,7 @@ export class StackPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><loom-link href="/" class="back">‹ fleet</loom-link></div>
+          <div class="s"><loom-link to="/" class="back">‹ fleet</loom-link></div>
           <div class="s"><span class="crumb">{this.project}</span></div>
           <div class="grow"></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
@@ -438,17 +461,17 @@ export class StackPage extends LoomElement {
                     if (g.items.length === 1) {
                       const c = g.items[0];
                       return [
-                        <tr>
+                        <tr class="crow" onClick={() => this.openContainer(c.id)}>
                           <td class="svc">
                             <span class="cell">
                               <span class={"mark " + markClass(c.state)}></span>
-                              <loom-link href={`/container/${encodeURIComponent(c.id)}`}>{c.service || c.name}</loom-link>
+                              <span class="link">{c.service || c.name}</span>
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
                           <td class="statusc">{c.status}</td>
                           <td class="ports">{(c.ports || []).join(", ") || "—"}</td>
-                          <td>
+                          <td onClick={(e: Event) => e.stopPropagation()}>
                             <div class="cacts">
                               <button class="btn" onClick={() => this.openLogs("logs", [c.id], c.service || c.name)}>logs</button>
                               {ROW_ACTIONS.map((a) => (
@@ -492,20 +515,20 @@ export class StackPage extends LoomElement {
                     if (open) {
                       for (const c of g.items) {
                         rows.push(
-                          <tr class="rep">
+                          <tr class="rep crow" onClick={() => this.openContainer(c.id)}>
                             <td class="svc rep">
                               <span class="cell">
                                 <span class={"mark " + markClass(c.state)}></span>
-                                <loom-link href={`/container/${encodeURIComponent(c.id)}`}>
+                                <span class="link">
                                   {c.service || c.name}
                                   <span class="repn">#{c.number || "—"}</span>
-                                </loom-link>
+                                </span>
                               </span>
                             </td>
                             <td class="state">{c.state}</td>
                             <td class="statusc">{c.status}</td>
                             <td class="ports">{(c.ports || []).join(", ") || "—"}</td>
-                            <td>
+                            <td onClick={(e: Event) => e.stopPropagation()}>
                               <div class="cacts">
                                 <button class="btn" onClick={() => this.openLogs("logs", [c.id], `${c.service || c.name} #${c.number}`)}>logs</button>
                                 {ROW_ACTIONS.map((a) => (

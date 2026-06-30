@@ -22,6 +22,7 @@ import (
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/logstream"
 	"github.com/toyz/hope/internal/socketproxy"
@@ -69,6 +70,7 @@ func main() {
 	gw.Register(stacks.NewStacksRouter(dock, comp))
 	gw.Register(containers.NewContainersRouter(dock))
 	gw.Register(system.NewSystemRouter(dock))
+	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
 	gw.MustUse(logstream.New(dock, tokens))

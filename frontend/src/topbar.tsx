@@ -10,7 +10,7 @@ export function topbar(opts: { auth: AuthStore; router: LoomRouter; title?: stri
   return (
     <div class="topbar">
       <div class="row">
-        <loom-link href="/" class="brand">hope</loom-link>
+        <loom-link to="/" class="brand">hope</loom-link>
         {opts.title ? <span class="muted">/ {opts.title}</span> : null}
       </div>
       <button onClick={logout}>Logout</button>

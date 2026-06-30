@@ -5,6 +5,8 @@ import { LoomIcon } from "@toyz/loom/element/icon";
 
 LoomIcon.registerAll({
   "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+  "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+  "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   "search": '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
   "rotate": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
   "redeploy": '<path d="M21 12a9 9 0 1 1-3-6.74L21 8"/><path d="M21 3v5h-5"/><path d="M12 8v4l3 2"/>',
