@@ -89,17 +89,30 @@ func runAgent(cmd *cobra.Command) error {
 		hostID, _ = os.Hostname()
 	}
 
+	// Cloudflare Access service token. Also honor Cloudflare's conventional env
+	// names (CF_ACCESS_CLIENT_ID/SECRET), which the docker-compose example and
+	// cloudflared use, in addition to the HOPE_AGENT_* form.
+	cfID := strings.TrimSpace(v.GetString("cf_access_id"))
+	if cfID == "" {
+		cfID = strings.TrimSpace(os.Getenv("CF_ACCESS_CLIENT_ID"))
+	}
+	cfSecret := strings.TrimSpace(v.GetString("cf_access_secret"))
+	if cfSecret == "" {
+		cfSecret = strings.TrimSpace(os.Getenv("CF_ACCESS_CLIENT_SECRET"))
+	}
+
 	lg := logger.New(logger.Config{Color: true, SkipFramework: true})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	lg.Info("hope agent starting", "hub", connect, "host", hostID, "docker", v.GetString("docker"))
+	lg.Info("hope agent starting", "hub", connect, "host", hostID,
+		"docker", v.GetString("docker"), "cf_access", cfID != "")
 	return agent.Run(ctx, agent.Options{
 		Connect:              connect,
 		Token:                token,
 		HostID:               hostID,
 		Docker:               v.GetString("docker"),
-		CFAccessClientID:     v.GetString("cf_access_id"),
-		CFAccessClientSecret: v.GetString("cf_access_secret"),
+		CFAccessClientID:     cfID,
+		CFAccessClientSecret: cfSecret,
 		Log:                  lg,
 	})
 }
