@@ -28,6 +28,13 @@ socket or a remote daemon with no compose files on disk.
   with bulk actions; expand for per-replica control.
 - **Live logs & stats** — per container, per service (all replicas multiplexed and
   source-tagged), or the whole stack. Streamed as NDJSON; auto-scroll + wrap toggle.
+- **Update detection** — a background crawler compares each container's image
+  against its registry (a manifest lookup — never pulls layers) and flags what's
+  out of date: a dashboard "updates" section, per-row chips on the stack page, and
+  an "update available" button on the container page that redeploys to the latest.
+- **Host insight** — the dashboard shows the Docker daemon's identity and capacity
+  (version, OS/arch, CPUs, memory, container/image counts) plus cached disk usage
+  (images / volumes / build cache) with an on-demand `df` refresh.
 - **Private registry pulls** — reads a Docker `config.json` so `pull`/`redeploy`
   authenticate to private registries (e.g. ghcr).
 - **Guarded destructive actions** — stop / kill / redeploy require confirmation.
@@ -56,6 +63,11 @@ See [config.example.toml](config.example.toml). Every key can be overridden with
 - `[docker] host` — `unix:///var/run/docker.sock` or a remote `tcp://host:2375`.
   `config` optionally points at a Docker `config.json` for registry credentials
   (defaults to `~/.docker/config.json`).
+- `[updates]` — the image-freshness crawler. `enabled` (default true),
+  `interval` (default `6h`; mind Docker Hub anonymous rate limits), and an
+  optional `cache_path` that persists the freshness cache to disk so it survives
+  restarts — mount that path to keep it across container recreates, e.g.
+  `cache_path = "/data/updates.json"` with a `/data` volume.
 - `[socketproxy]` — opt-in LAN proxy; **read-only by default**.
 - `[log]` — `color` / `json`.
 

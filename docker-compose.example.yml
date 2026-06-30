@@ -25,3 +25,9 @@ services:
       # holds your compose projects, read-only. Optional — all other ops are
       # API-based and need no files.
       # - /path/to/compose/projects:/path/to/compose/projects:ro
+      # Persist the image-update cache across restarts. Optional — set
+      # [updates] cache_path = "/data/updates.json" in config.toml to use it.
+      # - hope-data:/data
+
+# volumes:
+#   hope-data:
