@@ -83,6 +83,15 @@ export interface DiskResult {
   checked_at: string;
 }
 
+export interface ImageInfo {
+  id: string;
+  tags: string[];
+  size: number;
+  created: number; // unix seconds
+  dangling: boolean;
+  in_use: boolean;
+}
+
 // NDJSON stream frames.
 export interface LogFrame {
   type: "stdout" | "stderr";
@@ -179,6 +188,9 @@ export class System {
     return undefined!;
   }
   refreshDiskUsage(): DiskResult {
+    return undefined!;
+  }
+  images(): ImageInfo[] {
     return undefined!;
   }
 }

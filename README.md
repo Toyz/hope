@@ -35,6 +35,8 @@ socket or a remote daemon with no compose files on disk.
 - **Host insight** — the dashboard shows the Docker daemon's identity and capacity
   (version, OS/arch, CPUs, memory, container/image counts) plus cached disk usage
   (images / volumes / build cache) with an on-demand `df` refresh.
+- **Images view** — every local image at a glance (repo:tag, id, size, age) with
+  in-use / unused / dangling tags, searchable, sorted largest-first.
 - **Private registry pulls** — reads a Docker `config.json` so `pull`/`redeploy`
   authenticate to private registries (e.g. ghcr).
 - **Guarded destructive actions** — stop / kill / redeploy require confirmation.

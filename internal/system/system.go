@@ -76,6 +76,20 @@ func (r *SystemRouter) collectUpdates(ctx context.Context) (*UpdatesResult, erro
 	return &UpdatesResult{Updates: updates, Outdated: outdated, CheckedAt: stamp(at)}, nil
 }
 
+// Images lists the local images for the images page.
+func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	imgs, err := r.docker.Images(cctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return imgs, nil
+}
+
 // DiskResult wraps a disk-usage snapshot with the time it was taken.
 type DiskResult struct {
 	Usage     any    `json:"usage"`

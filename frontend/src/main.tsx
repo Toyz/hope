@@ -15,6 +15,7 @@ import "./pages/login";
 import "./pages/dashboard";
 import "./pages/stack";
 import "./pages/container";
+import "./pages/images";
 
 app.use(AuthStore);
 app.use(ConfirmService);

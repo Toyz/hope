@@ -41,6 +41,8 @@ const UNGROUPED = "(ungrouped)";
   .bar .verdict.ok { color: var(--ok); }
   .bar .verdict.warn { color: var(--warn); }
   .bar .verdict.bad { color: var(--bad); }
+  .bar .nav .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
+  .bar .nav .navlink:hover { color: var(--hi); }
   .bar .upd { gap: 7px; color: var(--upd); font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
   .bar .upd loom-icon { color: var(--upd); }
   .bar .act { padding: 0; border-right: 1px solid var(--line); }
@@ -366,6 +368,7 @@ export class DashboardPage extends LoomElement {
         <div class="bar">
           <div class="s brand">HOPE</div>
           <div class="s"><span class="k">fleet</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="grow"></div>
           <div class="s"><span class="k">stacks</span><span class="v">{vis.length}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
