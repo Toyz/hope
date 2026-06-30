@@ -68,15 +68,10 @@ const UNGROUPED = "(ungrouped)";
   .fleetsec .fbadge.bad { color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
   .fleetsec .fbadge.upd { color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, transparent); }
 
-  /* fleet summary KPI strip */
-  .fsum { display: flex; flex-wrap: wrap; border: 1px solid var(--line); margin-bottom: 24px; }
-  .fsum .kpi { display: flex; flex-direction: column; gap: 6px; padding: 14px 22px; border-right: 1px solid var(--line); min-width: 96px; }
-  .fsum .kpi .kl { font: 600 9.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); font-style: normal; }
-  .fsum .kpi .kv { font: 700 22px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
-  .fsum .kpi .kv .t { color: var(--dim); font-size: 15px; }
-  .fsum .kpi.warn .kv { color: var(--warn); }
-  .fsum .kpi.bad .kv { color: var(--bad); }
-  .fsum .kpi.upd .kv { color: var(--upd); }
+  /* fleet summary reuses the .hostbar strip; these tint the highlight cells */
+  .hostbar .hv.warn { color: var(--warn); }
+  .hostbar .hv.bad { color: var(--bad); }
+  .hostbar .hv.upd { color: var(--upd); }
 
   /* cross-host rows carry a host tag, so they need a 6-column grid */
   .row.xrow { grid-template-columns: 13px auto 1fr auto 84px 14px; }
@@ -223,6 +218,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor diskBusy = false;
   @reactive accessor updBusy = false;
   @reactive accessor fleet: FleetHost[] | null = null; // cross-host overview ("all hosts")
+  @reactive accessor fleetBusy = false;
 
   // "all hosts" is a client-side view flag (set by the host switcher).
   get fleetMode() {
@@ -261,6 +257,59 @@ export class DashboardPage extends LoomElement {
     } catch (err: any) {
       this.error = err?.message ?? "Can't reach the daemon.";
     }
+  }
+
+  // Force an image-freshness recrawl on every host (fleet "check" button).
+  private refreshFleet = async () => {
+    this.fleetBusy = true;
+    try {
+      this.fleet = (await this.rpc.call<FleetHost[]>("System", "refreshFleetUpdates", [])) || [];
+    } catch {
+      /* ignore */
+    } finally {
+      this.fleetBusy = false;
+    }
+  };
+
+  // Reusable stat strip (the .hostbar look), shared by the single-host host
+  // strip and the fleet summary so the markup isn't copy-pasted.
+  // The single-host Docker daemon strip, built from the shared statStrip.
+  private hostStrip() {
+    const h = this.host;
+    const dt = this.diskTotals();
+    const cells: Array<{ k: string; v: any; cls?: string }> = [
+      { k: "host", v: h.Name || "—" },
+      { k: "docker", v: h.ServerVersion || "—" },
+      { k: "os", v: `${h.OperatingSystem || h.OSType}${h.Architecture ? " · " + h.Architecture : ""}` },
+      { k: "cpu", v: h.NCPU ?? "—" },
+      { k: "mem", v: gb(h.MemTotal) },
+      { k: "containers", v: <>{h.ContainersRunning ?? 0}<i class="t">/{h.Containers ?? 0}</i></> },
+      { k: "images", v: h.Images ?? 0 },
+    ];
+    if (dt) {
+      cells.push(
+        { k: "disk", v: gb(dt.total) },
+        { k: "volumes", v: gb(dt.volumes) },
+        { k: "build cache", v: gb(dt.cache) },
+      );
+    }
+    return this.statStrip(
+      cells,
+      <button class="hrefresh" disabled={this.diskBusy} title={this.disk?.checked_at ? `disk usage · ${ago(this.disk.checked_at)}` : "compute disk usage"} onClick={this.refreshDisk}>
+        <loom-icon name="rotate" size={13}></loom-icon>{this.diskBusy ? "scanning…" : "df"}
+      </button>,
+    );
+  }
+
+  private statStrip(cells: Array<{ k: string; v: any; cls?: string }>, tail?: any) {
+    return (
+      <div class="hostbar">
+        {cells.map((c) => (
+          <span class="hi"><i class="hk">{c.k}</i><i class={"hv " + (c.cls ?? "")}>{c.v}</i></span>
+        ))}
+        {tail ? <><span class="hi grow"></span>{tail}</> : null}
+      </div>
+    );
   }
 
   // Docker host identity + cached disk usage. Both cheap (df is cached
@@ -431,11 +480,20 @@ export class DashboardPage extends LoomElement {
       updC = 0;
     const problems: { host: string; s: any }[] = [];
     const fupdates: { host: string; u: any }[] = [];
+    // Loose (ungrouped) containers are hidden by default, like the single-host
+    // dashboard; the "loose" toggle reveals them.
+    const keep = (project: string) => this.showUngrouped || (!!project && project !== UNGROUPED);
+    let fleetHasLoose = false;
     for (const h of f) {
-      updC += h.outdated || 0;
-      for (const u of h.updates ?? []) fupdates.push({ host: h.id, u });
+      const ups = (h.updates ?? []).filter((u) => {
+        if (!u.project || u.project === UNGROUPED) fleetHasLoose = true;
+        return keep(u.project);
+      });
+      updC += ups.length;
+      for (const u of ups) fupdates.push({ host: h.id, u });
       for (const s of h.stacks) {
-        if (s.project === UNGROUPED) continue;
+        if (s.project === UNGROUPED) fleetHasLoose = true;
+        if (!keep(s.project)) continue;
         runC += s.running;
         totC += s.total;
         stackC++;
@@ -456,19 +514,39 @@ export class DashboardPage extends LoomElement {
           <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{hosts}</span></span></div>
           <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
+          <div class={"s verdict " + vClass}>
+            <span class={"mark " + vClass}></span>
+            {problems.length === 0 ? "nominal" : `${problems.length} ${problems.length === 1 ? "issue" : "issues"}`}
+          </div>
+          {updC > 0 ? (
+            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span></div>
+          ) : null}
+          {fleetHasLoose ? (
+            <div class="s act">
+              <button onClick={() => (this.showUngrouped = !this.showUngrouped)}>
+                {this.showUngrouped ? "hide loose" : "loose"}
+              </button>
+            </div>
+          ) : null}
+          <div class="s act">
+            <button class="upcheck" disabled={this.fleetBusy} title="recheck every host for image updates" onClick={this.refreshFleet}>
+              <loom-icon class={this.fleetBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+              <span>check</span>
+            </button>
+          </div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
         <main>
           {!this.loaded ? <div class="loading">loading fleet…</div> : null}
           {this.error ? <div class="err">{this.error}</div> : null}
 
-          <div class="fsum">
-            <div class="kpi"><i class="kl">hosts</i><i class="kv">{online}<span class="t">/{hosts}</span></i></div>
-            <div class="kpi"><i class="kl">stacks</i><i class="kv">{stackC}</i></div>
-            <div class="kpi"><i class="kl">containers</i><i class="kv">{runC}<span class="t">/{totC}</span></i></div>
-            <div class={"kpi " + (problems.length ? vClass : "")}><i class="kl">issues</i><i class="kv">{problems.length}</i></div>
-            <div class={"kpi " + (updC ? "upd" : "")}><i class="kl">updates</i><i class="kv">{updC}</i></div>
-          </div>
+          {this.statStrip([
+            { k: "hosts", v: <>{online}<i class="t">/{hosts}</i></> },
+            { k: "stacks", v: stackC },
+            { k: "containers", v: <>{runC}<i class="t">/{totC}</i></> },
+            { k: "issues", v: problems.length, cls: problems.length ? vClass : "" },
+            { k: "updates", v: updC, cls: updC ? "upd" : "" },
+          ])}
 
           {problems.length > 0 ? (
             <section>
@@ -526,7 +604,7 @@ export class DashboardPage extends LoomElement {
 
   private renderFleetHost(h: FleetHost) {
     const ranked = (h.stacks ?? [])
-      .filter((s) => s.project !== UNGROUPED)
+      .filter((s) => this.showUngrouped || s.project !== UNGROUPED)
       .map((s) => ({ ...s, sev: stackSeverity(s.running, s.total, s.restarting) }))
       .sort((a, b) => severityRank(b.sev) - severityRank(a.sev));
     const up = (h.stacks ?? []).reduce((a, s) => a + s.running, 0);
@@ -627,28 +705,7 @@ export class DashboardPage extends LoomElement {
         </div>
 
         <main>
-          {this.host ? (
-            <div class="hostbar">
-              <span class="hi"><i class="hk">host</i><i class="hv">{this.host.Name || "—"}</i></span>
-              <span class="hi"><i class="hk">docker</i><i class="hv">{this.host.ServerVersion || "—"}</i></span>
-              <span class="hi"><i class="hk">os</i><i class="hv">{this.host.OperatingSystem || this.host.OSType}{this.host.Architecture ? ` · ${this.host.Architecture}` : ""}</i></span>
-              <span class="hi"><i class="hk">cpu</i><i class="hv">{this.host.NCPU ?? "—"}</i></span>
-              <span class="hi"><i class="hk">mem</i><i class="hv">{gb(this.host.MemTotal)}</i></span>
-              <span class="hi"><i class="hk">containers</i><i class="hv">{this.host.ContainersRunning ?? 0}<i class="t">/{this.host.Containers ?? 0}</i></i></span>
-              <span class="hi"><i class="hk">images</i><i class="hv">{this.host.Images ?? 0}</i></span>
-              {this.diskTotals() ? (
-                <>
-                  <span class="hi"><i class="hk">disk</i><i class="hv">{gb(this.diskTotals()!.total)}</i></span>
-                  <span class="hi"><i class="hk">volumes</i><i class="hv">{gb(this.diskTotals()!.volumes)}</i></span>
-                  <span class="hi"><i class="hk">build cache</i><i class="hv">{gb(this.diskTotals()!.cache)}</i></span>
-                </>
-              ) : null}
-              <span class="hi grow"></span>
-              <button class="hrefresh" disabled={this.diskBusy} title={this.disk?.checked_at ? `disk usage · ${ago(this.disk.checked_at)}` : "compute disk usage"} onClick={this.refreshDisk}>
-                <loom-icon name="rotate" size={13}></loom-icon>{this.diskBusy ? "scanning…" : "df"}
-              </button>
-            </div>
-          ) : null}
+          {this.host ? this.hostStrip() : null}
 
           {this.error ? <div class="empty">{this.error}</div> : null}
 

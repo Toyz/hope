@@ -54,8 +54,25 @@ func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
+	return r.collectFleet(ctx, false), nil
+}
+
+// RefreshFleetUpdates forces an immediate image-freshness recrawl on every host
+// (the fleet "check" button), then returns the fresh overview.
+func (r *SystemRouter) RefreshFleetUpdates(ctx *rpc.Context) ([]FleetHost, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	return r.collectFleet(ctx, true), nil
+}
+
+func (r *SystemRouter) collectFleet(ctx context.Context, refresh bool) []FleetHost {
 	hcs := r.hosts.All()
 	out := make([]FleetHost, len(hcs))
+	timeout := 25 * time.Second
+	if refresh {
+		timeout = 100 * time.Second // recrawl per host can be slow
+	}
 	var wg sync.WaitGroup
 	for i, h := range hcs {
 		out[i] = FleetHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Stacks: []docker.StackSummary{}}
@@ -65,8 +82,11 @@ func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
 		wg.Add(1)
 		go func(i int, c *docker.Client) {
 			defer wg.Done()
-			cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			cctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
+			if refresh {
+				c.RefreshUpdates(cctx)
+			}
 			st, err := c.Stacks(cctx)
 			if err != nil {
 				out[i].Online = false
@@ -74,7 +94,7 @@ func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
 				return
 			}
 			out[i].Stacks = st
-			// Outdated items from this host's (per-host) update cache — cheap.
+			// Outdated items from this host's (per-host) update cache.
 			if ups, _, e := c.AllUpdates(cctx); e == nil {
 				for _, u := range ups {
 					if u.Status == "outdated" {
@@ -86,7 +106,7 @@ func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
 		}(i, h.Client)
 	}
 	wg.Wait()
-	return out, nil
+	return out
 }
 
 // SetActiveHostParams selects the host the UI operates on.

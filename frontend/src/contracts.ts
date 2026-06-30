@@ -221,6 +221,9 @@ export class System {
   fleet(): FleetHost[] {
     return undefined!;
   }
+  refreshFleetUpdates(): FleetHost[] {
+    return undefined!;
+  }
 }
 
 // FleetHost is one host's slice of the cross-fleet overview.
