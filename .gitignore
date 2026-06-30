@@ -1,0 +1,34 @@
+# Local config holds real secrets — never commit it. Use config.example.toml.
+/config.toml
+
+# air build output
+/tmp/
+
+# compiled binaries
+/hope
+/cmd/hope/hope
+
+# go workspace / vendor (sov is a normal module, fetched on build)
+/vendor/
+go.work
+go.work.sum
+
+# playwright mcp debug artifacts (anywhere)
+.playwright-mcp/
+
+# frontend deps + build (see frontend/.gitignore too)
+/frontend/node_modules/
+
+# Built SPA: ignore the build output, but keep a placeholder index.html so
+# `go:embed all:frontend/dist` compiles without a frontend build.
+/frontend/dist/*
+!/frontend/dist/index.html
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*~
+.idea/
+*.swp

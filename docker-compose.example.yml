@@ -1,0 +1,27 @@
+# hope deployment template. Copy to docker-compose.yml and adjust.
+#
+# hope runs as a container on the host it manages and reaches the Docker daemon
+# through the mounted socket. SECURITY: mounting the docker socket grants
+# root-equivalent control of the host to this container — only run hope on a
+# trusted network and behind its login.
+services:
+  hope:
+    image: ghcr.io/OWNER/hope:latest
+    # or build locally:
+    # build: .
+    container_name: hope
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # the UI + API; reach it over your LAN / overlay (e.g. ZeroTier)
+    volumes:
+      # Docker API — required.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Config — required (holds your login + token secret).
+      - ./config.toml:/app/config.toml:ro
+      # Private-registry pull credentials (so `pull`/`redeploy` can auth, e.g.
+      # ghcr). Point at the host's docker config.json. Optional.
+      - /root/.docker/config.json:/root/.docker/config.json:ro
+      # Compose-file viewer (the in-UI "compose" button). Mount the dir that
+      # holds your compose projects, read-only. Optional — all other ops are
+      # API-based and need no files.
+      # - /path/to/compose/projects:/path/to/compose/projects:ro

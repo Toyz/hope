@@ -1,0 +1,10 @@
+.git
+tmp/
+/hope
+/cmd/hope/hope
+frontend/node_modules/
+frontend/dist/
+config.toml
+*.md
+.air.toml
+.playwright-mcp/

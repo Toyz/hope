@@ -1,0 +1,42 @@
+# hope configuration. Copy to config.toml and edit. config.toml is gitignored
+# (it holds secrets). Every key can also be set via HOPE_* env vars
+# (e.g. HOPE_AUTH_PASSWORD), but this file is the source of truth.
+
+[server]
+# Address the API + embedded web UI listen on.
+addr = ":8080"
+
+[auth]
+# Single login. password may be plaintext (v1 convenience) or a bcrypt hash
+# (starts with "$2"); bcrypt is preferred. token_secret signs the stateless
+# bearer token — set it to a long random string.
+username = "admin"
+password = "change-me"
+token_secret = "change-me-to-a-long-random-string"
+token_ttl = "24h"
+
+[docker]
+# Where hope reaches the Docker daemon. Use the mounted unix socket when hope
+# runs as a container on the host, or a remote tcp:// endpoint.
+host = "unix:///var/run/docker.sock"
+# host = "tcp://192.168.69.160:2375"
+
+[compose]
+# Optional allowlist of on-disk compose project roots. Empty = trust the
+# compose labels as-is (operate on any compose-managed stack).
+roots = []
+
+[log]
+# Request logger: one line per dispatched call. color=ANSI (terminals),
+# json=structured lines (for aggregators).
+color = true
+json = false
+
+[socketproxy]
+# Opt-in LAN-facing reverse proxy that forwards the Docker API to the unix
+# socket behind an allowlist. SECURITY: root-equivalent to whoever reaches the
+# port — bind to a trusted LAN/overlay only. Defaults are read-only.
+enabled = false
+listen = ":2375"
+allow_methods = ["GET", "HEAD"]
+allow_paths = ["/_ping", "/version", "/info", "/v1.*/containers/*", "/v1.*/images/*"]

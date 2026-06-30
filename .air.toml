@@ -1,0 +1,24 @@
+# air live-reload config for the hope backend.
+# Install: go install github.com/air-verse/air@latest
+# Run:     air   (from repo root)
+#
+# Rebuilds and restarts ./cmd/hope on any .go change. The frontend builds
+# separately (cd frontend && npm run dev) — air ignores it.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/hope ./cmd/hope"
+  bin = "./tmp/hope"
+  full_bin = "./tmp/hope -config config.toml"
+  include_ext = ["go", "toml"]
+  exclude_dir = ["tmp", "frontend", "node_modules", ".git"]
+  exclude_regex = ["_test.go"]
+  stop_on_error = true
+  delay = 300
+
+[misc]
+  clean_on_exit = true
+
+[log]
+  time = true

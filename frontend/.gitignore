@@ -1,0 +1,7 @@
+# Frontend dependencies and tool caches.
+# (dist/ is handled by the root .gitignore, which keeps a placeholder
+# index.html so the Go embed always compiles.)
+node_modules/
+*.local
+.vite/
+*.tsbuildinfo
