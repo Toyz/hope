@@ -1,0 +1,133 @@
+// <hope-host-switch> — the active-host picker for the status bar. Lists the
+// local daemon plus every connected agent and flips which one the whole UI
+// operates on. Switching is global server state, so after SetActiveHost we
+// reload so every view re-fetches against the new host.
+import { LoomElement, component, styles, css, reactive, mount } from "@toyz/loom";
+import { inject } from "@toyz/loom/di";
+import { HopeTransport } from "../transport";
+import type { HostView } from "../contracts";
+import { theme } from "../styles";
+
+@component("hope-host-switch")
+@styles(css`
+  ${theme}
+  :host { display: inline-flex; position: relative; font: 600 11px/1 var(--mono); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 100%;
+    padding: 0 14px; background: none; border: 0; cursor: pointer;
+    color: var(--hi); letter-spacing: .14em; text-transform: uppercase;
+  }
+  .btn:hover { color: var(--hi); background: rgba(255,255,255,.03); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.local { background: var(--upd); }
+  .dot.agent { background: var(--ok); }
+  .dot.off { background: var(--bad); }
+  .cur { color: var(--dim); font-weight: 600; }
+  .cur b { color: var(--hi); font-weight: 700; letter-spacing: .04em; text-transform: none; }
+  .caret { color: var(--dim); font-size: 9px; }
+
+  .menu {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
+    min-width: 220px; padding: 4px;
+    background: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.5);
+  }
+  .item {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 9px 10px; background: none; border: 0; border-radius: 6px;
+    text-align: left; cursor: pointer; color: var(--hi); font: 600 12px/1.2 var(--mono);
+  }
+  .item:hover { background: rgba(255,255,255,.05); }
+  .item .id { letter-spacing: .02em; }
+  .item .meta { margin-left: auto; color: var(--dim); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+  .item[aria-current="true"] { color: var(--hi); }
+  .item[aria-current="true"] .meta { color: var(--ok); }
+  .empty { padding: 10px; color: var(--dim); font-size: 11px; }
+`)
+export class HostSwitch extends LoomElement {
+  @inject(HopeTransport) accessor rpc!: HopeTransport;
+
+  @reactive accessor hosts: HostView[] = [];
+  @reactive accessor open = false;
+  @reactive accessor busy = false;
+
+  @mount
+  async load() {
+    try {
+      this.hosts = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
+    } catch {
+      this.hosts = [];
+    }
+  }
+
+  get active(): HostView | null {
+    return this.hosts.find((h) => h.active) || this.hosts[0] || null;
+  }
+
+  toggle = (e: Event) => {
+    e.stopPropagation();
+    this.open = !this.open;
+  };
+
+  // Close when clicking elsewhere.
+  onClickAway = () => {
+    this.open = false;
+  };
+
+  @mount
+  bindAway() {
+    document.addEventListener("click", this.onClickAway);
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener("click", this.onClickAway);
+    super.disconnectedCallback?.();
+  }
+
+  async pick(id: string) {
+    this.open = false;
+    if (this.active && id === this.active.id) return;
+    this.busy = true;
+    try {
+      await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
+      location.reload(); // global switch: re-fetch every view against the new host
+    } catch {
+      this.busy = false;
+    }
+  }
+
+  render() {
+    const a = this.active;
+    const label = a ? (a.kind === "local" ? "local" : a.id) : "—";
+    const kind = a?.kind === "agent" ? "agent" : "local";
+    return (
+      <>
+        <button class="btn" onClick={this.toggle} title="Switch Docker host">
+          <span class={`dot ${kind}`}></span>
+          <span class="cur">host <b>{label}</b></span>
+          <span class="caret">{this.open ? "▲" : "▼"}</span>
+        </button>
+        {this.open ? (
+          <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
+            {this.hosts.length === 0 ? (
+              <div class="empty">No hosts</div>
+            ) : (
+              this.hosts.map((h) => (
+                <button
+                  class="item"
+                  aria-current={h.active ? "true" : "false"}
+                  onClick={() => this.pick(h.id)}
+                >
+                  <span class={`dot ${h.kind} ${h.connected ? "" : "off"}`}></span>
+                  <span class="id">{h.kind === "local" ? "local" : h.id}</span>
+                  <span class="meta">{h.active ? "active" : h.kind}</span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+}

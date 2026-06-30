@@ -212,6 +212,22 @@ export class System {
   pruneImages(_all: boolean): PruneResult {
     return undefined!;
   }
+  hosts(): HostView[] {
+    return undefined!;
+  }
+  setActiveHost(_id: string): { active: string } {
+    return undefined!;
+  }
+}
+
+// HostView is one selectable Docker host: the local socket or a connected agent.
+export interface HostView {
+  id: string;
+  kind: "local" | "agent";
+  connected: boolean;
+  active: boolean;
+  remote?: string;
+  connected_at?: string;
 }
 
 // Stack lifecycle operations exposed in the UI (all Docker-API based).

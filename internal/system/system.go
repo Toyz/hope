@@ -7,32 +7,47 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
-	"github.com/toyz/hope/internal/agent"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hosts"
 )
 
-// SystemRouter surfaces daemon-level diagnostics.
+// SystemRouter surfaces daemon-level diagnostics for the active host.
 type SystemRouter struct {
-	docker *docker.Client
-	agents *agent.Registry // connected remote hosts (nil = hub disabled)
+	hosts *hosts.Set
 }
 
-// NewSystemRouter wires the router to the docker client and (optional) agent
-// registry.
-func NewSystemRouter(d *docker.Client, agents *agent.Registry) *SystemRouter {
-	return &SystemRouter{docker: d, agents: agents}
+// NewSystemRouter wires the router to the host set (active-host aware).
+func NewSystemRouter(hs *hosts.Set) *SystemRouter {
+	return &SystemRouter{hosts: hs}
 }
 
-// Hosts lists the connected remote agents (for the host switcher). The local
-// daemon is always present implicitly as "local".
-func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]agent.HostInfo, error) {
+// dock is the docker client for the currently-active host.
+func (r *SystemRouter) dock() *docker.Client { return r.hosts.Active() }
+
+// Hosts lists every selectable host (local + connected agents) with the active
+// one flagged, for the host switcher.
+func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]hosts.HostView, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	if r.agents == nil {
-		return []agent.HostInfo{}, nil
+	return r.hosts.List(), nil
+}
+
+// SetActiveHostParams selects the host the UI operates on.
+type SetActiveHostParams struct {
+	ID string `sov:"id,0,required" json:"id"`
+}
+
+// SetActiveHost switches the active host. Subsequent calls (stacks, containers,
+// logs, ...) operate on it. "local" selects the local daemon.
+func (r *SystemRouter) SetActiveHost(ctx *rpc.Context, p *SetActiveHostParams) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
 	}
-	return r.agents.List(), nil
+	if err := r.hosts.SetActive(p.ID); err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return map[string]string{"active": r.hosts.ActiveID()}, nil
 }
 
 // Info returns daemon info (version, counts, resources).
@@ -40,7 +55,7 @@ func (r *SystemRouter) Info(ctx *rpc.Context) (any, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	info, err := r.docker.Info(ctx)
+	info, err := r.dock().Info(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -73,12 +88,12 @@ func (r *SystemRouter) RefreshUpdates(ctx *rpc.Context) (*UpdatesResult, error) 
 	}
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	r.docker.RefreshUpdates(cctx)
+	r.dock().RefreshUpdates(cctx)
 	return r.collectUpdates(cctx)
 }
 
 func (r *SystemRouter) collectUpdates(ctx context.Context) (*UpdatesResult, error) {
-	updates, at, err := r.docker.AllUpdates(ctx)
+	updates, at, err := r.dock().AllUpdates(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -98,7 +113,7 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	imgs, err := r.docker.Images(cctx)
+	imgs, err := r.dock().Images(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -118,7 +133,7 @@ func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any,
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := r.docker.RemoveImage(cctx, p.ID, p.Force); err != nil {
+	if err := r.dock().RemoveImage(cctx, p.ID, p.Force); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
 	return map[string]bool{"ok": true}, nil
@@ -136,7 +151,7 @@ func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.Pr
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	res, err := r.docker.PruneImages(cctx, p.All)
+	res, err := r.dock().PruneImages(cctx, p.All)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -155,7 +170,7 @@ func (r *SystemRouter) DiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	du, at := r.docker.DiskUsageCached()
+	du, at := r.dock().DiskUsageCached()
 	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
 }
 
@@ -166,7 +181,7 @@ func (r *SystemRouter) RefreshDiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	du, at, err := r.docker.RefreshDiskUsage(cctx)
+	du, at, err := r.dock().RefreshDiskUsage(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}

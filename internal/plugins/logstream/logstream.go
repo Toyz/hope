@@ -22,6 +22,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hosts"
 )
 
 // Route paths the loom-rpc stream transport POSTs to. They live under /rpc/
@@ -42,9 +43,12 @@ const multiTail = "60"
 
 // Plugin streams logs/stats for a container.
 type Plugin struct {
-	docker *docker.Client
+	hosts  *hosts.Set
 	tokens *auth.TokenManager
 }
+
+// dock is the docker client for the currently-active host.
+func (p *Plugin) dock() *docker.Client { return p.hosts.Active() }
 
 // Compile-time proof of the hooks this plugin binds — a signature drift here
 // is a build error, not a silent non-binding at runtime.
@@ -54,9 +58,9 @@ var (
 	_ gateway.RouteHandler = (*Plugin)(nil)
 )
 
-// New returns the logstream plugin.
-func New(d *docker.Client, tm *auth.TokenManager) *Plugin {
-	return &Plugin{docker: d, tokens: tm}
+// New returns the logstream plugin (active-host aware).
+func New(hs *hosts.Set, tm *auth.TokenManager) *Plugin {
+	return &Plugin{hosts: hs, tokens: tm}
 }
 
 // PluginName surfaces in /rpc/_introspect.plugins[].
@@ -92,7 +96,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		id := args[0]
-		if !p.docker.Exists(ctx, id) {
+		if !p.dock().Exists(ctx, id) {
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		if req.Path == pathLogs {
@@ -111,7 +115,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			}
 			service = args[1]
 		}
-		refs, err := p.docker.ProjectContainers(ctx, args[0], service)
+		refs, err := p.dock().ProjectContainers(ctx, args[0], service)
 		if err != nil || len(refs) == 0 {
 			return errResp(http.StatusNotFound, "no containers for that target")
 		}
@@ -121,22 +125,22 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "container id required")
 		}
-		if !p.docker.Exists(ctx, args[0]) {
+		if !p.dock().Exists(ctx, args[0]) {
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		id := args[0]
-		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.RedeployContainer(ctx, id, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployContainer(ctx, id, emit) })
 
 	case pathRedeployStack:
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "project required")
 		}
 		project := args[0]
-		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.RedeployProject(ctx, project, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployProject(ctx, project, emit) })
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.docker.PruneImagesStream(ctx, all, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().PruneImagesStream(ctx, all, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
@@ -190,7 +194,7 @@ type logFrame struct {
 }
 
 func (p *Plugin) streamLogs(ctx context.Context, id string) *gateway.Response {
-	reader, err := p.docker.SDK().ContainerLogs(ctx, id, container.LogsOptions{
+	reader, err := p.dock().SDK().ContainerLogs(ctx, id, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -215,7 +219,7 @@ func (p *Plugin) streamLogs(ctx context.Context, id string) *gateway.Response {
 }
 
 func (p *Plugin) streamStats(ctx context.Context, id string) *gateway.Response {
-	stats, err := p.docker.SDK().ContainerStats(ctx, id, true)
+	stats, err := p.dock().SDK().ContainerStats(ctx, id, true)
 	if err != nil {
 		return errResp(http.StatusInternalServerError, err.Error())
 	}
@@ -255,7 +259,7 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 			wg.Add(1)
 			go func(ref docker.ContainerRef) {
 				defer wg.Done()
-				rc, err := p.docker.SDK().ContainerLogs(ctx, ref.ID, container.LogsOptions{
+				rc, err := p.dock().SDK().ContainerLogs(ctx, ref.ID, container.LogsOptions{
 					ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true, Tail: multiTail,
 				})
 				if err != nil {

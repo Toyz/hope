@@ -2,13 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>hope</title>
+    <style>
+      /* Global reset — shadow-DOM components don't inherit this, so it lives
+         at the document level. */
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; min-height: 100%; }
+      body {
+        background: #0d1117;
+        color: #e6edf3;
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      hope-app { display: block; min-height: 100vh; }
+    </style>
+    <script type="module" crossorigin src="/assets/index-B0BXkvnK.js"></script>
   </head>
-  <body style="background:#0a0c11;color:#9aa4b4;font-family:ui-monospace,monospace;padding:40px">
-    <!-- Placeholder so `go:embed all:frontend/dist` always compiles. Run
-         `npm run build` in frontend/ to produce the real SPA before building
-         the binary (the Dockerfile does this automatically). -->
-    hope: frontend not built. Run <code>npm run build</code> in <code>frontend/</code>.
+  <body>
+    <hope-app></hope-app>
   </body>
 </html>

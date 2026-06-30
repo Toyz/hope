@@ -12,6 +12,7 @@ import { ProcService } from "./proc";
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
 import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
+import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
 import "./app";
 import "./pages/login";
 import "./pages/dashboard";

@@ -367,6 +367,7 @@ export class DashboardPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s brand">HOPE</div>
+          <div class="s act"><hope-host-switch></hope-host-switch></div>
           <div class="s"><span class="k">fleet</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="grow"></div>

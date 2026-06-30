@@ -20,6 +20,7 @@ import (
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/accessauth"
 	"github.com/toyz/hope/internal/plugins/logger"
@@ -99,20 +100,22 @@ func runServe(configPath string) error {
 		}
 	}
 
-	// dock is the swappable handle the routers hold for the WHOLE run. It starts
-	// pointed at the local socket; when [agent] use is set it's retargeted
-	// (Adopt) to the chosen agent's tunnel once that agent dials in — which can
-	// only happen after the server (and its WebSocket endpoint) is up, so the
-	// adoption is deferred until after gw.Run starts below.
+	// The local socket is one host in the set. It's NOT fatal if it's down — you
+	// may be managing only remote agents — it just shows as unreachable until you
+	// switch to a connected agent.
 	dock, err := docker.New(cfg.Docker.Host, cfg.Docker.Config)
 	if err != nil {
 		fatal("docker client", "err", err)
 	}
 	defer dock.Close()
 
-	// startBackground wires the live daemon's auth + crawlers. It runs once the
-	// active daemon is settled (immediately for local; after Adopt for use).
-	startBackground := func() {
+	if cfg.Agent.Use != "" && hubReg == nil {
+		fatal("agent.use set but the hub is disabled", "hint", "set [agent] token")
+	}
+
+	localUp := dock.Ping(ctx) == nil
+	if localUp {
+		// Local daemon reachable: wire its registry auth + background crawlers.
 		for _, r := range cfg.Registries {
 			dock.AddRegistryCreds(r.Server, r.Username, r.Password)
 			lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
@@ -128,16 +131,14 @@ func runServe(configPath string) error {
 			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
 		}
 		dock.StartDiskCrawler(ctx, time.Hour) // df is expensive: crawl hourly, serve cached
+	} else if cfg.Agent.Use == "" {
+		lg.Warn("local docker unreachable — a connecting agent becomes active automatically", "host", cfg.Docker.Host)
 	}
 
-	if cfg.Agent.Use == "" {
-		if err := dock.Ping(ctx); err != nil {
-			fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
-		}
-		startBackground()
-	} else if hubReg == nil {
-		fatal("agent.use set but the hub is disabled", "hint", "set [agent] token")
-	}
+	// hostSet is what the routers resolve through: local plus connected agents,
+	// with one active selection switched at runtime via System/SetActiveHost.
+	// With local down, AUTO mode activates the first agent that dials in.
+	hostSet := hosts.New(dock, localUp, hubReg)
 
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
@@ -154,9 +155,9 @@ func runServe(configPath string) error {
 	}
 	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
-	gw.Register(stacks.NewStacksRouter(dock, comp))
-	gw.Register(containers.NewContainersRouter(dock))
-	gw.Register(system.NewSystemRouter(dock, hubReg))
+	gw.Register(stacks.NewStacksRouter(hostSet, comp))
+	gw.Register(containers.NewContainersRouter(hostSet))
+	gw.Register(system.NewSystemRouter(hostSet))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 
 	// Cloudflare Access SSO: when configured, a request already past Access is
@@ -168,7 +169,7 @@ func runServe(configPath string) error {
 	}
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(dock, tokens))
+	gw.MustUse(logstream.New(hostSet, tokens))
 
 	// Serve the embedded SPA at "/"; /rpc/* is reserved (never shadowed).
 	sub, err := fs.Sub(hope.DistFS, "frontend/dist")
@@ -189,26 +190,23 @@ func runServe(configPath string) error {
 		}()
 	}
 
-	// When using an agent as the primary daemon, the agent reaches hope over the
-	// WebSocket endpoint — which is only live once the server runs. So start the
-	// server, then wait for the agent and retarget dock onto its tunnel.
+	// [agent] use preselects a remote host as active. The agent reaches hope over
+	// the WebSocket endpoint, which is only live once the server runs — so wait
+	// for it in the background, then flip the active host to it.
 	if cfg.Agent.Use != "" {
 		go func() {
-			lg.Info("waiting for agent to use as primary docker", "host", cfg.Agent.Use)
-			agentDock := waitForAgent(ctx, hubReg, cfg.Agent.Use, 5*time.Minute)
-			if agentDock == nil {
+			lg.Info("waiting for agent to set active", "host", cfg.Agent.Use)
+			if waitForAgent(ctx, hubReg, cfg.Agent.Use, 5*time.Minute) == nil {
 				if ctx.Err() == nil {
 					lg.Error("agent did not connect", "host", cfg.Agent.Use)
 				}
 				return
 			}
-			dock.Adopt(agentDock)
-			if err := dock.Ping(ctx); err != nil {
-				lg.Error("agent connected but its docker is unreachable", "host", cfg.Agent.Use, "err", err)
+			if err := hostSet.SetActive(cfg.Agent.Use); err != nil {
+				lg.Error("could not activate agent host", "host", cfg.Agent.Use, "err", err)
 				return
 			}
-			lg.Info("using remote agent docker", "host", cfg.Agent.Use)
-			startBackground()
+			lg.Info("active host set to agent", "host", cfg.Agent.Use)
 		}()
 	}
 

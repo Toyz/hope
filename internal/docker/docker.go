@@ -102,16 +102,6 @@ func (c *Client) sdk() *client.Client { return c.cli.Load() }
 // SDK exposes the raw client for streaming callers (logstream plugin).
 func (c *Client) SDK() *client.Client { return c.sdk() }
 
-// Adopt retargets this client to another's daemon connection, closing the one
-// it replaces. Used to bind a late-connecting agent tunnel as the primary host
-// without rebuilding the routers that already hold this *Client.
-func (c *Client) Adopt(o *Client) {
-	old := c.cli.Swap(o.cli.Load())
-	if old != nil && old != o.cli.Load() {
-		_ = old.Close()
-	}
-}
-
 // Ping verifies the daemon is reachable.
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.sdk().Ping(ctx)
