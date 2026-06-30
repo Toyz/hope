@@ -236,6 +236,41 @@ func (c *Client) saveUpdateCache() {
 	_ = os.Rename(tmp, c.updPath)
 }
 
+// RefreshImageStatus re-checks one image ref and updates the cache. Call it
+// after a pull/redeploy so the freshness tag doesn't go stale.
+func (c *Client) RefreshImageStatus(ctx context.Context, ref string) {
+	if ref == "" {
+		return
+	}
+	st, detail := c.imageStatus(ctx, ref)
+	c.updMu.Lock()
+	if c.updByRef == nil {
+		c.updByRef = map[string]refStatus{}
+	}
+	c.updByRef[ref] = refStatus{status: st, detail: detail}
+	c.updMu.Unlock()
+	c.saveUpdateCache()
+}
+
+// RefreshProjectStatus re-checks every distinct image ref in a project and
+// merges the results into the cache (used after stack-wide pull/redeploy).
+func (c *Client) RefreshProjectStatus(ctx context.Context, project string) {
+	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
+	list, err := c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	if err != nil {
+		return
+	}
+	refs := map[string]struct{}{}
+	for _, ct := range list {
+		if ct.Image != "" {
+			refs[ct.Image] = struct{}{}
+		}
+	}
+	for ref := range refs {
+		c.RefreshImageStatus(ctx, ref)
+	}
+}
+
 // AllUpdates maps the running containers to the cached freshness verdicts and
 // returns them with the time of the last crawl. Containers whose ref hasn't
 // been crawled yet read as "unknown".

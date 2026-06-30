@@ -82,6 +82,7 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*OpResult, error
 	if err := r.docker.PullImage(cctx, img); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.docker.RefreshImageStatus(cctx, img) // keep the update cache fresh
 	return &OpResult{OK: true}, nil
 }
 
@@ -106,6 +107,7 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*OpResult, e
 	if err := r.docker.Recreate(cctx, p.ID); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.docker.RefreshImageStatus(cctx, img) // image is now current — refresh the cache
 	return &OpResult{OK: true}, nil
 }
 

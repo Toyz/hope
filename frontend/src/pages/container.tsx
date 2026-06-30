@@ -7,7 +7,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp } from "../contracts";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult } from "../contracts";
 import { theme, markClass } from "../styles";
 
 type Tab = "logs" | "stats" | "inspect";
@@ -46,6 +46,12 @@ const MAX_LINES = 600;
   .ritem .rid { color: var(--dim); flex: 1; }
   .ritem .rst { color: var(--mid); }
   .rbadge { font: 600 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 6px 9px; }
+  .updchip { display: inline-flex; align-items: center; gap: 6px; font: 600 10px/1 var(--mono); letter-spacing: .12em;
+    text-transform: uppercase; padding: 6px 10px; background: transparent; cursor: pointer;
+    color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .updchip loom-icon { color: var(--upd); }
+  .updchip:hover { background: color-mix(in srgb, var(--upd) 16%, transparent); border-color: var(--upd); }
+  .updchip:disabled { opacity: .5; cursor: not-allowed; }
   .bar .grow { flex: 1; }
   .idrow { display: flex; align-items: center; gap: 16px; }
   .idrow .id { flex: 0 1 auto; }
@@ -189,6 +195,7 @@ export class ContainerPage extends LoomElement {
   @reactive accessor actOpen = false; // action kebab menu
   @reactive accessor toast = "";
   @reactive accessor toastKind = "";
+  @reactive accessor outdated = false; // image has a newer version on the registry
 
   // The route param, bound reactively. Watching it reloads the page on any
   // change — including container -> container (replica switches), which the
@@ -291,6 +298,7 @@ export class ContainerPage extends LoomElement {
     // a smooth data swap, not a page reset.
     this.info = null;
     this.dropOpen = false;
+    this.outdated = false;
     this.logLines = [];
     this.cpu = this.mem = this.net = this.blk = this.pids = "—";
     this.cpuBar = this.memBar = 0;
@@ -311,6 +319,7 @@ export class ContainerPage extends LoomElement {
     try {
       this.info = await this.rpc.call<any>("Containers", "inspect", [this.id]);
       await this.loadSiblings();
+      this.loadUpdateStatus();
     } catch {
       /* header falls back to the id */
     }
@@ -330,6 +339,16 @@ export class ContainerPage extends LoomElement {
       this.siblings = (st?.containers ?? []).filter((c) => c.service === svc).sort((a, b) => a.number - b.number);
     } catch {
       this.siblings = [];
+    }
+  }
+
+  // Cached cluster freshness — is this container's image out of date?
+  private async loadUpdateStatus() {
+    try {
+      const res = await this.rpc.call<UpdatesResult>("System", "updates", []);
+      this.outdated = res.updates.find((u) => u.id === this.id)?.status === "outdated";
+    } catch {
+      this.outdated = false;
     }
   }
 
@@ -543,6 +562,11 @@ export class ContainerPage extends LoomElement {
               {this.siblings.length > 1 ? <span class="rbadge">#{this.currentNumber()}</span> : null}
               {this.state() ? (
                 <span class={"state " + (running ? "ok" : "bad")}>{this.state()}</span>
+              ) : null}
+              {this.outdated ? (
+                <button class="updchip" disabled={!!this.cbusy} title="a newer image is available — redeploy to update" onClick={() => this.containerOp("redeploy")}>
+                  <loom-icon name="download" size={12}></loom-icon>update available
+                </button>
               ) : null}
             </div>
             <div class="toolbar">

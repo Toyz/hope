@@ -80,7 +80,11 @@ func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*OpResult, erro
 	}
 	cctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
-	return r.pull(cctx, p.Project)
+	res, err := r.pull(cctx, p.Project)
+	if err == nil {
+		r.docker.RefreshProjectStatus(cctx, p.Project) // keep update cache fresh
+	}
+	return res, err
 }
 
 // Redeploy pulls images then recreates each container so it runs on the new
@@ -113,6 +117,7 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, 
 		n++
 	}
 	fmt.Fprintf(&log, "recreated %d container(s)\n", n)
+	r.docker.RefreshProjectStatus(cctx, p.Project) // images are current — refresh the cache
 	return &OpResult{OK: true, Output: log.String()}, nil
 }
 
