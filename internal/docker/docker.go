@@ -41,6 +41,12 @@ const ungrouped = "(ungrouped)"
 type Client struct {
 	cli atomic.Pointer[client.Client]
 
+	// selfHint, when set, overrides os.Hostname() for self-detection. Used for
+	// agent clients: the remote agent reports its own container id so recreating
+	// it routes through the detached self-updater instead of stopping the
+	// tunnel mid-op.
+	selfHint string
+
 	// Registry auth. authMu guards `auths` (rebuilt by the cred watcher when
 	// config.json changes). regCreds are the explicit [[registry]] credentials,
 	// re-applied over the file's on every reload so config always wins.

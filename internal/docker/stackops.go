@@ -348,12 +348,20 @@ func (c *Client) Recreate(ctx context.Context, id string) error {
 	return nil
 }
 
-// selfID returns hope's own container id — inside a container the hostname is
-// the container's (short) id, unless overridden.
+// selfID returns this client's own container id. For the local daemon that's
+// hope's hostname (= its short container id); for an agent client it's the id
+// the remote agent reported for its own container.
 func (c *Client) selfID() string {
+	if c.selfHint != "" {
+		return c.selfHint
+	}
 	h, _ := os.Hostname()
 	return h
 }
+
+// SetSelfID records the container id this client runs as (used by agent clients
+// so self-recreate detection works across the tunnel).
+func (c *Client) SetSelfID(id string) { c.selfHint = id }
 
 // isSelf reports whether id refers to hope's own container.
 func (c *Client) isSelf(id string) bool {

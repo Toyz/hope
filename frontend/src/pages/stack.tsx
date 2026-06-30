@@ -527,13 +527,7 @@ export class StackPage extends LoomElement {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
         let ok = true;
         for (const id of ids) {
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [id, String(pull), String(force)], signal)) {
-            if (f.type === "log" && f.data) emit(f.data);
-            else if (f.type === "done" && !f.ok) {
-              ok = false;
-              emit("failed: " + (f.error ?? ""));
-            }
-          }
+          if (!(await this.pipeOp(emit, signal, "redeploy", [id, String(pull), String(force)]))) ok = false;
         }
         emit("done");
         return ok;
@@ -549,14 +543,7 @@ export class StackPage extends LoomElement {
     this.busy = busyKey;
     try {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
-        let ok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, [...args, String(pull), String(force)], signal)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) {
-            ok = false;
-            emit("failed: " + (f.error ?? ""));
-          }
-        }
+        const ok = await this.pipeOp(emit, signal, method, [...args, String(pull), String(force)]);
         emit("done");
         return ok;
       });
@@ -615,13 +602,7 @@ export class StackPage extends LoomElement {
       await this.proc.run(`${op} ${label}`, async (emit, signal) => {
         let ok = true;
         if (op === "pull") {
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pull", ids, signal)) {
-            if (f.type === "log" && f.data) emit(f.data);
-            else if (f.type === "done" && !f.ok) {
-              ok = false;
-              emit("failed: " + (f.error ?? ""));
-            }
-          }
+          ok = await this.pipeOp(emit, signal, "pull", ids);
         } else {
           for (const id of ids) {
             try {
@@ -640,6 +621,43 @@ export class StackPage extends LoomElement {
     } finally {
       this.busy = "";
     }
+  };
+
+  // Run a Stream op, tolerating a mid-stream drop. A hope/agent self-update tears
+  // down the very connection streaming progress, so a drop there means "the host
+  // is restarting", not a failure — poll until it's back instead of crying EOF.
+  private pipeOp = async (emit: (l: string) => void, signal: AbortSignal, method: string, args: string[]): Promise<boolean> => {
+    try {
+      let ok = true;
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
+        if (f.type === "log" && f.data) emit(f.data);
+        else if (f.type === "done" && !f.ok) {
+          ok = false;
+          emit("failed: " + (f.error ?? ""));
+        }
+      }
+      return ok;
+    } catch (e: any) {
+      if (signal.aborted) throw e;
+      emit("connection lost — the host is restarting itself (self-update). reconnecting…");
+      await this.waitForReconnect(emit, signal);
+      return true;
+    }
+  };
+
+  // Poll a cheap endpoint until the host answers again (after a self-update).
+  private waitForReconnect = async (emit: (l: string) => void, signal: AbortSignal) => {
+    for (let i = 0; i < 90 && !signal.aborted; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        await this.rpc.call("System", "hosts", []);
+        emit("reconnected");
+        return;
+      } catch {
+        /* still down */
+      }
+    }
+    emit("still unreachable — check the host");
   };
 
   // groups collapses replicas of the same compose service into one entry,

@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -84,8 +85,9 @@ func serveOnce(ctx context.Context, opts Options) error {
 	defer conn.Close()
 
 	// Handshake: proto token hostID + build info (version revision go os/arch
-	// buildtime). Empty fields are "-" so positions stay fixed; older hubs
-	// ignore the extra fields, older agents simply omit them.
+	// buildtime) + the agent's own container id. Empty fields are "-" so
+	// positions stay fixed; older hubs ignore the extra fields, older agents
+	// simply omit them.
 	v := version.Get()
 	f := func(s string) string {
 		if s == "" {
@@ -93,9 +95,10 @@ func serveOnce(ctx context.Context, opts Options) error {
 		}
 		return s
 	}
-	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s\n",
+	selfID, _ := os.Hostname() // inside the container this is its short id
+	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s %s\n",
 		protoVersion, opts.Token, opts.HostID,
-		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime)); err != nil {
+		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime), f(selfID)); err != nil {
 		return err
 	}
 	reply, err := readLine(conn)

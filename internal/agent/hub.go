@@ -16,11 +16,12 @@ import (
 
 // AgentInfo is the remote agent's build metadata, reported in the handshake.
 type AgentInfo struct {
-	Version   string `json:"version"`
-	Revision  string `json:"revision"`
-	GoVersion string `json:"go_version"`
-	Platform  string `json:"platform"`
-	BuildTime string `json:"build_time"`
+	Version     string `json:"version"`
+	Revision    string `json:"revision"`
+	GoVersion   string `json:"go_version"`
+	Platform    string `json:"platform"`
+	BuildTime   string `json:"build_time"`
+	ContainerID string `json:"container_id"` // the agent's own container id (for self-recreate)
 }
 
 // Host is a connected remote Docker host, exposed to hope as a normal
@@ -183,6 +184,9 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 			Platform:  deDash(parts[6]),
 			BuildTime: deDash(parts[7]),
 		}
+		if len(parts) >= 9 {
+			info.ContainerID = deDash(parts[8])
+		}
 	}
 	if _, err := conn.Write([]byte("OK\n")); err != nil {
 		conn.Close()
@@ -202,6 +206,12 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	if err != nil {
 		sess.Close()
 		return
+	}
+	// So recreating the agent's own container routes through the detached
+	// self-updater (which runs on the remote host) instead of stopping the
+	// tunnel mid-op.
+	if info.ContainerID != "" {
+		dock.SetSelfID(info.ContainerID)
 	}
 	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now(), Info: info}
 	h.reg.add(host)
