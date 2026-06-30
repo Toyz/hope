@@ -274,6 +274,27 @@ export class DashboardPage extends LoomElement {
 
   // Reusable stat strip (the .hostbar look), shared by the single-host host
   // strip and the fleet summary so the markup isn't copy-pasted.
+  // Reusable stack card (the .tile with the segmented health bar), shared by the
+  // single-host Fleet grid and the all-hosts per-host sections so they're identical.
+  private stackTile(s: any, opts: { onClick: () => void; hasUpd: boolean; outIds: Set<string> }) {
+    return (
+      <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={opts.onClick}>
+        <div class="top">
+          <span class="nm">
+            <span class={"mark " + (s.sev === "ok" ? (opts.hasUpd ? "upd" : "ok") : s.sev === "down" ? "" : s.sev)}></span>
+            <span class="t">{s.project}</span>
+          </span>
+          <span class="ct">
+            {opts.hasUpd ? <span class="tupd" title="updates available"><loom-icon name="download" size={12}></loom-icon></span> : null}
+            <b>{s.running}</b>
+            <span class="s">/{s.total}</span>
+          </span>
+        </div>
+        {this.segs(s, opts.outIds)}
+      </div>
+    );
+  }
+
   // The single-host Docker daemon strip, built from the shared statStrip.
   private hostStrip() {
     const h = this.host;
@@ -657,6 +678,10 @@ export class DashboardPage extends LoomElement {
     const tot = (h.stacks ?? []).reduce((a, s) => a + s.total, 0);
     const loops = ranked.filter((s) => s.sev === "loop").length;
     const issues = ranked.filter((s) => s.sev === "loop" || s.sev === "warn").length;
+    // Per-host update context for the cards (which projects have updates; which
+    // container ids are outdated) — same inputs the single-host grid uses.
+    const hostUpd = new Set((h.updates ?? []).filter((u) => u.project).map((u) => u.project));
+    const hostOut = new Set((h.updates ?? []).map((u) => u.id));
     return (
       <section class="fleetsec">
         <div class="head">
@@ -675,27 +700,19 @@ export class DashboardPage extends LoomElement {
           )}
         </div>
         {h.online ? (
-          <div class="rows">
-            {ranked.length === 0 ? (
-              <div class="frow-empty">no stacks</div>
-            ) : (
-              ranked.map((s) => (
-                <div class="row" onClick={() => this.goCross(h.id, s.project)}>
-                  <span class={"mark " + s.sev}></span>
-                  <span class="name">{s.project}</span>
-                  <span class={"why " + (s.sev === "loop" ? "bad" : s.sev === "warn" ? "warn" : "")}>
-                    {s.sev === "loop"
-                      ? `${s.containers.filter((c) => c.state === "restarting").length} restarting`
-                      : s.sev === "warn"
-                        ? `${s.total - s.running} down`
-                        : ""}
-                  </span>
-                  <span class="count">{s.running}<span class="t">/{s.total}</span></span>
-                  <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
-                </div>
-              ))
-            )}
-          </div>
+          ranked.length === 0 ? (
+            <div class="frow-empty">no stacks</div>
+          ) : (
+            <div class="grid">
+              {ranked.map((s) =>
+                this.stackTile(s, {
+                  onClick: () => this.goCross(h.id, s.project),
+                  hasUpd: hostUpd.has(s.project),
+                  outIds: hostOut,
+                }),
+              )}
+            </div>
+          )
         ) : h.error ? (
           <div class="ferr">{h.error}</div>
         ) : null}
@@ -852,22 +869,7 @@ export class DashboardPage extends LoomElement {
                 <span class="n">{nominal.length}</span>
               </div>
               <div class="grid">
-                {nominal.map((s) => (
-                  <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={() => this.go(s.project)}>
-                    <div class="top">
-                      <span class="nm">
-                        <span class={"mark " + (s.sev === "ok" ? (upd.has(s.project) ? "upd" : "ok") : "")}></span>
-                        <span class="t">{s.project}</span>
-                      </span>
-                      <span class="ct">
-                        {upd.has(s.project) ? <span class="tupd" title="updates available"><loom-icon name="download" size={12}></loom-icon></span> : null}
-                        <b>{s.running}</b>
-                        <span class="s">/{s.total}</span>
-                      </span>
-                    </div>
-                    {this.segs(s, outIds)}
-                  </div>
-                ))}
+                {nominal.map((s) => this.stackTile(s, { onClick: () => this.go(s.project), hasUpd: upd.has(s.project), outIds }))}
               </div>
             </section>
           ) : null}
