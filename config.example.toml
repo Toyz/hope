@@ -66,6 +66,17 @@ interval = "6h"
 #   volumes: ["hope-data:/data"]   ->   cache_path = "/data/updates.json"
 cache_path = ""
 
+[agent]
+# Remote-host hub. When set, hope listens here for hope-agents dialing in from
+# remote Docker hosts (run `hope agent --connect <this-addr> --token <token>`
+# on the remote). Each agent tunnels its Docker socket back, so hope manages it
+# with no inbound ports on the remote. Empty = disabled.
+# SECURITY: the token is a shared enrollment secret and the tunnel grants Docker
+# (root-equivalent) control of the remote host — keep the listener on a trusted
+# network/overlay and use a long random token.
+# listen = ":9443"
+# token  = "change-me-to-a-long-random-string"
+
 [socketproxy]
 # Opt-in LAN-facing reverse proxy that forwards the Docker API to the unix
 # socket behind an allowlist. SECURITY: root-equivalent to whoever reaches the

@@ -1,160 +1,56 @@
 // Command hope is a Docker Compose cluster manager: a single Go binary (sov
 // gateway) that embeds the loom frontend, reads compose labels to group
-// containers into stacks, and drives full stack lifecycle. It reaches the
-// Docker daemon through a configured endpoint (mounted unix socket or a remote
-// tcp:// host).
+// containers into stacks, and drives full stack lifecycle. The same binary also
+// runs as a remote agent (`hope agent`) that tunnels a remote host's Docker
+// socket back to a hope hub.
 package main
 
 import (
-	"context"
-	"flag"
-	"io/fs"
-	"log"
+	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
-	"time"
 
-	"github.com/Toyz/sov"
-	"github.com/Toyz/sov/gateway/builtin/static"
-	hope "github.com/toyz/hope"
-	"github.com/toyz/hope/internal/auth"
-	"github.com/toyz/hope/internal/compose"
-	"github.com/toyz/hope/internal/config"
-	"github.com/toyz/hope/internal/containers"
-	"github.com/toyz/hope/internal/docker"
-	"github.com/toyz/hope/internal/meme"
-	"github.com/toyz/hope/internal/plugins/accessauth"
-	"github.com/toyz/hope/internal/plugins/logger"
-	"github.com/toyz/hope/internal/plugins/logstream"
-	"github.com/toyz/hope/internal/socketproxy"
-	"github.com/toyz/hope/internal/stacks"
-	"github.com/toyz/hope/internal/system"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	// Detached self-updater: `hope self-recreate <id>` runs in a throwaway
-	// helper container (spawned by a redeploy of hope's own container) and
-	// recreates hope from the side, so the original can be torn down cleanly.
-	if len(os.Args) >= 3 && os.Args[1] == "self-recreate" {
-		selfRecreate(os.Args[2])
-		return
+	// Back-compat: existing invocations (air, the Dockerfile ENTRYPOINT,
+	// docker-compose) pass the legacy single-dash `-config X`. cobra/pflag would
+	// read that as a shorthand cluster and choke, so translate it to `--config`
+	// before parsing. New `--config`/`-c` work unchanged.
+	normalizeLegacyArgs()
+
+	root := &cobra.Command{
+		Use:           "hope",
+		Short:         "Docker Compose cluster manager",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		// Bare `hope` runs the server, preserving the original behavior.
+		RunE: func(cmd *cobra.Command, _ []string) error { return runServe(configFlag(cmd)) },
 	}
+	root.PersistentFlags().StringP("config", "c", "config.toml", "path to the TOML config file")
 
-	configPath := flag.String("config", "config.toml", "path to the TOML config file")
-	flag.Parse()
+	root.AddCommand(serveCmd(), agentCmd(), selfRecreateCmd())
 
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		// Pre-logger bootstrap failure — config drives the logger itself.
-		log.Fatalf("hope: %v", err)
-	}
-
-	// The request logger is also the gateway-wide log sink AND main()'s logger,
-	// so every line (startup, fatal, per-request) shares one format.
-	lg := logger.New(logger.Config{Color: cfg.Log.Color, JSON: cfg.Log.JSON, SkipFramework: true})
-	fatal := func(msg string, args ...any) {
-		lg.Error(msg, args...)
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "hope:", err)
 		os.Exit(1)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	// Docker client + a liveness ping so misconfiguration fails at boot.
-	dock, err := docker.New(cfg.Docker.Host, cfg.Docker.Config)
-	if err != nil {
-		fatal("docker client", "err", err)
-	}
-	defer dock.Close()
-	if err := dock.Ping(ctx); err != nil {
-		fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
-	}
-	// Explicit registry credentials from config (e.g. a Docker Hub account +
-	// token) override config.json and avoid anonymous-pull rate limits.
-	for _, r := range cfg.Registries {
-		dock.AddRegistryCreds(r.Server, r.Username, r.Password)
-		lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
-	}
-	// Hot-reload registry creds when the mounted config.json changes (e.g. a
-	// fresh `docker login`) — no restart needed.
-	dock.StartCredWatcher(ctx, 30*time.Second)
-	if regs := dock.AuthedRegistries(); len(regs) > 0 {
-		lg.Info("registry auth ready", "registries", strings.Join(regs, ","))
-	} else {
-		lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
-	}
-	// Background crawler keeps the cluster-wide image-freshness cache warm for
-	// the dashboard "updates" section (manifest lookups, no layer pulls).
-	if cfg.Updates.Enabled {
-		dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
-		lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
-	}
-	// Docker disk usage (`df`) is expensive, so crawl it hourly and serve cached.
-	dock.StartDiskCrawler(ctx, time.Hour)
-
-	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
-	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
-
-	gw := sov.New()
-	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
-	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
-	gw.Register(stacks.NewStacksRouter(dock, comp))
-	gw.Register(containers.NewContainersRouter(dock))
-	gw.Register(system.NewSystemRouter(dock))
-	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
-
-	// Cloudflare Access SSO: when configured, a request already past Access is
-	// signed straight into hope (password login stays as the LAN/ZT fallback).
-	if cfg.Auth.AccessTeam != "" && cfg.Auth.AccessAUD != "" {
-		verifier := auth.NewAccessVerifier(cfg.Auth.AccessTeam, cfg.Auth.AccessAUD)
-		gw.MustUse(accessauth.New(tokens, verifier))
-		lg.Info("cloudflare access SSO enabled", "team", cfg.Auth.AccessTeam)
-	}
-
-	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(dock, tokens))
-
-	// Serve the embedded SPA at "/"; /rpc/* is reserved (never shadowed).
-	sub, err := fs.Sub(hope.DistFS, "frontend/dist")
-	if err != nil {
-		fatal("embed dist", "err", err)
-	}
-	gw.MustUse(static.New(static.Config{FS: sub, SPAFallback: true}))
-
-	// Optional LAN-facing docker socket proxy.
-	if proxy, err := socketproxy.New(cfg.SocketProxy, cfg.Docker.Host); err != nil {
-		fatal("socketproxy", "err", err)
-	} else if proxy != nil {
-		lg.Info("socket proxy listening", "addr", proxy.Addr())
-		go func() {
-			if err := proxy.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
-				lg.Warn("socket proxy stopped", "err", err)
-			}
-		}()
-	}
-
-	lg.Info("serving", "addr", cfg.Server.Addr, "docker", cfg.Docker.Host)
-	if err := gw.Run(ctx, cfg.Server.Addr); err != nil {
-		fatal("server", "err", err)
 	}
 }
 
-// selfRecreate runs in the throwaway helper container. It waits briefly so the
-// parent's redeploy request can return, then recreates hope's container (the
-// helper outlives it, so the teardown completes cleanly).
-func selfRecreate(id string) {
-	d, err := docker.New("unix:///var/run/docker.sock", "")
-	if err != nil {
-		log.Fatalf("hope self-recreate: %v", err)
+func configFlag(cmd *cobra.Command) string {
+	p, _ := cmd.Flags().GetString("config")
+	return p
+}
+
+// normalizeLegacyArgs rewrites the old `-config`/`-config=...` single-dash flag
+// to the cobra `--config` form so legacy invocations keep working.
+func normalizeLegacyArgs() {
+	for i, a := range os.Args {
+		if a == "-config" {
+			os.Args[i] = "--config"
+		} else if strings.HasPrefix(a, "-config=") {
+			os.Args[i] = "--config=" + strings.TrimPrefix(a, "-config=")
+		}
 	}
-	defer d.Close()
-	time.Sleep(2 * time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	if err := d.Recreate(ctx, id); err != nil {
-		log.Fatalf("hope self-recreate %s: %v", id, err)
-	}
-	log.Printf("hope self-recreate: %s replaced", id)
 }

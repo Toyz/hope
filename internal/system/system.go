@@ -7,17 +7,32 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/agent"
 	"github.com/toyz/hope/internal/docker"
 )
 
 // SystemRouter surfaces daemon-level diagnostics.
 type SystemRouter struct {
 	docker *docker.Client
+	agents *agent.Registry // connected remote hosts (nil = hub disabled)
 }
 
-// NewSystemRouter wires the router to the docker client.
-func NewSystemRouter(d *docker.Client) *SystemRouter {
-	return &SystemRouter{docker: d}
+// NewSystemRouter wires the router to the docker client and (optional) agent
+// registry.
+func NewSystemRouter(d *docker.Client, agents *agent.Registry) *SystemRouter {
+	return &SystemRouter{docker: d, agents: agents}
+}
+
+// Hosts lists the connected remote agents (for the host switcher). The local
+// daemon is always present implicitly as "local".
+func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]agent.HostInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	if r.agents == nil {
+		return []agent.HostInfo{}, nil
+	}
+	return r.agents.List(), nil
 }
 
 // Info returns daemon info (version, counts, resources).

@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net"
 	"os"
 	"sort"
 	"strconv"
@@ -62,10 +63,23 @@ type Client struct {
 // docker config.json for private-registry pull credentials (empty = the
 // default ~/.docker/config.json).
 func New(host, configPath string) (*Client, error) {
-	cli, err := client.NewClientWithOpts(
-		client.WithHost(host),
-		client.WithAPIVersionNegotiation(),
+	return newClient(configPath, client.WithHost(host))
+}
+
+// NewOverDialer builds a Client that talks to a Docker daemon reached through a
+// custom dialer — e.g. a hope-agent tunnel, where every connection is a stream
+// back to a remote host's socket. The SDK speaks plain HTTP over the dialer, so
+// all of hope's existing operations work against the remote daemon unchanged.
+func NewOverDialer(configPath string, dial func(ctx context.Context, network, addr string) (net.Conn, error)) (*Client, error) {
+	return newClient(configPath,
+		client.WithHost("http://hope-agent"), // dummy host; the dialer decides the wire
+		client.WithDialContext(dial),
 	)
+}
+
+func newClient(configPath string, opts ...client.Opt) (*Client, error) {
+	opts = append(opts, client.WithAPIVersionNegotiation())
+	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}

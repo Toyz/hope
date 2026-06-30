@@ -5,6 +5,8 @@ go 1.25.0
 require (
 	github.com/Toyz/sov v0.0.0-20260602060215-8df018fce62e
 	github.com/docker/docker v28.0.4+incompatible
+	github.com/hashicorp/yamux v0.1.2
+	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	golang.org/x/crypto v0.53.0
 )
@@ -22,6 +24,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect

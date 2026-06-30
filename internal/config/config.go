@@ -21,6 +21,14 @@ type Config struct {
 	Log         LogConfig         `mapstructure:"log"`
 	Updates     UpdatesConfig     `mapstructure:"updates"`
 	Registries  []RegistryConfig  `mapstructure:"registry"`
+	Agent       AgentConfig       `mapstructure:"agent"`
+}
+
+// AgentConfig is the hub side: hope listens here for hope-agents dialing in
+// from remote Docker hosts. Empty Listen disables the hub.
+type AgentConfig struct {
+	Listen string `mapstructure:"listen"` // hub address for incoming agents, e.g. ":9443"
+	Token  string `mapstructure:"token"`  // shared enrollment secret an agent must present
 }
 
 // RegistryConfig is an explicit registry credential. hope only reads inline
