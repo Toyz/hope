@@ -22,13 +22,18 @@ type ResourceUser struct {
 
 // NetworkInfo is a Docker network plus the containers attached to it.
 type NetworkInfo struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Driver   string         `json:"driver"`
-	Scope    string         `json:"scope"`
-	Internal bool           `json:"internal"`
-	Created  int64          `json:"created"` // unix seconds
-	UsedBy   []ResourceUser `json:"used_by"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Driver     string            `json:"driver"`
+	Scope      string            `json:"scope"`
+	Internal   bool              `json:"internal"`
+	Attachable bool              `json:"attachable"`
+	IPv6       bool              `json:"ipv6"`
+	Subnet     string            `json:"subnet"`  // first IPAM pool
+	Gateway    string            `json:"gateway"` // first IPAM gateway
+	Options    map[string]string `json:"options"`
+	Created    int64             `json:"created"` // unix seconds
+	UsedBy     []ResourceUser    `json:"used_by"`
 }
 
 // VolumeInfo is a Docker volume plus the containers mounting it.
@@ -75,14 +80,24 @@ func (c *Client) Networks(ctx context.Context) ([]NetworkInfo, error) {
 		if users == nil {
 			users = []ResourceUser{}
 		}
+		subnet, gateway := "", ""
+		if len(n.IPAM.Config) > 0 {
+			subnet = n.IPAM.Config[0].Subnet
+			gateway = n.IPAM.Config[0].Gateway
+		}
 		out = append(out, NetworkInfo{
-			ID:       n.ID,
-			Name:     n.Name,
-			Driver:   n.Driver,
-			Scope:    n.Scope,
-			Internal: n.Internal,
-			Created:  n.Created.Unix(),
-			UsedBy:   users,
+			ID:         n.ID,
+			Name:       n.Name,
+			Driver:     n.Driver,
+			Scope:      n.Scope,
+			Internal:   n.Internal,
+			Attachable: n.Attachable,
+			IPv6:       n.EnableIPv6,
+			Subnet:     subnet,
+			Gateway:    gateway,
+			Options:    n.Options,
+			Created:    n.Created.Unix(),
+			UsedBy:     users,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

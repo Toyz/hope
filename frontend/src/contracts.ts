@@ -300,6 +300,11 @@ export interface NetworkInfo {
   driver: string;
   scope: string;
   internal: boolean;
+  attachable: boolean;
+  ipv6: boolean;
+  subnet: string;
+  gateway: string;
+  options: Record<string, string> | null;
   created: number;
   used_by: ResourceUser[];
 }

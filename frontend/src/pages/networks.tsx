@@ -260,6 +260,12 @@ export class NetworksPage extends LoomElement {
           </div>
           <div class="dbody">
             <div class="drow"><span class="dk">id</span><span class="dv">{n.id.slice(0, 12)}</span></div>
+            {n.subnet ? <div class="drow"><span class="dk">subnet</span><span class="dv">{n.subnet}</span></div> : null}
+            {n.gateway ? <div class="drow"><span class="dk">gateway</span><span class="dv">{n.gateway}</span></div> : null}
+            <div class="drow"><span class="dk">flags</span><span class="dv">{[n.internal ? "internal" : "", n.ipv6 ? "ipv6" : "", n.attachable ? "attachable" : ""].filter(Boolean).join(" · ") || <span class="dim">none</span>}</span></div>
+            {n.options && Object.keys(n.options).length ? (
+              <div class="drow top"><span class="dk">options</span><span class="dv">{Object.entries(n.options).map(([k, v]) => <span class="opt">{k}={v}</span>)}</span></div>
+            ) : null}
             <div class="drow top"><span class="dk">attached</span>
               <span class="dv">
                 {n.used_by.length ? n.used_by.map((u) => (

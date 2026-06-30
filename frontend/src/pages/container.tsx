@@ -108,6 +108,17 @@ const MAX_LINES = 600;
   .ov .v.slink:hover { color: #fff; text-decoration: underline; }
   .ov .c.wide { flex: 1; }
 
+  .netblk { border: 1px solid var(--line); margin-bottom: 22px; }
+  .netlbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+    padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  .netrow { display: flex; flex-wrap: wrap; gap: 9px 24px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .netrow:last-child { border-bottom: 0; }
+  .netrow .nn { font: 600 13px/1 var(--mono); color: var(--hi); min-width: 150px; }
+  .netrow .nn.slink { cursor: pointer; }
+  .netrow .nn.slink:hover { color: #fff; text-decoration: underline; }
+  .netrow .nf { font: 12.5px/1 var(--mono); color: var(--hi); }
+  .netrow .nf i { color: var(--dim); font-style: normal; margin-right: 7px; text-transform: uppercase; font-size: 9px; letter-spacing: .12em; }
+
   .tabs { display: flex; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
   .tabs button {
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
@@ -576,6 +587,18 @@ export class ContainerPage extends LoomElement {
     return out.join(", ") || "—";
   }
 
+  // The networks this container is attached to, with its address on each.
+  private netList() {
+    const nets = this.info?.NetworkSettings?.Networks ?? {};
+    return Object.entries<any>(nets).map(([name, n]) => ({
+      name,
+      ip: n?.IPAddress || n?.GlobalIPv6Address || "",
+      gateway: n?.Gateway || n?.IPv6Gateway || "",
+      mac: n?.MacAddress || "",
+      aliases: ((n?.Aliases as string[]) || []).filter((a) => a && !this.id.startsWith(a)),
+    }));
+  }
+
   update() {
     const running = this.state() === "running";
     return (
@@ -681,6 +704,21 @@ export class ContainerPage extends LoomElement {
             </div>
             <div class="c wide"><span class="k">Ports</span><span class="v">{this.ports()}</span></div>
           </div>
+
+          {this.netList().length ? (
+            <div class="netblk">
+              <div class="netlbl">Networks</div>
+              {this.netList().map((n) => (
+                <div class="netrow">
+                  <span class="nn slink" title="manage networks" onClick={() => this.router.navigate("/networks")}>{n.name}</span>
+                  <span class="nf"><i>ip</i>{n.ip || "—"}</span>
+                  <span class="nf"><i>gateway</i>{n.gateway || "—"}</span>
+                  {n.aliases.length ? <span class="nf"><i>aliases</i>{n.aliases.join(", ")}</span> : null}
+                  {n.mac ? <span class="nf"><i>mac</i>{n.mac}</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div class="tabs">
             {(["logs", "stats", "inspect"] as Tab[]).map((t) => (

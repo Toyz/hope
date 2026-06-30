@@ -135,6 +135,7 @@ export const resourceStyles = `
   .ub { display: inline-block; font: 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; cursor: pointer; }
   .ub:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ub .ubp { color: var(--dim); }
+  .dv .opt { display: inline-block; font: 11.5px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; }
   .dacts { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .dacts .grow { flex: 1; }
