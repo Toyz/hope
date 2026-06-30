@@ -75,9 +75,10 @@ const UNGROUPED = "(ungrouped)";
 
   /* cross-host rows prefix the name with a small host pill, so the grid (and
      thus the service chips + count column) stays identical to the per-host view */
-  .row .name .htag { display: inline-block; margin-right: 9px; vertical-align: middle;
-    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-    color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
+  .row .name .htag { display: inline-block; box-sizing: border-box; width: 92px; margin-right: 9px; vertical-align: middle;
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; text-align: center;
+    color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .umark { color: var(--upd); }
   .row .name .svc { color: var(--dim); }
   .row .why.upd { color: var(--upd); }
@@ -483,7 +484,7 @@ export class DashboardPage extends LoomElement {
     return (
       <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
         <span class="mark upd"></span>
-        <span class="name">{opts.host ? <span class="htag">{opts.host}</span> : null}{g.project}</span>
+        <span class="name">{opts.host ? <span class="htag" title={opts.host}>{opts.host}</span> : null}{g.project}</span>
         <span class="svcs">
           {g.services.slice(0, 8).map((s) => (
             <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
@@ -501,7 +502,7 @@ export class DashboardPage extends LoomElement {
     return (
       <div class="row" onClick={opts.onClick}>
         <span class={"mark " + s.sev}></span>
-        <span class="name">{opts.host ? <span class="htag">{opts.host}</span> : null}{s.project}</span>
+        <span class="name">{opts.host ? <span class="htag" title={opts.host}>{opts.host}</span> : null}{s.project}</span>
         <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
           {s.sev === "loop"
             ? `${s.containers.filter((c: any) => c.state === "restarting").length} restarting`
