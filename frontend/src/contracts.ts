@@ -233,6 +233,12 @@ export class System {
   volumes(): VolumeInfo[] {
     return undefined!;
   }
+  removeNetwork(_id: string): unknown {
+    return undefined!;
+  }
+  removeVolume(_id: string): unknown {
+    return undefined!;
+  }
 }
 
 // ResourceUser is a container attached to a network or mounting a volume.

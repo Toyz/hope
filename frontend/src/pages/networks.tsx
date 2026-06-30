@@ -1,13 +1,24 @@
 // Networks page: every Docker network on the active host with the containers
-// attached to it (the reverse "who's on this network" mapping). Wire: System/networks.
+// attached to it (reverse mapping). Same table + detail-modal design as images.
 import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { ConfirmService } from "../confirm";
 import type { NetworkInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
+
+const ago = (unix: number) => {
+  if (!unix) return "—";
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - unix));
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d`;
+  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
+  return `${Math.floor(s / 31536000)}y`;
+};
 
 @route("/networks")
 @component("hope-networks")
@@ -18,6 +29,7 @@ import { resourceStyles } from "./resource-styles";
 export class NetworksPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -26,7 +38,7 @@ export class NetworksPage extends LoomElement {
   @reactive accessor busy = false;
   @reactive accessor error = "";
   @reactive accessor query = "";
-  @reactive accessor open: Record<string, boolean> = {};
+  @reactive accessor detail: NetworkInfo | null = null;
 
   @mount
   onMount() {
@@ -40,7 +52,7 @@ export class NetworksPage extends LoomElement {
   private load = async () => {
     this.busy = true;
     try {
-      this.nets = (await this.rpc.call<NetworkInfo[]>("System", "networks", [])) || [];
+      this.nets = ((await this.rpc.call<NetworkInfo[]>("System", "networks", [])) || []).map((n) => ({ ...n, used_by: n.used_by || [] }));
       this.error = "";
     } catch (err: any) {
       this.error = err?.message ?? "Can't list networks.";
@@ -49,21 +61,36 @@ export class NetworksPage extends LoomElement {
     }
   };
 
-  private fleetBack = () => localStorage.getItem("hope.fleet") === "1";
   private logout = () => {
     this.auth.clear();
     this.router.navigate("/login");
   };
-  private toggle = (id: string) => (this.open = { ...this.open, [id]: !this.open[id] });
   private openUser = (u: { id: string; project: string }) => {
+    this.detail = null;
     if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
     else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
   };
 
+  private del = async (n: NetworkInfo) => {
+    const ok = await this.confirm.ask({
+      title: "remove network",
+      danger: true,
+      confirmLabel: "Remove",
+      message: `Remove network "${n.name}"?`,
+    });
+    if (!ok) return;
+    this.detail = null;
+    try {
+      await this.rpc.call("System", "removeNetwork", [n.id]);
+      await this.load();
+    } catch (err: any) {
+      this.error = `remove ${n.name} — ${err?.message ?? "failed"}`;
+    }
+  };
+
   private visible() {
     const q = this.query.trim().toLowerCase();
-    const list = q ? this.nets.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : this.nets;
-    return list;
+    return q ? this.nets.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : this.nets;
   }
 
   update() {
@@ -72,7 +99,7 @@ export class NetworksPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack() ? "all hosts" : "fleet"}</span></div>
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {localStorage.getItem("hope.fleet") === "1" ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/networks")}>networks</span></div>
@@ -100,32 +127,71 @@ export class NetworksPage extends LoomElement {
             </div>
           ) : null}
 
-          <div class="rlist">
-            {vis.map((n) => (
-              <>
-                <div class={"rrow" + (n.used_by.length ? "" : " empty")} onClick={() => (n.used_by.length ? this.toggle(n.id) : null)}>
-                  <span class={"rdot" + (n.used_by.length ? " on" : "")}></span>
-                  <span class="rname">{n.name}</span>
-                  <span class="rmeta">{n.driver}{n.scope ? ` · ${n.scope}` : ""}{n.internal ? " · internal" : ""}</span>
-                  <span class="grow"></span>
-                  <span class="rcount">{n.used_by.length}<span class="t"> {n.used_by.length === 1 ? "container" : "containers"}</span></span>
-                  {n.used_by.length ? <loom-icon class={"chev" + (this.open[n.id] ? " up" : "")} name="chevron-down" size={14}></loom-icon> : <span class="chevpad"></span>}
-                </div>
-                {this.open[n.id] && n.used_by.length ? (
-                  <div class="users">
-                    {n.used_by.map((u) => (
-                      <span class="user" onClick={() => this.openUser(u)}>
-                        {u.project ? <b>{u.project}</b> : null}{u.project && (u.service || u.name) ? <span class="sep"> / </span> : null}{u.service || u.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ))}
-          </div>
-
-          {this.nets.length === 0 && !this.error && !this.busy ? <div class="empty">No networks.</div> : null}
+          {vis.length > 0 ? (
+            <table>
+              <colgroup>
+                <col class="c-name" />
+                <col class="c-meta" />
+                <col class="c-meta" />
+                <col class="c-use" />
+                <col class="c-act" />
+              </colgroup>
+              <thead>
+                <tr><th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th></tr>
+              </thead>
+              <tbody>
+                {vis.map((n) => (
+                  <tr onClick={() => (this.detail = n)}>
+                    <td class="rname">{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
+                    <td class="rmeta">{n.driver}</td>
+                    <td class="rmeta">{n.scope}</td>
+                    <td class="use">{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="ubmore"> +{n.used_by.length - 1}</span> : null}</span> : <span class="none">—</span>}</td>
+                    <td class="r">{!n.used_by.length ? <button class="rm" title="remove network" onClick={(e: Event) => { e.stopPropagation(); this.del(n); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : this.nets.length === 0 && !this.error && !this.busy ? (
+            <div class="empty">No networks.</div>
+          ) : null}
         </main>
+
+        {this.detail ? this.renderDetail(this.detail) : null}
+      </div>
+    );
+  }
+
+  private renderDetail(n: NetworkInfo) {
+    return (
+      <div class="dmodal" onClick={() => (this.detail = null)}>
+        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt">{n.name}</span>
+            <span class="grow"></span>
+            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="dfacts">
+            <span class="st"><i class="sk">driver</i><i class="sv">{n.driver}</i></span>
+            <span class="st"><i class="sk">scope</i><i class="sv">{n.scope}</i></span>
+            <span class="st"><i class="sk">created</i><i class="sv">{ago(n.created)}</i></span>
+            <span class="st"><i class="sk">attached</i><i class="sv">{n.used_by.length}</i></span>
+          </div>
+          <div class="dbody">
+            <div class="drow"><span class="dk">id</span><span class="dv">{n.id.slice(0, 12)}</span></div>
+            <div class="drow top"><span class="dk">attached</span>
+              <span class="dv">
+                {n.used_by.length ? n.used_by.map((u) => (
+                  <span class="ub" onClick={() => this.openUser(u)}>{u.project ? <span class="ubp">{u.project} / </span> : null}{u.service || u.name}</span>
+                )) : <span class="dim">nothing — safe to remove</span>}
+              </span>
+            </div>
+          </div>
+          <div class="dacts">
+            {n.used_by.length ? <span class="dnote">detach its containers before removing</span> : null}
+            <span class="grow"></span>
+            <button class="pbtn danger" disabled={!!n.used_by.length} onClick={() => this.del(n)}>remove</button>
+          </div>
+        </div>
       </div>
     );
   }

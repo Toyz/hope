@@ -269,6 +269,37 @@ func (r *SystemRouter) Volumes(ctx *rpc.Context) ([]docker.VolumeInfo, error) {
 	return vols, nil
 }
 
+// IDParam targets a resource by id/name.
+type IDParam struct {
+	ID string `sov:"id,0,required" json:"id"`
+}
+
+// RemoveNetwork deletes a network on the active host.
+func (r *SystemRouter) RemoveNetwork(ctx *rpc.Context, p *IDParam) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := r.dock().RemoveNetwork(cctx, p.ID); err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+// RemoveVolume deletes a volume on the active host (force-removes if referenced).
+func (r *SystemRouter) RemoveVolume(ctx *rpc.Context, p *IDParam) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := r.dock().RemoveVolume(cctx, p.ID, true); err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
 // ImageRemoveParams targets one image for deletion.
 type ImageRemoveParams struct {
 	ID    string `sov:"id,0,required" json:"id"`

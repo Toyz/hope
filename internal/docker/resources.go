@@ -92,6 +92,16 @@ func (c *Client) Networks(ctx context.Context) ([]NetworkInfo, error) {
 	return out, nil
 }
 
+// RemoveNetwork deletes a network by id.
+func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
+	return c.sdk().NetworkRemove(ctx, id)
+}
+
+// RemoveVolume deletes a volume by name (force removes even if referenced).
+func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
+	return c.sdk().VolumeRemove(ctx, name, force)
+}
+
 // Volumes lists Docker volumes with the containers mounting each (the reverse
 // mapping), busiest first.
 func (c *Client) Volumes(ctx context.Context) ([]VolumeInfo, error) {

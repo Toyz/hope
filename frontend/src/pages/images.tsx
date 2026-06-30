@@ -545,7 +545,6 @@ export class ImagesPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
-          <div class="s"><span class="crumb">images</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
           <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/images")}>images</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
