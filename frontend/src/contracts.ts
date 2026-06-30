@@ -218,6 +218,18 @@ export class System {
   setActiveHost(_id: string): { active: string } {
     return undefined!;
   }
+  fleet(): FleetHost[] {
+    return undefined!;
+  }
+}
+
+// FleetHost is one host's slice of the cross-fleet overview.
+export interface FleetHost {
+  id: string;
+  kind: "local" | "agent";
+  online: boolean;
+  error?: string;
+  stacks: StackSummary[];
 }
 
 // HostView is one selectable Docker host: the local socket or a connected agent.

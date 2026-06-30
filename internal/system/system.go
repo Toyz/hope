@@ -4,6 +4,7 @@ package system
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/Toyz/sov/rpc"
@@ -31,6 +32,50 @@ func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]hosts.HostView, error) {
 		return nil, err
 	}
 	return r.hosts.List(), nil
+}
+
+// FleetHost is one host's slice of the cross-fleet overview: its stacks plus
+// identity, so the UI can render a section per host.
+type FleetHost struct {
+	ID     string                `json:"id"`
+	Kind   string                `json:"kind"` // "local" | "agent"
+	Online bool                  `json:"online"`
+	Error  string                `json:"error,omitempty"`
+	Stacks []docker.StackSummary `json:"stacks"`
+}
+
+// Fleet returns every host (local + connected agents) with its stacks, for the
+// "all hosts" overview. Hosts are queried concurrently so one slow daemon
+// doesn't stall the rest; a host that errors is returned offline with its
+// message rather than failing the whole call.
+func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	hcs := r.hosts.All()
+	out := make([]FleetHost, len(hcs))
+	var wg sync.WaitGroup
+	for i, h := range hcs {
+		out[i] = FleetHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Stacks: []docker.StackSummary{}}
+		if !h.Online || h.Client == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, c *docker.Client) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+			defer cancel()
+			st, err := c.Stacks(cctx)
+			if err != nil {
+				out[i].Online = false
+				out[i].Error = err.Error()
+				return
+			}
+			out[i].Stacks = st
+		}(i, h.Client)
+	}
+	wg.Wait()
+	return out, nil
 }
 
 // SetActiveHostParams selects the host the UI operates on.

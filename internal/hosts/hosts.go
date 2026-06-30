@@ -98,6 +98,31 @@ func (s *Set) SetActive(id string) error {
 	return nil
 }
 
+// HostClient pairs a host id/kind with its docker client, for code that fans
+// out across every host (e.g. the cross-fleet overview).
+type HostClient struct {
+	ID     string
+	Kind   string // "local" | "agent"
+	Online bool
+	Client *docker.Client
+}
+
+// All returns local plus every connected agent with its client, in stable order
+// (local first). Used to query every host at once.
+func (s *Set) All() []HostClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []HostClient{{ID: LocalID, Kind: "local", Online: s.localUp, Client: s.local}}
+	if s.reg != nil {
+		for _, h := range s.reg.List() {
+			if c := s.reg.Get(h.ID); c != nil {
+				out = append(out, HostClient{ID: h.ID, Kind: "agent", Online: true, Client: c})
+			}
+		}
+	}
+	return out
+}
+
 // HostView is the frontend-facing summary of one selectable host.
 type HostView struct {
 	ID          string     `json:"id"`

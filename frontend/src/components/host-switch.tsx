@@ -23,6 +23,7 @@ import { theme } from "../styles";
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
   .dot.local { background: var(--upd); }
   .dot.agent { background: var(--ok); }
+  .dot.all { background: linear-gradient(135deg, var(--upd) 0 50%, var(--ok) 50% 100%); }
   .dot.off { background: var(--bad); }
   .cur { color: var(--dim); font-weight: 600; }
   .cur b { color: var(--hi); font-weight: 700; letter-spacing: .04em; text-transform: none; }
@@ -88,9 +89,22 @@ export class HostSwitch extends LoomElement {
     document.removeEventListener("click", this.onClickAway);
   }
 
+  // "all" is a dashboard VIEW (cross-fleet overview), not a server-active host —
+  // it's tracked client-side so it doesn't disturb which host the other pages
+  // operate on.
+  get fleetOn() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
+
   async pick(id: string) {
     this.open = false;
-    if (this.active && id === this.active.id) return;
+    if (id === "all") {
+      localStorage.setItem("hope.fleet", "1");
+      location.href = "/"; // show the fleet overview on the dashboard
+      return;
+    }
+    localStorage.removeItem("hope.fleet");
+    if (!this.fleetOn && this.active && id === this.active.id) return;
     this.busy = true;
     try {
       await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
@@ -102,8 +116,10 @@ export class HostSwitch extends LoomElement {
 
   update() {
     const a = this.active;
-    const label = a ? (a.kind === "local" ? "local" : a.id) : "—";
-    const kind = a?.kind === "agent" ? "agent" : "local";
+    const fleet = this.fleetOn;
+    const label = fleet ? "all" : a ? (a.kind === "local" ? "local" : a.id) : "—";
+    const kind = fleet ? "all" : a?.kind === "agent" ? "agent" : "local";
+    const multi = this.hosts.length > 1; // only worth an "all" view with >1 host
     return (
       <>
         <button class="btn" onClick={this.toggle} title="Switch Docker host">
@@ -116,17 +132,26 @@ export class HostSwitch extends LoomElement {
             {this.hosts.length === 0 ? (
               <div class="empty">No hosts</div>
             ) : (
-              this.hosts.map((h) => (
-                <button
-                  class="item"
-                  aria-current={h.active ? "true" : "false"}
-                  onClick={() => this.pick(h.id)}
-                >
-                  <span class={`dot ${h.kind} ${h.connected ? "" : "off"}`}></span>
-                  <span class="id">{h.kind === "local" ? "local" : h.id}</span>
-                  <span class="meta">{h.active ? "active" : h.kind}</span>
-                </button>
-              ))
+              <>
+                {multi ? (
+                  <button class="item" aria-current={fleet ? "true" : "false"} onClick={() => this.pick("all")}>
+                    <span class="dot all"></span>
+                    <span class="id">all hosts</span>
+                    <span class="meta">{fleet ? "active" : "overview"}</span>
+                  </button>
+                ) : null}
+                {this.hosts.map((h) => (
+                  <button
+                    class="item"
+                    aria-current={!fleet && h.active ? "true" : "false"}
+                    onClick={() => this.pick(h.id)}
+                  >
+                    <span class={`dot ${h.kind} ${h.connected ? "" : "off"}`}></span>
+                    <span class="id">{h.kind === "local" ? "local" : h.id}</span>
+                    <span class="meta">{!fleet && h.active ? "active" : h.kind}</span>
+                  </button>
+                ))}
+              </>
             )}
           </div>
         ) : null}

@@ -7,7 +7,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
-import type { StackSummary, UpdatesResult, DiskResult } from "../contracts";
+import type { StackSummary, UpdatesResult, DiskResult, FleetHost } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
@@ -56,6 +56,19 @@ const UNGROUPED = "(ungrouped)";
   .bar .act .upcheck loom-icon { color: var(--upd); }
   .spin { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* cross-fleet overview ("all hosts") */
+  .fleetsec { margin-bottom: 26px; }
+  .fleetsec .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .fleetsec .hdot.local { background: var(--upd); }
+  .fleetsec .hdot.agent { background: var(--ok); }
+  .fleetsec .khint { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .fleetsec .fbadge { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+  .fleetsec .fbadge.warn { color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+  .fleetsec .fbadge.bad { color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+  .fleetsec .foff { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--bad); }
+  .fleetsec .frow-empty { padding: 12px 14px; color: var(--dim); font: 500 12px/1 var(--mono); }
+  .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
 
   main { padding: 30px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
@@ -189,6 +202,12 @@ export class DashboardPage extends LoomElement {
   @reactive accessor disk: DiskResult | null = null;
   @reactive accessor diskBusy = false;
   @reactive accessor updBusy = false;
+  @reactive accessor fleet: FleetHost[] | null = null; // cross-host overview ("all hosts")
+
+  // "all hosts" is a client-side view flag (set by the host switcher).
+  get fleetMode() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
 
   @mount
   onMount() {
@@ -197,7 +216,29 @@ export class DashboardPage extends LoomElement {
       return;
     }
     this.load();
-    this.loadHost(); // host identity + cached disk usage — once, not on the tick
+    if (!this.fleetMode) this.loadHost(); // single-host strip; skipped in fleet view
+  }
+
+  // Switch the active host to `host`, then open one of its stacks (used from the
+  // fleet overview where each stack belongs to a specific host).
+  private goCross = async (host: string, project: string) => {
+    try {
+      await this.rpc.call("System", "setActiveHost", [host]);
+    } catch {
+      /* fall through — navigation still attempts the active host */
+    }
+    localStorage.removeItem("hope.fleet");
+    this.router.navigate(`/stack/${encodeURIComponent(project)}`);
+  };
+
+  private async loadFleet() {
+    try {
+      this.fleet = (await this.rpc.call<FleetHost[]>("System", "fleet", [])) || [];
+      this.error = "";
+      this.loaded = true;
+    } catch (err: any) {
+      this.error = err?.message ?? "Can't reach the daemon.";
+    }
   }
 
   // Docker host identity + cached disk usage. Both cheap (df is cached
@@ -254,6 +295,7 @@ export class DashboardPage extends LoomElement {
   }
 
   private async load() {
+    if (this.fleetMode) return this.loadFleet();
     try {
       this.stacks = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
       this.error = "";
@@ -355,7 +397,99 @@ export class DashboardPage extends LoomElement {
     this.router.navigate("/login");
   };
 
+  // Cross-fleet overview: one section per host (local + agents), each listing
+  // that host's stacks. Same visual language as the single-host dashboard.
+  private renderFleet() {
+    const f = this.fleet ?? [];
+    const hosts = f.length;
+    const online = f.filter((h) => h.online).length;
+    let runC = 0,
+      totC = 0,
+      stackC = 0;
+    for (const h of f)
+      for (const s of h.stacks) {
+        runC += s.running;
+        totC += s.total;
+        if (s.project !== UNGROUPED) stackC++;
+      }
+    return (
+      <div>
+        <div class="bar">
+          <div class="s brand">HOPE</div>
+          <div class="s act"><hope-host-switch></hope-host-switch></div>
+          <div class="s"><span class="k">all hosts</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
+          <div class="grow"></div>
+          <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{hosts}</span></span></div>
+          <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
+          <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
+          <div class="s act"><button onClick={this.logout}>exit</button></div>
+        </div>
+        <main>
+          {!this.loaded ? <div class="loading">loading fleet…</div> : null}
+          {this.error ? <div class="err">{this.error}</div> : null}
+          {f.map((h) => this.renderFleetHost(h))}
+        </main>
+      </div>
+    );
+  }
+
+  private renderFleetHost(h: FleetHost) {
+    const ranked = (h.stacks ?? [])
+      .filter((s) => s.project !== UNGROUPED)
+      .map((s) => ({ ...s, sev: stackSeverity(s.running, s.total, s.restarting) }))
+      .sort((a, b) => severityRank(b.sev) - severityRank(a.sev));
+    const up = (h.stacks ?? []).reduce((a, s) => a + s.running, 0);
+    const tot = (h.stacks ?? []).reduce((a, s) => a + s.total, 0);
+    const loops = ranked.filter((s) => s.sev === "loop").length;
+    const issues = ranked.filter((s) => s.sev === "loop" || s.sev === "warn").length;
+    return (
+      <section class="fleetsec">
+        <div class="head">
+          <span class={"hdot " + h.kind}></span>
+          <span class="label">{h.id}</span>
+          <span class="khint">{h.kind}</span>
+          <span class="rule"></span>
+          {h.online ? (
+            <>
+              {issues > 0 ? <span class={"fbadge " + (loops > 0 ? "bad" : "warn")}>{issues} {issues === 1 ? "issue" : "issues"}</span> : null}
+              <span class="n">{up}<span class="t">/{tot}</span></span>
+            </>
+          ) : (
+            <span class="foff">{h.error ? "unreachable" : "offline"}</span>
+          )}
+        </div>
+        {h.online ? (
+          <div class="rows">
+            {ranked.length === 0 ? (
+              <div class="frow-empty">no stacks</div>
+            ) : (
+              ranked.map((s) => (
+                <div class="row" onClick={() => this.goCross(h.id, s.project)}>
+                  <span class={"mark " + s.sev}></span>
+                  <span class="name">{s.project}</span>
+                  {s.sev === "loop" || s.sev === "warn" ? (
+                    <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
+                      {s.sev === "loop"
+                        ? `${s.containers.filter((c) => c.state === "restarting").length} restarting`
+                        : `${s.total - s.running} down`}
+                    </span>
+                  ) : null}
+                  <span class="count">{s.running}<span class="t">/{s.total}</span></span>
+                  <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
+                </div>
+              ))
+            )}
+          </div>
+        ) : h.error ? (
+          <div class="ferr">{h.error}</div>
+        ) : null}
+      </section>
+    );
+  }
+
   update() {
+    if (this.fleetMode) return this.renderFleet();
     const all = this.ranked();
     const vis = this.visible();
     const upd = this.updSet();
