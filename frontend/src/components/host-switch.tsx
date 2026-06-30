@@ -100,7 +100,7 @@ export class HostSwitch extends LoomElement {
     this.open = false;
     if (id === "all") {
       localStorage.setItem("hope.fleet", "1");
-      location.href = "/"; // show the fleet overview on the dashboard
+      location.reload(); // each system page renders its own all-hosts view
       return;
     }
     const wasFleet = this.fleetOn;

@@ -227,6 +227,38 @@ export class System {
   fleetImages(): FleetImagesHost[] {
     return undefined!;
   }
+  networks(): NetworkInfo[] {
+    return undefined!;
+  }
+  volumes(): VolumeInfo[] {
+    return undefined!;
+  }
+}
+
+// ResourceUser is a container attached to a network or mounting a volume.
+export interface ResourceUser {
+  id: string;
+  name: string;
+  service: string;
+  project: string;
+}
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  created: number;
+  used_by: ResourceUser[];
+}
+
+export interface VolumeInfo {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  created_at: string;
+  used_by: ResourceUser[];
 }
 
 // FleetImagesHost is one host's images for the cross-fleet images view.

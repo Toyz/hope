@@ -29,6 +29,8 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
+  .bar .nav .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
+  .bar .nav .navlink:hover { color: var(--hi); }
 
   main { padding: 24px 24px 64px; max-width: 1120px; margin: 0 auto; }
 
@@ -531,6 +533,9 @@ export class ImagesPage extends LoomElement {
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> all hosts</span></div>
           <div class="s"><span class="crumb">images</span></div>
+          <div class="s act"><hope-host-switch></hope-host-switch></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="grow"></div>
           <div class="s act"><button disabled={this.busy} onClick={this.loadFleet}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
@@ -582,8 +587,11 @@ export class ImagesPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> fleet</span></div>
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s"><span class="crumb">images</span></div>
+          <div class="s act"><hope-host-switch></hope-host-switch></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="grow"></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>

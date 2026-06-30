@@ -239,6 +239,36 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	return imgs, nil
 }
 
+// Networks lists the active host's Docker networks with the containers attached
+// to each (the reverse "who's on this network" mapping).
+func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	nets, err := r.dock().Networks(cctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return nets, nil
+}
+
+// Volumes lists the active host's Docker volumes with the containers mounting
+// each (the reverse mapping).
+func (r *SystemRouter) Volumes(ctx *rpc.Context) ([]docker.VolumeInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	vols, err := r.dock().Volumes(cctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return vols, nil
+}
+
 // ImageRemoveParams targets one image for deletion.
 type ImageRemoveParams struct {
 	ID    string `sov:"id,0,required" json:"id"`
