@@ -29,4 +29,19 @@ app.use(RpcTransport, transport);
 
 app.use(new LoomRouter({ mode: "history" }));
 
-app.start();
+// Cloudflare Access SSO: if we arrived through Access (the edge added a valid
+// assertion), exchange it for a hope session before first render — no login
+// form. Off Access (LAN/ZeroTier) this 401s and the password login shows.
+async function boot() {
+  const auth = app.get(AuthStore);
+  if (!auth.isAuthenticated) {
+    try {
+      const res = await transport.call<{ token: string }>("Auth", "sso", []);
+      if (res?.token) auth.set(res.token);
+    } catch {
+      /* not behind Access — fall back to the login form */
+    }
+  }
+  app.start();
+}
+boot();

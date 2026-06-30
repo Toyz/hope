@@ -14,6 +14,13 @@ username = "admin"
 password = "change-me"
 token_secret = "change-me-to-a-long-random-string"
 token_ttl = "24h"
+# Cloudflare Access SSO (optional). If hope sits behind Cloudflare Access,
+# set both and a user who already passed Access is signed straight in — no
+# second login. The password login above stays as the LAN/ZeroTier fallback.
+# access_team = the <team>.cloudflareaccess.com subdomain (Zero Trust > Settings).
+# access_aud  = the Access application's AUD tag (Access > Applications > your app).
+# access_team = "yourteam"
+# access_aud  = "the-application-aud-tag"
 
 [docker]
 # Where hope reaches the Docker daemon. Use the mounted unix socket when hope

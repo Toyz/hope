@@ -67,6 +67,12 @@ type AuthConfig struct {
 	Password    string        `mapstructure:"password"`
 	TokenSecret string        `mapstructure:"token_secret"`
 	TokenTTL    time.Duration `mapstructure:"token_ttl"`
+	// Cloudflare Access SSO (optional). When both are set, a request that
+	// already passed Access (carrying a valid Cf-Access-Jwt-Assertion) is
+	// signed straight into hope — no second login. The password login stays as
+	// the fallback for LAN/ZeroTier where Access isn't in front.
+	AccessTeam string `mapstructure:"access_team"` // the <team>.cloudflareaccess.com subdomain, e.g. "helba"
+	AccessAUD  string `mapstructure:"access_aud"`  // the Access application's AUD tag
 }
 
 // DockerConfig points hope's Docker client at an endpoint. A unix socket

@@ -25,6 +25,7 @@ import (
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/meme"
+	"github.com/toyz/hope/internal/plugins/accessauth"
 	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/logstream"
 	"github.com/toyz/hope/internal/socketproxy"
@@ -103,6 +104,14 @@ func main() {
 	gw.Register(containers.NewContainersRouter(dock))
 	gw.Register(system.NewSystemRouter(dock))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
+
+	// Cloudflare Access SSO: when configured, a request already past Access is
+	// signed straight into hope (password login stays as the LAN/ZT fallback).
+	if cfg.Auth.AccessTeam != "" && cfg.Auth.AccessAUD != "" {
+		verifier := auth.NewAccessVerifier(cfg.Auth.AccessTeam, cfg.Auth.AccessAUD)
+		gw.MustUse(accessauth.New(tokens, verifier))
+		lg.Info("cloudflare access SSO enabled", "team", cfg.Auth.AccessTeam)
+	}
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
 	gw.MustUse(logstream.New(dock, tokens))
