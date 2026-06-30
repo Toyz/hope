@@ -66,6 +66,26 @@ const UNGROUPED = "(ungrouped)";
   .fleetsec .fbadge { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
   .fleetsec .fbadge.warn { color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
   .fleetsec .fbadge.bad { color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+  .fleetsec .fbadge.upd { color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, transparent); }
+
+  /* fleet summary KPI strip */
+  .fsum { display: flex; flex-wrap: wrap; border: 1px solid var(--line); margin-bottom: 24px; }
+  .fsum .kpi { display: flex; flex-direction: column; gap: 6px; padding: 14px 22px; border-right: 1px solid var(--line); min-width: 96px; }
+  .fsum .kpi .kl { font: 600 9.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .fsum .kpi .kv { font: 700 22px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .fsum .kpi .kv .t { color: var(--dim); font-size: 15px; }
+  .fsum .kpi.warn .kv { color: var(--warn); }
+  .fsum .kpi.bad .kv { color: var(--bad); }
+  .fsum .kpi.upd .kv { color: var(--upd); }
+
+  /* cross-host rows carry a host tag, so they need a 6-column grid */
+  .row.xrow { grid-template-columns: 13px auto 1fr auto 84px 14px; }
+  .rows .row .htag { justify-self: start; font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
+  .row .umark { color: var(--upd); }
+  .row .name .svc { color: var(--dim); }
+  .row .why.upd { color: var(--upd); }
+  .head .n.upd { color: var(--upd); }
   .fleetsec .foff { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--bad); }
   .fleetsec .frow-empty { padding: 12px 14px; color: var(--dim); font: 500 12px/1 var(--mono); }
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
@@ -227,7 +247,9 @@ export class DashboardPage extends LoomElement {
     } catch {
       /* fall through — navigation still attempts the active host */
     }
-    localStorage.removeItem("hope.fleet");
+    // Keep the fleet flag set so "back" returns to the all-hosts overview, not a
+    // single-host dashboard. The stack/container pages still operate on the host
+    // we just activated.
     this.router.navigate(`/stack/${encodeURIComponent(project)}`);
   };
 
@@ -405,13 +427,24 @@ export class DashboardPage extends LoomElement {
     const online = f.filter((h) => h.online).length;
     let runC = 0,
       totC = 0,
-      stackC = 0;
-    for (const h of f)
+      stackC = 0,
+      updC = 0;
+    const problems: { host: string; s: any }[] = [];
+    const fupdates: { host: string; u: any }[] = [];
+    for (const h of f) {
+      updC += h.outdated || 0;
+      for (const u of h.updates ?? []) fupdates.push({ host: h.id, u });
       for (const s of h.stacks) {
+        if (s.project === UNGROUPED) continue;
         runC += s.running;
         totC += s.total;
-        if (s.project !== UNGROUPED) stackC++;
+        stackC++;
+        const sev = stackSeverity(s.running, s.total, s.restarting);
+        if (sev === "loop" || sev === "warn") problems.push({ host: h.id, s: { ...s, sev } });
       }
+    }
+    problems.sort((a, b) => severityRank(b.s.sev) - severityRank(a.s.sev));
+    const vClass = problems.some((p) => p.s.sev === "loop") ? "bad" : problems.length ? "warn" : "ok";
     return (
       <div>
         <div class="bar">
@@ -428,6 +461,63 @@ export class DashboardPage extends LoomElement {
         <main>
           {!this.loaded ? <div class="loading">loading fleet…</div> : null}
           {this.error ? <div class="err">{this.error}</div> : null}
+
+          <div class="fsum">
+            <div class="kpi"><i class="kl">hosts</i><i class="kv">{online}<span class="t">/{hosts}</span></i></div>
+            <div class="kpi"><i class="kl">stacks</i><i class="kv">{stackC}</i></div>
+            <div class="kpi"><i class="kl">containers</i><i class="kv">{runC}<span class="t">/{totC}</span></i></div>
+            <div class={"kpi " + (problems.length ? vClass : "")}><i class="kl">issues</i><i class="kv">{problems.length}</i></div>
+            <div class={"kpi " + (updC ? "upd" : "")}><i class="kl">updates</i><i class="kv">{updC}</i></div>
+          </div>
+
+          {problems.length > 0 ? (
+            <section>
+              <div class="head">
+                <span class="label">Fleet attention</span>
+                <span class="rule"></span>
+                <span class="n">{problems.length}</span>
+              </div>
+              <div class="rows">
+                {problems.map((p) => (
+                  <div class="row xrow" onClick={() => this.goCross(p.host, p.s.project)}>
+                    <span class={"mark " + p.s.sev}></span>
+                    <span class="htag">{p.host}</span>
+                    <span class="name">{p.s.project}</span>
+                    <span class={"why " + (p.s.sev === "loop" ? "bad" : "warn")}>
+                      {p.s.sev === "loop"
+                        ? `${p.s.containers.filter((c: any) => c.state === "restarting").length} restarting`
+                        : `${p.s.total - p.s.running} down`}
+                    </span>
+                    <span class="count">{p.s.running}<span class="t">/{p.s.total}</span></span>
+                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {fupdates.length > 0 ? (
+            <section>
+              <div class="head">
+                <span class="label">Fleet updates</span>
+                <span class="rule"></span>
+                <span class="n upd">{fupdates.length}</span>
+              </div>
+              <div class="rows">
+                {fupdates.map((p) => (
+                  <div class="row xrow" onClick={() => this.goCross(p.host, p.u.project)}>
+                    <loom-icon class="umark" name="download" size={13}></loom-icon>
+                    <span class="htag">{p.host}</span>
+                    <span class="name">{p.u.project || p.u.name}{p.u.service ? <span class="svc"> / {p.u.service}</span> : null}</span>
+                    <span class="why upd">update</span>
+                    <span class="count"></span>
+                    <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {f.map((h) => this.renderFleetHost(h))}
         </main>
       </div>
@@ -453,6 +543,7 @@ export class DashboardPage extends LoomElement {
           {h.online ? (
             <>
               {issues > 0 ? <span class={"fbadge " + (loops > 0 ? "bad" : "warn")}>{issues} {issues === 1 ? "issue" : "issues"}</span> : null}
+              {h.outdated > 0 ? <span class="fbadge upd">{h.outdated} {h.outdated === 1 ? "update" : "updates"}</span> : null}
               <span class="n">{up}<span class="t">/{tot}</span></span>
             </>
           ) : (
@@ -468,13 +559,13 @@ export class DashboardPage extends LoomElement {
                 <div class="row" onClick={() => this.goCross(h.id, s.project)}>
                   <span class={"mark " + s.sev}></span>
                   <span class="name">{s.project}</span>
-                  {s.sev === "loop" || s.sev === "warn" ? (
-                    <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
-                      {s.sev === "loop"
-                        ? `${s.containers.filter((c) => c.state === "restarting").length} restarting`
-                        : `${s.total - s.running} down`}
-                    </span>
-                  ) : null}
+                  <span class={"why " + (s.sev === "loop" ? "bad" : s.sev === "warn" ? "warn" : "")}>
+                    {s.sev === "loop"
+                      ? `${s.containers.filter((c) => c.state === "restarting").length} restarting`
+                      : s.sev === "warn"
+                        ? `${s.total - s.running} down`
+                        : ""}
+                  </span>
                   <span class="count">{s.running}<span class="t">/{s.total}</span></span>
                   <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
                 </div>

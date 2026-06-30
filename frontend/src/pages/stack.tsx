@@ -68,6 +68,8 @@ function aggMark(items: ContainerSummary[]): string {
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
   .bar .back { color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
   .bar .back:hover { color: var(--hi); }
+  .bar .hostcrumb { font: 600 11px/1 var(--mono); letter-spacing: .08em; color: var(--ok); text-transform: lowercase;
+    padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: 6px; }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .grow { flex: 1; }
   .bar .act { padding: 0; border-left: 1px solid var(--line); }
@@ -248,6 +250,7 @@ export class StackPage extends LoomElement {
   @reactive accessor toastKind = "";
   @reactive accessor stats: Record<string, ContainerStat> = {};
   @reactive accessor statsBusy = false;
+  @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
   @reactive accessor updates: Record<string, ImageUpdate> = {};
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
@@ -273,6 +276,22 @@ export class StackPage extends LoomElement {
   onMount() {
     if (this.routeProject) this.enter(this.routeProject);
     addEventListener("click", this.closeMenu);
+    this.loadActiveHost();
+  }
+
+  // True when arrived from the cross-fleet overview, so "back" labels match.
+  get fleetBack() {
+    return localStorage.getItem("hope.fleet") === "1";
+  }
+
+  // Which host this stack lives on, so the crumb shows it in multi-host setups.
+  private async loadActiveHost() {
+    try {
+      const hosts = await this.rpc.call<{ id: string; active: boolean }[]>("System", "hosts", []);
+      this.host = (hosts || []).find((h) => h.active)?.id || "";
+    } catch {
+      this.host = "";
+    }
   }
 
   private closeMenu = () => {
@@ -748,7 +767,10 @@ export class StackPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><loom-link to="/" class="back">‹ fleet</loom-link></div>
+          <div class="s"><loom-link to="/" class="back">‹ {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
+          {this.host && this.host !== "local" ? (
+            <div class="s"><span class="hostcrumb">{this.host}</span></div>
+          ) : null}
           <div class="s"><span class="crumb">{this.project}</span></div>
           <div class="grow"></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>

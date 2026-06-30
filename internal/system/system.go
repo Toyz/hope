@@ -37,11 +37,13 @@ func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]hosts.HostView, error) {
 // FleetHost is one host's slice of the cross-fleet overview: its stacks plus
 // identity, so the UI can render a section per host.
 type FleetHost struct {
-	ID     string                `json:"id"`
-	Kind   string                `json:"kind"` // "local" | "agent"
-	Online bool                  `json:"online"`
-	Error  string                `json:"error,omitempty"`
-	Stacks []docker.StackSummary `json:"stacks"`
+	ID       string                 `json:"id"`
+	Kind     string                 `json:"kind"` // "local" | "agent"
+	Online   bool                   `json:"online"`
+	Error    string                 `json:"error,omitempty"`
+	Outdated int                    `json:"outdated"` // running images with a newer version
+	Updates  []docker.ClusterUpdate `json:"updates"`  // the outdated items (for the fleet updates section)
+	Stacks   []docker.StackSummary  `json:"stacks"`
 }
 
 // Fleet returns every host (local + connected agents) with its stacks, for the
@@ -72,6 +74,15 @@ func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
 				return
 			}
 			out[i].Stacks = st
+			// Outdated items from this host's (per-host) update cache — cheap.
+			if ups, _, e := c.AllUpdates(cctx); e == nil {
+				for _, u := range ups {
+					if u.Status == "outdated" {
+						out[i].Updates = append(out[i].Updates, u)
+					}
+				}
+				out[i].Outdated = len(out[i].Updates)
+			}
 		}(i, h.Client)
 	}
 	wg.Wait()

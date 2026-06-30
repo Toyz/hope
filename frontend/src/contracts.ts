@@ -229,6 +229,8 @@ export interface FleetHost {
   kind: "local" | "agent";
   online: boolean;
   error?: string;
+  outdated: number;
+  updates: ClusterUpdate[];
   stacks: StackSummary[];
 }
 
