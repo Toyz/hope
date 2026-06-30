@@ -435,6 +435,17 @@ export class DashboardPage extends LoomElement {
     return groups.sort((a, b) => b.count - a.count || a.host.localeCompare(b.host) || a.project.localeCompare(b.project));
   }
 
+  // The oldest (stalest) per-host check time across the fleet — so "checked
+  // Xm ago" reflects the worst case, not the freshest host.
+  private fleetChecked(): string {
+    let oldest = "";
+    for (const h of this.fleet ?? []) {
+      if (!h.online || !h.checked_at) continue;
+      if (!oldest || h.checked_at < oldest) oldest = h.checked_at;
+    }
+    return oldest;
+  }
+
   private openContainer(id: string) {
     this.router.navigate(`/container/${encodeURIComponent(id)}`);
   }
@@ -606,6 +617,7 @@ export class DashboardPage extends LoomElement {
               <div class="head">
                 <span class="label">Fleet updates</span>
                 <span class="rule"></span>
+                {this.fleetChecked() ? <span class="ago">checked {ago(this.fleetChecked())}</span> : null}
                 <button class="rfr" disabled={this.fleetBusy} title="recheck every host" onClick={this.refreshFleet}>
                   <loom-icon class={this.fleetBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
                 </button>

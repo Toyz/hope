@@ -234,6 +234,7 @@ export interface FleetHost {
   error?: string;
   outdated: number;
   updates: ClusterUpdate[];
+  checked_at: string;
   stacks: StackSummary[];
 }
 
