@@ -1,0 +1,26 @@
+# hope-agent configuration. Copy to agent.toml and run:
+#   hope agent --agent-config agent.toml
+#
+# Every key can also be passed as a flag (--connect, --host-id, ...) or an env
+# var (HOPE_AGENT_CONNECT, HOPE_AGENT_TOKEN, HOPE_AGENT_HOST_ID, ...).
+# Precedence: flag > env > this file > default. Keep secrets out of the args by
+# putting them here (chmod 600) or in the environment.
+
+# Hub endpoint. A wss:// (or ws://) URL rides hope's main HTTPS port through
+# Cloudflare — no extra port. Or a bare host:port / tcp://host:port for a raw
+# TCP hub listener on a trusted LAN/overlay.
+connect = "wss://hope.example.com/agent/connect"
+
+# Shared enrollment secret. MUST match the hub's [agent] token.
+token = "change-me-to-a-long-random-string"
+
+# Stable id this host registers under (default: the machine hostname).
+host_id = "host-1"
+
+# Local Docker endpoint to expose back to hope.
+docker = "unix:///var/run/docker.sock"
+
+# Cloudflare Access service token (when the agent path is behind Access with a
+# Service Auth policy). Leave empty if you use an Access bypass instead.
+# cf_access_id     = "xxxxxxxx.access"
+# cf_access_secret = "xxxxxxxxxxxxxxxx"
