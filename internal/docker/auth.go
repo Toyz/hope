@@ -72,6 +72,20 @@ func loadDockerAuths(path string) map[string]string {
 	return out
 }
 
+// AddRegistryCreds registers an explicit registry credential (from config),
+// overriding anything loaded from config.json for the same registry. Works
+// without a credential helper, so it's the reliable path in hope's container.
+func (c *Client) AddRegistryCreds(server, user, pass string) {
+	if user == "" && pass == "" {
+		return
+	}
+	hdr, _ := json.Marshal(registryAuthHeader{Username: user, Password: pass, ServerAddress: server})
+	if c.auths == nil {
+		c.auths = map[string]string{}
+	}
+	c.auths[normalizeRegistry(server)] = base64.URLEncoding.EncodeToString(hdr)
+}
+
 // registryAuth returns the X-Registry-Auth header for an image ref, or "".
 func (c *Client) registryAuth(image string) string {
 	if len(c.auths) == 0 {

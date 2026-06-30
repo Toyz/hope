@@ -20,6 +20,18 @@ type Config struct {
 	SocketProxy SocketProxyConfig `mapstructure:"socketproxy"`
 	Log         LogConfig         `mapstructure:"log"`
 	Updates     UpdatesConfig     `mapstructure:"updates"`
+	Registries  []RegistryConfig  `mapstructure:"registry"`
+}
+
+// RegistryConfig is an explicit registry credential. hope only reads inline
+// `auth` from a docker config.json (credential helpers / credsStore keep secrets
+// outside the file and aren't runnable in hope's minimal container), so this is
+// the reliable way to authenticate pulls — e.g. a Docker Hub account + access
+// token to avoid anonymous rate limits.
+type RegistryConfig struct {
+	Server   string `mapstructure:"server"` // "docker.io", "ghcr.io", "registry.example.com:5000"
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"` // password or access token / PAT
 }
 
 // UpdatesConfig controls the background image-freshness crawler that powers the

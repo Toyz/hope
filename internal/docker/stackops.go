@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -84,17 +85,39 @@ func (c *Client) ProjectContainerIDs(ctx context.Context, project string) ([]str
 	return ids, nil
 }
 
-// PullImage pulls ref and drains the progress stream. Best-effort for private
-// registries (no auth wired) — public images and anything the daemon already
-// has credentials for will pull.
+// PullImage pulls ref and consumes the progress stream, surfacing any error the
+// registry reports MID-STREAM (rate limits, auth failures). The daemon returns
+// those as JSON `error` lines, not as a transport error — so draining blindly
+// would make a throttled pull look successful and a redeploy keep the old image.
 func (c *Client) PullImage(ctx context.Context, ref string) error {
 	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: c.registryAuth(ref)})
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}
 	defer rc.Close()
-	_, err = io.Copy(io.Discard, rc)
-	return err
+
+	dec := json.NewDecoder(rc)
+	for {
+		var msg struct {
+			Error       string `json:"error"`
+			ErrorDetail struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("pull %s: %w", ref, err)
+		}
+		if msg.Error != "" {
+			detail := msg.Error
+			if msg.ErrorDetail.Message != "" {
+				detail = msg.ErrorDetail.Message
+			}
+			return fmt.Errorf("pull %s: %s", ref, detail)
+		}
+	}
 }
 
 // ContainerImage returns the image reference a container was created from.

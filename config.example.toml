@@ -20,6 +20,22 @@ token_ttl = "24h"
 # runs as a container on the host, or a remote tcp:// endpoint.
 host = "unix:///var/run/docker.sock"
 # host = "tcp://192.168.69.160:2375"
+# Path (inside the container) to a docker config.json for private-registry pull
+# credentials. hope reads only INLINE `auth` entries — `docker login` writes
+# those by default on Linux. Mount the file where login actually wrote it (e.g.
+# /home/<you>/.docker/config.json) to this path. Credential helpers/credsStore
+# keep secrets outside the file and can't run in hope's container — prefer the
+# [[registry]] blocks below instead.
+# config = "/root/.docker/config.json"
+
+# Explicit registry credentials — the reliable way to authenticate pulls without
+# a docker config.json mount or a credential helper. Use a Docker Hub account +
+# access token (https://app.docker.com/settings) so pulls aren't anonymous and
+# rate-limited. Repeat the block per registry (ghcr.io, a private registry, ...).
+# [[registry]]
+# server = "docker.io"
+# username = "your-dockerhub-user"
+# password = "dckr_pat_xxxxxxxx"   # a Personal Access Token, not your password
 
 [compose]
 # Optional allowlist of on-disk compose project roots. Empty = trust the

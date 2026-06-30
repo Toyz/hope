@@ -18,9 +18,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Config — required (holds your login + token secret).
       - ./config.toml:/app/config.toml:ro
-      # Private-registry pull credentials (so `pull`/`redeploy` can auth, e.g.
-      # ghcr). Point at the host's docker config.json. Optional.
-      - /root/.docker/config.json:/root/.docker/config.json:ro
+      # Private-registry pull credentials (so `pull`/`redeploy` authenticate and
+      # avoid anonymous rate limits). Mount the docker config.json where YOUR
+      # `docker login` wrote it (Linux: /home/<you>/.docker/config.json) — hope
+      # reads inline `auth` only, not credential helpers. Optional; the
+      # [[registry]] blocks in config.toml are an alternative that needs no mount.
+      - /home/youruser/.docker/config.json:/root/.docker/config.json:ro
       # Compose-file viewer (the in-UI "compose" button). Mount the dir that
       # holds your compose projects, read-only. Optional — all other ops are
       # API-based and need no files.

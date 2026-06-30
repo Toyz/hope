@@ -62,7 +62,15 @@ See [config.example.toml](config.example.toml). Every key can be overridden with
   random `token_secret`.
 - `[docker] host` — `unix:///var/run/docker.sock` or a remote `tcp://host:2375`.
   `config` optionally points at a Docker `config.json` for registry credentials
-  (defaults to `~/.docker/config.json`).
+  (defaults to `~/.docker/config.json`). hope reads only **inline** `auth`
+  entries — `docker login` writes those on Linux. Credential helpers / credsStore
+  keep secrets outside the file and can't run in hope's minimal container.
+- `[[registry]]` — explicit registry credentials (`server` / `username` /
+  `password`), the reliable way to authenticate pulls without mounting a
+  config.json or running a helper. Use a Docker Hub account + access token so
+  pulls aren't anonymous and rate-limited. Repeat per registry. An authenticated
+  pull that the registry rejects (rate limit, bad creds) now **fails the
+  redeploy loudly** instead of silently keeping the old image.
 - `[updates]` — the image-freshness crawler. `enabled` (default true),
   `interval` (default `6h`; mind Docker Hub anonymous rate limits), and an
   optional `cache_path` that persists the freshness cache to disk so it survives

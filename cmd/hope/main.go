@@ -61,6 +61,12 @@ func main() {
 	if err := dock.Ping(ctx); err != nil {
 		fatal("cannot reach docker", "host", cfg.Docker.Host, "err", err)
 	}
+	// Explicit registry credentials from config (e.g. a Docker Hub account +
+	// token) override config.json and avoid anonymous-pull rate limits.
+	for _, r := range cfg.Registries {
+		dock.AddRegistryCreds(r.Server, r.Username, r.Password)
+		lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
+	}
 	// Background crawler keeps the cluster-wide image-freshness cache warm for
 	// the dashboard "updates" section (manifest lookups, no layer pulls).
 	if cfg.Updates.Enabled {
