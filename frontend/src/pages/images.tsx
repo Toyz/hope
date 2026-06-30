@@ -89,9 +89,12 @@ type Filter = "all" | "used" | "unused" | "dangling";
   colgroup col.c-age { width: 9%; }
   colgroup col.c-use { width: 29%; }
   colgroup col.c-act { width: 7%; }
-  th.sel, td.sel { padding-left: 16px; padding-right: 0; }
+  th.sel, td.sel { padding-left: 16px; padding-right: 0; cursor: pointer; }
+  td.sel:hover .ck { border-color: var(--mid); }
   .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
   .ck:hover { border-color: var(--mid); }
+  .toolbar .seln { font: 600 12px/1 var(--mono); color: var(--upd); }
+  .toolbar .selsz { font: 12px/1 var(--mono); color: var(--dim); margin-right: 4px; }
   .ck.on { background: var(--upd); border-color: var(--upd);
     -webkit-mask: none; box-shadow: inset 0 0 0 3px var(--panel); }
   tr.irow.sel td { background: color-mix(in srgb, var(--upd) 8%, transparent); }
@@ -590,20 +593,21 @@ export class ImagesPage extends LoomElement {
                 ))}
               </div>
               <div class="grow"></div>
-              {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
-              {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
-              {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
-            </div>
-          ) : null}
-
-          {this.selected.length > 0 ? (
-            <div class="selbar">
-              <span class="seln">{this.selected.length} selected</span>
-              <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
-              <span class="grow"></span>
-              {this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
-              <button class="pbtn danger" onClick={this.removeSelected}>remove</button>
-              <button class="pbtn" onClick={this.clearSel}>clear</button>
+              {this.selected.length > 0 ? (
+                <>
+                  <span class="seln">{this.selected.length} selected</span>
+                  <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
+                  {this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
+                  <button class="pbtn danger" onClick={this.removeSelected}>remove</button>
+                  <button class="pbtn" onClick={this.clearSel}>clear</button>
+                </>
+              ) : (
+                <>
+                  {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
+                  {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
+                  {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
+                </>
+              )}
             </div>
           ) : null}
 
@@ -639,8 +643,8 @@ export class ImagesPage extends LoomElement {
               <tbody>
                 {vis.map((i) => (
                   <tr class={"irow" + (this.selected.includes(i.id) ? " sel" : "")} onClick={() => (this.detail = i)}>
-                    <td class="sel" onClick={(e: Event) => e.stopPropagation()}>
-                      <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")} onClick={(e: Event) => this.toggleSel(i.id, e)}></span>
+                    <td class="sel" onClick={(e: Event) => this.toggleSel(i.id, e)}>
+                      <span class={"ck" + (this.selected.includes(i.id) ? " on" : "")}></span>
                     </td>
                     <td class="repo" title={i.tags.join(", ")}>
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
