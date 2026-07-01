@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Toyz/sov"
+	"github.com/Toyz/sov/gateway/builtin/explorer"
+	"github.com/Toyz/sov/gateway/builtin/introspect"
 	"github.com/Toyz/sov/gateway/builtin/static"
 	"github.com/spf13/cobra"
 	hope "github.com/toyz/hope"
@@ -26,6 +28,7 @@ import (
 	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/accessauth"
 	"github.com/toyz/hope/internal/plugins/logger"
+	"github.com/toyz/hope/internal/plugins/introspectfilter"
 	"github.com/toyz/hope/internal/plugins/logstream"
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
@@ -172,6 +175,7 @@ func runServe(configPath string) error {
 	// Front the listener with the agent WebSocket endpoint when the hub is on,
 	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
 	// traffic passes to sov untouched.
+	apiEnabled := len(cfg.Auth.APIKeys) > 0
 	var gw *sov.Gateway
 	if hub != nil {
 		gw = sov.New(sov.WithServer(agent.NewFrontServer(hub, cfg.Agent.WSPath)))
@@ -183,7 +187,7 @@ func runServe(configPath string) error {
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
-	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath))
+	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
@@ -201,6 +205,16 @@ func runServe(configPath string) error {
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
 	gw.MustUse(logstream.New(hostSet, tokens, deployEngine))
+
+	// Headless API: when keys are configured, enable sov's introspection endpoint
+	// (/rpc/_introspect) and the interactive explorer UI (/rpc/_explorer/). Off by
+	// default so hope's RPC surface stays private unless the operator opts in.
+	if apiEnabled {
+		gw.MustUse(introspect.New())
+		gw.MustUse(introspectfilter.New()) // hide control-plane services + plugin catalog
+		gw.MustUse(explorer.New(explorer.Config{}))
+		lg.Info("headless API + explorer enabled", "keys", len(cfg.Auth.APIKeys), "explorer", "/rpc/_explorer/")
+	}
 
 	// Serve the embedded SPA at "/"; /rpc/* is reserved (never shadowed).
 	sub, err := fs.Sub(hope.DistFS, "frontend/dist")

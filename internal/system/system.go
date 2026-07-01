@@ -17,12 +17,28 @@ type SystemRouter struct {
 	hosts       *hosts.Set
 	agentToken  string // shared enrollment secret (empty = hub disabled)
 	agentWSPath string
+	apiEnabled  bool // static API keys configured -> headless RPC + explorer link
 }
 
 // NewSystemRouter wires the router to the host set (active-host aware). The agent
-// token + ws path power the "add an agent" enrollment helper.
-func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string) *SystemRouter {
-	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath}
+// token + ws path power the "add an agent" enrollment helper; apiEnabled toggles
+// the API explorer link.
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled bool) *SystemRouter {
+	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled}
+}
+
+// Capabilities reports which optional features are on, so the UI can show/hide
+// affordances (e.g. the API explorer link).
+type Capabilities struct {
+	APIEnabled bool `json:"api_enabled"`
+}
+
+// Capabilities returns the feature flags the UI needs at load.
+func (r *SystemRouter) Capabilities(ctx *rpc.Context) (*Capabilities, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	return &Capabilities{APIEnabled: r.apiEnabled}, nil
 }
 
 // AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run

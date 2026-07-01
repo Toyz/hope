@@ -11,6 +11,11 @@ import { theme } from "./styles";
 `)
 export class HopeApp extends LoomElement {
   update() {
-    return <loom-outlet></loom-outlet>;
+    return (
+      <div>
+        <loom-outlet></loom-outlet>
+        <hope-footer></hope-footer>
+      </div>
+    );
   }
 }

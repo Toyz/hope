@@ -21,6 +21,13 @@ token_ttl = "24h"
 # access_aud  = the Access application's AUD tag (Access > Applications > your app).
 # access_team = "yourteam"
 # access_aud  = "the-application-aud-tag"
+# Headless API access. Set one or more long random keys to call hope's RPC
+# without logging in — pass a key as the bearer token:
+#   curl -H "Authorization: Bearer <key>" -H "Content-Type: application/json" \
+#        -d '{"args":[]}' https://hope.example.com/rpc/Stacks/list
+# Enabling this also surfaces the in-app API explorer (/api). Keep keys secret;
+# a key is root-equivalent over every host hope manages. Empty = login-only.
+# api_keys = ["change-me-to-a-long-random-string"]
 
 [docker]
 # Where hope reaches the Docker daemon. Use the mounted unix socket when hope

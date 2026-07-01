@@ -41,8 +41,8 @@ type ProjectParams struct {
 	Project string `sov:"project,0,required" json:"project"`
 }
 
-// OpResult is the outcome of a lifecycle command: OK plus a human-readable log.
-type OpResult struct {
+// StackResult is the outcome of a lifecycle command: OK plus a human-readable log.
+type StackResult struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output"`
 	Error  string `json:"error,omitempty"`
@@ -63,22 +63,22 @@ func (r *StacksRouter) List(ctx *rpc.Context) ([]docker.StackSummary, error) {
 }
 
 // Start starts every container in the project.
-func (r *StacksRouter) Start(ctx *rpc.Context, p *ProjectParams) (*OpResult, error) {
+func (r *StacksRouter) Start(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
 	return r.eachContainer(ctx, p, "start", r.dock().Start)
 }
 
 // Stop stops every container in the project.
-func (r *StacksRouter) Stop(ctx *rpc.Context, p *ProjectParams) (*OpResult, error) {
+func (r *StacksRouter) Stop(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
 	return r.eachContainer(ctx, p, "stop", r.dock().Stop)
 }
 
 // Restart restarts every container in the project.
-func (r *StacksRouter) Restart(ctx *rpc.Context, p *ProjectParams) (*OpResult, error) {
+func (r *StacksRouter) Restart(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
 	return r.eachContainer(ctx, p, "restart", r.dock().Restart)
 }
 
 // Pull pulls the latest image for each distinct image in the project.
-func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*OpResult, error) {
+func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
 	if err := r.gate(ctx, p); err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*OpResult, erro
 
 // Redeploy pulls images then recreates each container so it runs on the new
 // image — the API-only equivalent of `compose up -d --force-recreate`.
-func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, error) {
+func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
 	if err := r.gate(ctx, p); err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, 
 	} else {
 		log.WriteString(res.Output)
 		if res.Error != "" {
-			return &OpResult{OK: false, Output: log.String(), Error: res.Error}, nil
+			return &StackResult{OK: false, Output: log.String(), Error: res.Error}, nil
 		}
 	}
 	ids, err := r.dock().ProjectContainerIDs(cctx, p.Project)
@@ -116,13 +116,13 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*OpResult, 
 	n := 0
 	for _, id := range ids {
 		if err := r.dock().RecreateManaged(cctx, id); err != nil {
-			return &OpResult{OK: false, Output: log.String(), Error: fmt.Sprintf("recreate failed: %v", err)}, nil
+			return &StackResult{OK: false, Output: log.String(), Error: fmt.Sprintf("recreate failed: %v", err)}, nil
 		}
 		n++
 	}
 	fmt.Fprintf(&log, "recreated %d container(s)\n", n)
 	r.dock().RefreshProjectStatus(cctx, p.Project) // images are current — refresh the cache
-	return &OpResult{OK: true, Output: log.String()}, nil
+	return &StackResult{OK: true, Output: log.String()}, nil
 }
 
 // Stats returns a point-in-time CPU/memory snapshot for every running container
@@ -173,7 +173,7 @@ func (r *StacksRouter) ComposeFile(ctx *rpc.Context, p *ProjectParams) (*Compose
 }
 
 // eachContainer applies fn to every container in the project via the Docker API.
-func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb string, fn func(context.Context, string) error) (*OpResult, error) {
+func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb string, fn func(context.Context, string) error) (*StackResult, error) {
 	if err := r.gate(ctx, p); err != nil {
 		return nil, err
 	}
@@ -186,13 +186,13 @@ func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb st
 	}
 	for _, id := range ids {
 		if err := fn(cctx, id); err != nil {
-			return &OpResult{OK: false, Error: fmt.Sprintf("%s %s: %v", verb, id[:12], err)}, nil
+			return &StackResult{OK: false, Error: fmt.Sprintf("%s %s: %v", verb, id[:12], err)}, nil
 		}
 	}
-	return &OpResult{OK: true, Output: fmt.Sprintf("%s: %d container(s)", verb, len(ids))}, nil
+	return &StackResult{OK: true, Output: fmt.Sprintf("%s: %d container(s)", verb, len(ids))}, nil
 }
 
-func (r *StacksRouter) pull(ctx context.Context, project string) (*OpResult, error) {
+func (r *StacksRouter) pull(ctx context.Context, project string) (*StackResult, error) {
 	imgs, err := r.dock().ImagesForProject(ctx, project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
@@ -201,10 +201,10 @@ func (r *StacksRouter) pull(ctx context.Context, project string) (*OpResult, err
 	for _, img := range imgs {
 		fmt.Fprintf(&log, "pull %s\n", img)
 		if err := r.dock().PullImage(ctx, img); err != nil {
-			return &OpResult{OK: false, Output: log.String(), Error: err.Error()}, nil
+			return &StackResult{OK: false, Output: log.String(), Error: err.Error()}, nil
 		}
 	}
-	return &OpResult{OK: true, Output: log.String()}, nil
+	return &StackResult{OK: true, Output: log.String()}, nil
 }
 
 // gate enforces auth and a non-empty project name.

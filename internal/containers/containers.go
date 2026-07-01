@@ -33,8 +33,8 @@ type IDParams struct {
 	ID string `sov:"id,0,required" json:"id"`
 }
 
-// OpResult is the outcome of a container action.
-type OpResult struct {
+// CtrResult is the outcome of a container action.
+type CtrResult struct {
 	OK bool `json:"ok"`
 }
 
@@ -64,33 +64,33 @@ func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.Conta
 }
 
 // Start starts a stopped container.
-func (r *ContainersRouter) Start(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Start(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	return r.act(ctx, p, r.dock().Start)
 }
 
 // Stop stops a running container.
-func (r *ContainersRouter) Stop(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Stop(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	return r.act(ctx, p, r.dock().Stop)
 }
 
 // Restart restarts a container.
-func (r *ContainersRouter) Restart(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Restart(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	return r.act(ctx, p, r.dock().Restart)
 }
 
 // Kill sends SIGKILL to a container.
-func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	return r.act(ctx, p, r.dock().Kill)
 }
 
 // Remove stops and deletes a container (for loose/ungrouped containers compose
 // can't manage).
-func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	return r.act(ctx, p, r.dock().Remove)
 }
 
 // Pull pulls the latest image for this one container (not the whole stack).
-func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -107,12 +107,12 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*OpResult, error
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock().RefreshImageStatus(cctx, img) // keep the update cache fresh
-	return &OpResult{OK: true}, nil
+	return &CtrResult{OK: true}, nil
 }
 
 // Redeploy pulls this container's image then recreates it on the new image,
 // preserving its config/networks/labels.
-func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*OpResult, error) {
+func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -132,10 +132,10 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*OpResult, e
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock().RefreshImageStatus(cctx, img) // image is now current — refresh the cache
-	return &OpResult{OK: true}, nil
+	return &CtrResult{OK: true}, nil
 }
 
-func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, fn func(context.Context, string) error) (*OpResult, error) {
+func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, fn func(context.Context, string) error) (*CtrResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -145,5 +145,5 @@ func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, fn func(context.Co
 	if err := fn(ctx, p.ID); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	return &OpResult{OK: true}, nil
+	return &CtrResult{OK: true}, nil
 }

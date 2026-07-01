@@ -258,6 +258,14 @@ export class System {
   agentEnroll(): AgentEnroll {
     return undefined!;
   }
+  capabilities(): Capabilities {
+    return undefined!;
+  }
+}
+
+// Capabilities are the optional-feature flags the UI reads at load.
+export interface Capabilities {
+  api_enabled: boolean;
 }
 
 // AgentEnroll is the info the "add agent" modal needs (token is a secret).

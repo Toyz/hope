@@ -24,7 +24,7 @@ type AuthRouter struct {
 // NewAuthRouter builds the router from config, constructing the shared
 // TokenManager. The same TokenManager is handed to the logstream plugin.
 func NewAuthRouter(cfg config.AuthConfig) (*AuthRouter, *TokenManager) {
-	tm := NewTokenManager(cfg.TokenSecret, cfg.TokenTTL)
+	tm := NewTokenManager(cfg.TokenSecret, cfg.TokenTTL, cfg.APIKeys)
 	return &AuthRouter{cfg: cfg, tokens: tm}, tm
 }
 

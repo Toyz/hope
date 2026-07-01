@@ -26,13 +26,38 @@ var ErrInvalidToken = errors.New("invalid or expired token")
 type TokenManager struct {
 	secret []byte
 	ttl    time.Duration
+	// apiKeys are static, non-expiring secrets for headless RPC access. A request
+	// presenting one as its bearer authenticates as the "api" subject.
+	apiKeys []string
 	// now is overridable in tests; defaults to time.Now.
 	now func() time.Time
 }
 
-// NewTokenManager returns a manager keyed by secret with the given TTL.
-func NewTokenManager(secret string, ttl time.Duration) *TokenManager {
-	return &TokenManager{secret: []byte(secret), ttl: ttl, now: time.Now}
+// NewTokenManager returns a manager keyed by secret with the given TTL and any
+// static API keys for headless access.
+func NewTokenManager(secret string, ttl time.Duration, apiKeys []string) *TokenManager {
+	keys := make([]string, 0, len(apiKeys))
+	for _, k := range apiKeys {
+		if strings.TrimSpace(k) != "" {
+			keys = append(keys, k)
+		}
+	}
+	return &TokenManager{secret: []byte(secret), ttl: ttl, apiKeys: keys, now: time.Now}
+}
+
+// apiSubject is the subject a valid API key authenticates as.
+const apiSubject = "api"
+
+// matchAPIKey reports whether token equals a configured API key (constant-time,
+// checking every key so timing doesn't leak which one matched).
+func (m *TokenManager) matchAPIKey(token string) bool {
+	var hit int
+	for _, k := range m.apiKeys {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(k)) == 1 {
+			hit = 1
+		}
+	}
+	return hit == 1
 }
 
 type payload struct {
@@ -49,8 +74,12 @@ func (m *TokenManager) Issue(subject string) (token string, expires time.Time) {
 	return b64 + "." + m.sign(b64), expires
 }
 
-// Verify checks the signature and expiry, returning the subject and expiry.
+// Verify checks the signature and expiry, returning the subject and expiry. A
+// configured API key authenticates headlessly as the "api" subject (no expiry).
 func (m *TokenManager) Verify(token string) (subject string, expires time.Time, err error) {
+	if len(m.apiKeys) > 0 && m.matchAPIKey(token) {
+		return apiSubject, m.now().Add(365 * 24 * time.Hour).UTC(), nil
+	}
 	b64, mac, ok := strings.Cut(token, ".")
 	if !ok {
 		return "", time.Time{}, ErrInvalidToken

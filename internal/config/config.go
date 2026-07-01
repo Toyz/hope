@@ -104,6 +104,10 @@ type AuthConfig struct {
 	// the fallback for LAN/ZeroTier where Access isn't in front.
 	AccessTeam string `mapstructure:"access_team"` // the <team>.cloudflareaccess.com subdomain, e.g. "yourteam"
 	AccessAUD  string `mapstructure:"access_aud"`  // the Access application's AUD tag
+	// APIKeys are static secrets for headless RPC access. A request presenting one
+	// as its bearer token is authenticated (as subject "api") without logging in —
+	// for scripts/CI. Empty = the API stays login-only. Keep these secret.
+	APIKeys []string `mapstructure:"api_keys"`
 }
 
 // DockerConfig points hope's Docker client at an endpoint. A unix socket

@@ -231,7 +231,7 @@ type RemoveConnectorParams struct {
 
 // RemoveConnector stops+removes a connector container, optionally deleting the
 // Cloudflare tunnel too (only hope-deployed ones should be fully deleted).
-func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorParams) (*OpResult, error) {
+func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorParams) (*RouteResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -244,16 +244,16 @@ func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorPara
 	}
 	if p.DeleteTunnel && con.TunnelID != "" {
 		if err := r.cf.DeleteTunnel(ctx, con.TunnelID); err != nil {
-			return &OpResult{OK: false, Error: "container removed but tunnel delete failed: " + err.Error()}, nil
+			return &RouteResult{OK: false, Error: "container removed but tunnel delete failed: " + err.Error()}, nil
 		}
 	}
-	return &OpResult{OK: true}, nil
+	return &RouteResult{OK: true}, nil
 }
 
 // ── routes ──────────────────────────────────────────────────────────────
 
-// OpResult is a simple outcome envelope.
-type OpResult struct {
+// RouteResult is a simple outcome envelope.
+type RouteResult struct {
 	OK         bool   `json:"ok"`
 	Error      string `json:"error,omitempty"`
 	Origin     string `json:"origin,omitempty"`     // resolved ingress origin
@@ -274,7 +274,7 @@ type AddTunnelParams struct {
 
 // AddTunnel wires hostname -> service through a connector: attaches the connector
 // to the origin's network, upserts the tunnel ingress, and ensures the DNS CNAME.
-func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*OpResult, error) {
+func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*RouteResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -308,9 +308,9 @@ func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*OpResu
 	}
 	// Ensure DNS.
 	if err := r.ensureDNS(ctx, host, con.TunnelID); err != nil {
-		return &OpResult{OK: false, Origin: origin, Error: "route added but DNS failed: " + err.Error()}, nil
+		return &RouteResult{OK: false, Origin: origin, Error: "route added but DNS failed: " + err.Error()}, nil
 	}
-	return &OpResult{OK: true, Origin: origin, Reattached: reattached}, nil
+	return &RouteResult{OK: true, Origin: origin, Reattached: reattached}, nil
 }
 
 // RemoveTunnelParams targets a route by hostname.
@@ -321,7 +321,7 @@ type RemoveTunnelParams struct {
 
 // RemoveTunnel drops the exact host+path ingress rule on whichever connector
 // serves it; the DNS record is deleted only when no rules for that host remain.
-func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*OpResult, error) {
+func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*RouteResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -345,10 +345,10 @@ func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*
 		}
 		if remaining == 0 {
 			if err := r.deleteDNS(ctx, host); err != nil {
-				return &OpResult{OK: false, Error: "route removed but DNS delete failed: " + err.Error()}, nil
+				return &RouteResult{OK: false, Error: "route removed but DNS delete failed: " + err.Error()}, nil
 			}
 		}
-		return &OpResult{OK: true}, nil
+		return &RouteResult{OK: true}, nil
 	}
 	return nil, rpc.NotFound("no route for %q", host)
 }
@@ -363,7 +363,7 @@ type MoveRouteParams struct {
 }
 
 // MoveRoute swaps a route with its neighbour in the connector's ingress order.
-func (r *TunnelsRouter) MoveRoute(ctx *rpc.Context, p *MoveRouteParams) (*OpResult, error) {
+func (r *TunnelsRouter) MoveRoute(ctx *rpc.Context, p *MoveRouteParams) (*RouteResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -399,13 +399,13 @@ func (r *TunnelsRouter) MoveRoute(ctx *rpc.Context, p *MoveRouteParams) (*OpResu
 		swap = idx + 1
 	}
 	if swap < 0 || swap >= len(list) {
-		return &OpResult{OK: true}, nil // already at the edge — no-op
+		return &RouteResult{OK: true}, nil // already at the edge — no-op
 	}
 	list[idx], list[swap] = list[swap], list[idx]
 	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, list); err != nil {
 		return nil, rpc.Internal("update tunnel config: %v", err)
 	}
-	return &OpResult{OK: true}, nil
+	return &RouteResult{OK: true}, nil
 }
 
 // ReorderRoutesParams sets a connector's full ingress order in one write (for
@@ -419,7 +419,7 @@ type ReorderRoutesParams struct {
 // order in a single PutTunnelConfig — no per-swap Cloudflare churn. Rules not
 // named in the order are appended (safety), and the catch-all is re-added by
 // PutTunnelConfig, so nothing is dropped.
-func (r *TunnelsRouter) ReorderRoutes(ctx *rpc.Context, p *ReorderRoutesParams) (*OpResult, error) {
+func (r *TunnelsRouter) ReorderRoutes(ctx *rpc.Context, p *ReorderRoutesParams) (*RouteResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -466,7 +466,7 @@ func (r *TunnelsRouter) ReorderRoutes(ctx *rpc.Context, p *ReorderRoutesParams) 
 	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, out); err != nil {
 		return nil, rpc.Internal("update tunnel config: %v", err)
 	}
-	return &OpResult{OK: true}, nil
+	return &RouteResult{OK: true}, nil
 }
 
 // resolveOrigin returns the ingress origin host, the network to attach the

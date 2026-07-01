@@ -2,8 +2,9 @@
 // volumes / agents / tunnels). Used in every page's top bar so the nav is always
 // present and identical, instead of each page duplicating the links (and stack/
 // container pages dropping them entirely).
-import { LoomElement, component, styles, css, reactive, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
+import { capabilities } from "../caps";
 
 const ITEMS: [string, string][] = [
   ["deploy", "/deploy"],
@@ -24,15 +25,28 @@ const ITEMS: [string, string][] = [
 `)
 export class HopeNav extends LoomElement {
   @reactive accessor active = "";
+  @reactive accessor apiOn = false;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
 
+  @mount
+  onMount() {
+    capabilities().then((c) => (this.apiOn = !!c.api_enabled));
+  }
+
+  // /rpc/* is a server route (sov's explorer UI), not an SPA route.
+  private go(path: string) {
+    if (path.startsWith("/rpc/")) location.href = path;
+    else this.router.navigate(path);
+  }
+
   update() {
+    const items = this.apiOn ? [...ITEMS, ["api", "/rpc/_explorer/"] as [string, string]] : ITEMS;
     return (
       <div style="display:flex; align-items:stretch">
-        {ITEMS.map(([label, path]) => (
-          <div class="item"><span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.router.navigate(path)}>{label}</span></div>
+        {items.map(([label, path]) => (
+          <div class="item"><span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.go(path)}>{label}</span></div>
         ))}
       </div>
     );

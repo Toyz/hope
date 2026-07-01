@@ -263,22 +263,23 @@ const MAX_LINES = 600;
   .pmuted { color: var(--dim); }
   .pempty { padding: 32px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 
-  .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: start center; padding: 40px 20px;
-    overflow: auto; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
+  .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
+    overflow: hidden; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
   @keyframes efade { from { opacity: 0; } to { opacity: 1; } }
-  .ebox { width: 760px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);
+  .ebox { width: 760px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);
     animation: epop .14s cubic-bezier(.2, .8, .3, 1) both; }
   @keyframes epop { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
-  .ebox .ehd { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+  .ebox .ehd { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line);
     font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
   .ebox .ehd .grow { flex: 1; }
   .ebox .ex { background: transparent; border: 0; color: var(--dim); cursor: pointer; display: flex; padding: 2px; }
   .ebox .ex:hover { color: var(--hi); }
-  .ebox .ebd { padding: 18px 20px; }
+  .ebox .ebd { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; }
   .ebox .enote { margin: 0 0 16px; font: 12px/1.6 var(--sans); color: var(--dim); }
   .ebox .eload { padding: 30px; text-align: center; color: var(--dim); font: 12.5px/1 var(--mono); }
-  .ebox .eft { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
-    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); position: sticky; bottom: 0; }
+  .ebox .eft { flex: none; display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .ebox .ebtn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mid);
     background: transparent; border: 1px solid var(--line); padding: 11px 16px; cursor: pointer; }
   .ebox .ebtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
@@ -370,6 +371,12 @@ export class ContainerPage extends LoomElement {
   @watch("routeId")
   private onRouteId() {
     if (this.routeId) this.enter(this.routeId);
+  }
+
+  // Lock background scroll while the edit modal is open.
+  @watch("editOpen")
+  private onEditOpen() {
+    document.body.style.overflow = this.editOpen ? "hidden" : "";
   }
 
   private closeDrop = () => {
@@ -502,6 +509,7 @@ export class ContainerPage extends LoomElement {
     this.ctrl.abort();
     removeEventListener("click", this.closeDrop);
     clearTimeout(this.toastTimer);
+    document.body.style.overflow = ""; // never leave scroll locked
   }
 
   private async loadInfo() {
