@@ -12,9 +12,10 @@ import { ProcService } from "../proc";
 import { PromptService } from "../prompt";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
-import type { ContainerSpec, StackSpec, NetworkSpec, VolumeSpec, OpFrame, OpResult, ImportResult, ExportResult, NetworkInfo, VolumeInfo, ConnectorView, ZoneView, HostView } from "../contracts";
+import type { ContainerSpec, StackSpec, NetworkSpec, VolumeSpec, OpFrame, OpResult, ImportResult, ExportResult, NetworkInfo, VolumeInfo, ConnectorView, TunnelView, ZoneView, HostView } from "../contracts";
 import type { ConnectorOpt } from "../components/service-form";
 import { theme } from "../styles";
+import { deployIntent } from "../deploy-intent";
 import "../components/service-form";
 
 interface Row { key: number; initial: ContainerSpec; }
@@ -140,7 +141,8 @@ export class DeployPage extends LoomElement {
   async onMount() {
     if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
     await Promise.all([this.loadHost(), this.loadConnectors(), this.loadResources()]);
-    const editProject = new URLSearchParams(location.search).get("edit");
+    const editProject = deployIntent.edit || new URLSearchParams(location.search).get("edit");
+    deployIntent.edit = null;
     if (editProject) {
       await this.loadEdit(editProject);
     } else if (this.rows.length === 0) {
@@ -215,6 +217,7 @@ export class DeployPage extends LoomElement {
   private async loadEdit(project: string) {
     try {
       const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [project]);
+      await this.hydrateTunnels(spec);
       this.seedFromSpec(spec);
       this.editing = project;
       this.tab = "stack";
@@ -222,6 +225,25 @@ export class DeployPage extends LoomElement {
       this.toast.error("could not load stack: " + (e?.message || "error"));
       this.rows = [{ key: this.keyc++, initial: { image: "" } }];
     }
+  }
+
+  // Live tunnel routes aren't stored on the container (they live in Cloudflare),
+  // so an adopted/edited spec has none. Pull the project's routes and attach them
+  // to the matching services so the builder shows what's actually exposed.
+  private async hydrateTunnels(spec: StackSpec) {
+    try {
+      const [routes, cons] = await Promise.all([
+        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
+      ]);
+      const idByName = new Map((cons || []).map((c) => [c.name, c.id]));
+      for (const svc of spec.services || []) {
+        const svcRoutes = (routes || []).filter((r) => r.project === spec.name && r.svc_name === svc.name);
+        if (svcRoutes.length) {
+          svc.tunnels = svcRoutes.map((r) => ({ connector: idByName.get(r.connector) || "", hostname: r.hostname, port: r.port, path: r.path || "" }));
+        }
+      }
+    } catch { /* tunnels disabled — nothing to hydrate */ }
   }
 
   private seedFromSpec(spec: StackSpec) {

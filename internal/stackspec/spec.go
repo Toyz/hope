@@ -135,6 +135,7 @@ func Hash(s ContainerSpec) string {
 	c.DependsOn = sortedCopy(c.DependsOn)
 	c.Ports = sortedPorts(c.Ports)
 	c.Mounts = sortedMounts(c.Mounts)
+	c.Labels = userLabels(c.Labels) // ignore hope/compose-injected labels
 	if len(c.Aliases) > 0 {
 		al := make(map[string][]string, len(c.Aliases))
 		for k, v := range c.Aliases {
@@ -145,6 +146,26 @@ func Hash(s ContainerSpec) string {
 	b, _ := json.Marshal(c)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:8])
+}
+
+// userLabels drops the labels hope/compose stamp onto managed containers, so the
+// apply-diff only reacts to user-meaningful label changes (and a reconstructed
+// spec, which lacks these, hashes the same as the authored one).
+func userLabels(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for k, v := range in {
+		if strings.HasPrefix(k, "com.docker.compose.") || strings.HasPrefix(k, "ink.hope.") {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func sortedCopy(in []string) []string {

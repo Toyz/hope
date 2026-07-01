@@ -101,18 +101,16 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		emit("volume " + actual + " — created")
 	}
 
-	// Default network: like `docker compose`, any service that declares no
-	// networks joins a shared "<project>_default" bridge so services resolve each
-	// other by name. Create it once if needed.
+	// 2) Diff services against the live stack. The hash ignores hope/compose-
+	//    injected labels, so an untouched service (whose live spec was
+	//    reconstructed without those labels) matches and is LEFT ALONE — we never
+	//    recreate or re-network a service that didn't change.
 	defaultNet := project + "_default"
-	needDefault := false
-	for _, svc := range spec.Services {
-		if len(svc.Networks) == 0 {
-			needDefault = true
-			break
+	defaultReady := false
+	ensureDefault := func() error {
+		if defaultReady {
+			return nil
 		}
-	}
-	if needDefault {
 		exists, err := dock.NetworkExists(ctx, defaultNet)
 		if err != nil {
 			return err
@@ -123,9 +121,10 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 			}
 			emit("network " + defaultNet + " — created (default)")
 		}
+		defaultReady = true
+		return nil
 	}
 
-	// 2) Diff services against the live stack.
 	live := map[string]stackspec.ContainerSpec{}
 	if cur, err := dock.ProjectSpec(ctx, project); err == nil {
 		for _, s := range cur.Services {
@@ -140,20 +139,31 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		}
 		desired[svc.Name] = true
 		resolved := e.resolveService(svc, project, netName, volName)
-		if len(resolved.Networks) == 0 {
-			resolved.Networks = []string{defaultNet}
-		}
+		cur, exists := live[svc.Name]
 
-		if cur, ok := live[svc.Name]; ok {
+		if exists {
 			if stackspec.Hash(resolved) == stackspec.Hash(cur) {
 				emit("skip " + svc.Name + " — unchanged")
 				continue
+			}
+			// Changed: recreate, but keep the service on the networks it already
+			// has when the edit didn't specify any (never silently re-network a
+			// running service — that is what dropped tunnels before).
+			if len(resolved.Networks) == 0 {
+				resolved.Networks = cur.Networks
 			}
 			emit("recreate " + svc.Name)
 			if err := e.removeService(ctx, project, svc.Name, emit); err != nil {
 				return err
 			}
 		} else {
+			// New service with no networks joins the compose-style default bridge.
+			if len(resolved.Networks) == 0 {
+				if err := ensureDefault(); err != nil {
+					return err
+				}
+				resolved.Networks = []string{defaultNet}
+			}
 			emit("create " + svc.Name)
 		}
 		name := containerName(project, svc.Name)
