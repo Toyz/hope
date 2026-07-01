@@ -392,7 +392,7 @@ func (c *Client) recreateDetached(ctx context.Context, id string) error {
 	}
 	helper := &container.Config{
 		Image:      info.Config.Image,
-		Entrypoint: []string{"hope", "self-recreate", id},
+		Entrypoint: []string{"hope-boot", "recreate", id},
 		Labels:     map[string]string{"ink.hope.self-updater": "1"},
 	}
 	host := &container.HostConfig{
