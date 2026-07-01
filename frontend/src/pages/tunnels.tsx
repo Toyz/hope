@@ -101,6 +101,34 @@ const innerPort = (p: string): string => {
   @keyframes skpulse { 0%, 100% { opacity: .3; } 50% { opacity: .65; } }
   .chost { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
     border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; }
+  /* make the identity block open a detail breakdown (mirrors the images page) */
+  .cwho { cursor: pointer; }
+  .cl2 .nets { color: var(--mid); border-bottom: 1px dotted var(--faint); }
+  .cwho:hover .cl2 .nets { color: var(--hi); border-bottom-color: var(--line2); }
+
+  /* connector detail modal — same model as the images detail sheet */
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  .dbox { width: 600px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
+  .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .dhead .dt { font: 700 14px/1.2 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dhead .dgrow { flex: 1; }
+  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .dx:hover { color: var(--hi); }
+  .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .dfacts .sv.ok { color: var(--ok); } .dfacts .sv.warn { color: var(--warn); } .dfacts .sv.bad { color: var(--bad); }
+  .dbody { padding: 6px 18px 14px; }
+  .drow { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .drow:last-child { border-bottom: 0; }
+  .drow.top { align-items: flex-start; }
+  .dk { flex: 0 0 84px; font: 600 10px/1.8 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .dv { flex: 1; min-width: 0; font: 12.5px/1.6 var(--mono); color: var(--hi); display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
+  .dv .dim { color: var(--dim); }
+  .netchip { font: 12px/1 var(--mono); color: var(--hi); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; }
 `)
 export class TunnelsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -123,6 +151,7 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor disabled = false;
   @reactive accessor busy = false;
   @reactive accessor hostQuery = "";
+  @reactive accessor detail: ConnectorView | null = null;
   private suppressUntil = 0; // pause the auto-reload right after a local change
 
   get fleetMode() {
@@ -606,6 +635,7 @@ export class TunnelsPage extends LoomElement {
     const online = this.connectors.filter((c) => c.online).length;
     return (
       <div>
+        {this.detail ? this.renderConnDetail(this.detail) : null}
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
@@ -680,6 +710,45 @@ export class TunnelsPage extends LoomElement {
     return <span>{host}</span>;
   }
 
+  // Connector detail sheet — the extra info that used to crowd the header
+  // (networks, edge locations, cloudflared version, full tunnel id), broken
+  // down the same way the images page details a single image.
+  private renderConnDetail(c: ConnectorView) {
+    const routes = this.routes.filter((t) => t.connector === c.name).length;
+    const state = c.online ? "ok" : c.running ? "warn" : "bad";
+    return (
+      <div class="dmodal" onClick={() => (this.detail = null)}>
+        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt" title={c.title || c.name}>{c.title || c.name}</span>
+            {c.default ? <span class="cdef">shared</span> : null}
+            <span class="dgrow"></span>
+            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="dfacts">
+            <span class="st"><i class="sk">status</i><i class={"sv " + state}>{c.status || (c.running ? "connecting" : "stopped")}</i></span>
+            <span class="st"><i class="sk">conns</i><i class="sv">{c.connections}</i></span>
+            <span class="st"><i class="sk">routes</i><i class="sv">{routes}</i></span>
+            <span class="st"><i class="sk">networks</i><i class="sv">{c.networks?.length || 0}</i></span>
+            {this.hosts.length > 1 ? <span class="st"><i class="sk">host</i><i class="sv">{this.hostOf(c)}</i></span> : null}
+          </div>
+          <div class="dbody">
+            <div class="drow"><span class="dk">tunnel id</span><span class="dv">{c.tunnel_id || <span class="dim">—</span>}</span></div>
+            <div class="drow"><span class="dk">edge</span><span class="dv">{c.colos && c.colos.length ? c.colos.join("  ") : <span class="dim">not connected</span>}</span></div>
+            <div class="drow"><span class="dk">cloudflared</span>
+              <span class="dv">{c.version || <span class="dim">unknown</span>}{c.update_ready ? <span class="dim">  · update available</span> : null}</span>
+            </div>
+            <div class="drow top"><span class="dk">networks</span>
+              <span class="dv">
+                {c.networks && c.networks.length ? c.networks.map((n) => <span class="netchip">{n}</span>) : <span class="dim">none attached yet — added when you publish a route</span>}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // One connector block: its card, then the routes it serves (ingress order).
   private renderConnector(c: ConnectorView) {
     const all = this.routes.filter((t) => t.connector === c.name);
@@ -689,19 +758,19 @@ export class TunnelsPage extends LoomElement {
       <div class="cblock">
         <div class="chead">
           <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
-          <div class="cwho">
+          <div class="cwho" title="open connector details" onClick={() => (this.detail = c)}>
             <div class="cl1">
               <span class="cname">{c.title || c.name}</span>
               {c.default ? <span class="cdef">shared</span> : null}
-              {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.activeHostId()}</span> : null}
+              {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.hostOf(c)}</span> : null}
             </div>
             <div class="cl2">
               <span class={c.online ? "ok" : c.running ? "warn" : "bad"}>{c.status || (c.running ? "connecting" : "stopped")}</span>
               <span class="sep">·</span>{c.connections} conns
               {c.colos && c.colos.length ? <span><span class="sep">·</span>edge {c.colos.join(" ")}</span> : null}
-              {c.version ? <span><span class="sep">·</span>{c.version}</span> : null}
               <span class="sep">·</span>tunnel {short(c.tunnel_id)}
-              <span class="sep">·</span>{(c.networks || []).join(", ") || "no networks yet"}
+              <span class="sep">·</span>
+              {c.networks && c.networks.length ? <span class="nets">{c.networks.length} network{c.networks.length === 1 ? "" : "s"}</span> : <span>no networks yet</span>}
             </div>
           </div>
           <span class="cgrow"></span>
