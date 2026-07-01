@@ -436,6 +436,7 @@ export interface ConnectorView {
   networks: string[] | null;
   routes: number;
   update_ready: boolean; // newer cloudflared image available
+  host?: string; // client-side tag: which host this connector runs on (fleet view)
 }
 
 // TunnelView is one public route: a hostname served through a connector.
@@ -449,6 +450,7 @@ export interface TunnelView {
   svc_name: string;
   container: string;
   port: string;
+  host?: string; // client-side tag: which host serves this route (fleet view)
 }
 
 // AgentView is one connected agent's detail (build info + daemon + counts).

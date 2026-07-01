@@ -151,20 +151,59 @@ export class TunnelsPage extends LoomElement {
   private load = async () => {
     this.busy = true;
     try {
-      const [cons, routes, stacks, hosts, zones] = await Promise.all([
-        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
-        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
-        this.rpc.call<StackSummary[]>("Stacks", "list", []).catch(() => []),
+      const [hosts, stacks, zones] = await Promise.all([
         this.rpc.call<HostView[]>("System", "hosts", []).catch(() => []),
+        this.rpc.call<StackSummary[]>("Stacks", "list", []).catch(() => []),
         this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
       ]);
-      this.connectors = cons || [];
-      this.routes = routes || [];
-      this.stacks = stacks || [];
       this.hosts = hosts || [];
+      this.stacks = stacks || [];
       this.zones = zones || [];
+
+      const cons: ConnectorView[] = [];
+      const routes: TunnelView[] = [];
+      let disabled = false;
+
+      if (this.fleetMode && this.hosts.length) {
+        // Connectors live on specific hosts — aggregate across all of them
+        // (X-Hope-Host per call) so "all hosts" shows every connector + route.
+        const per = await Promise.all(
+          this.hosts.map(async (h) => {
+            try {
+              const [c, t] = await Promise.all([
+                this.rpc.callOn<ConnectorView[]>(h.id, "Tunnels", "connectors", []),
+                this.rpc.callOn<TunnelView[]>(h.id, "Tunnels", "tunnels", []),
+              ]);
+              return { host: h.id, cons: c || [], routes: t || [] };
+            } catch (e: any) {
+              if (/disabled/i.test(e?.message || "")) disabled = true;
+              return { host: h.id, cons: [] as ConnectorView[], routes: [] as TunnelView[] };
+            }
+          }),
+        );
+        for (const p of per) {
+          for (const c of p.cons) cons.push({ ...c, host: p.host });
+          for (const t of p.routes) routes.push({ ...t, host: p.host });
+        }
+      } else {
+        try {
+          const hid = this.activeHostId();
+          const [c, t] = await Promise.all([
+            this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
+            this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+          ]);
+          for (const x of c || []) cons.push({ ...x, host: hid });
+          for (const x of t || []) routes.push({ ...x, host: hid });
+        } catch (e: any) {
+          if (/disabled/i.test(e?.message || "")) disabled = true;
+          else throw e;
+        }
+      }
+
+      this.connectors = cons;
+      this.routes = routes;
+      this.disabled = disabled && cons.length === 0; // only "off" if no host has tunnels
       this.error = "";
-      this.disabled = false;
       this.loaded = true;
     } catch (err: any) {
       const msg = err?.message ?? "Can't list tunnels.";
@@ -175,6 +214,14 @@ export class TunnelsPage extends LoomElement {
       this.busy = false;
     }
   };
+
+  // The host a connector runs on (fleet aggregation tags it; else the active host).
+  private hostOf(c?: ConnectorView | null): string {
+    return c?.host || this.activeHostId();
+  }
+  private connByName(name: string): ConnectorView | undefined {
+    return this.connectors.find((c) => c.name === name);
+  }
 
   // In "all hosts" mode, a host picker so you choose where to deploy/attach;
   // otherwise the actively-selected host is implied (no field).
@@ -234,7 +281,7 @@ export class TunnelsPage extends LoomElement {
     await this.proc.run(`rename ${c.title || c.name}`, async (emit) => {
       try {
         emit("renaming Cloudflare tunnel…");
-        const res = await this.rpc.call<OpResult>("Tunnels", "renameConnector", [c.id, name]);
+        const res = await this.rpc.callOn<OpResult>(this.hostOf(c), "Tunnels", "renameConnector", [c.id, name]);
         if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
         emit("renamed -> " + name);
         return true;
@@ -258,7 +305,7 @@ export class TunnelsPage extends LoomElement {
       try {
         emit("stopping + removing cloudflared…");
         emit("deleting Cloudflare tunnel…");
-        await this.rpc.call<OpResult>("Tunnels", "removeConnector", [c.id, true]);
+        await this.rpc.callOn<OpResult>(this.hostOf(c), "Tunnels", "removeConnector", [c.id, true]);
         emit("removed");
         return true;
       } catch (e: any) {
@@ -300,7 +347,7 @@ export class TunnelsPage extends LoomElement {
     this.suppressUntil = Date.now() + 6000; // don't let the auto-reload snap it back
     const order = arr.filter((t) => t.connector === connector).map((t) => ({ hostname: t.hostname, path: t.path || "" }));
     try {
-      await this.rpc.call<OpResult>("Tunnels", "reorderRoutes", [cid, JSON.stringify(order)]);
+      await this.rpc.callOn<OpResult>(this.hostOf(this.connByName(connector)), "Tunnels", "reorderRoutes", [cid, JSON.stringify(order)]);
     } catch (err: any) {
       this.error = err?.message ?? "reorder failed";
       this.suppressUntil = 0;
@@ -349,7 +396,7 @@ export class TunnelsPage extends LoomElement {
       let ok = true;
       try {
         emit("pulling latest cloudflared…");
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [c.id, "true", "true"], signal)) {
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [c.id, "true", "true"], signal, this.hostOf(c))) {
           if (f.type === "log" && f.data) emit(f.data);
           else if (f.type === "done" && !f.ok) {
             ok = false;
@@ -377,7 +424,7 @@ export class TunnelsPage extends LoomElement {
     await this.proc.run(`remove route ${t.hostname}`, async (emit) => {
       try {
         emit("dropping ingress rule + DNS…");
-        await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [t.hostname, t.path || ""]);
+        await this.rpc.callOn<OpResult>(t.host || this.activeHostId(), "Tunnels", "removeTunnel", [t.hostname, t.path || ""]);
         emit("removed");
         return true;
       } catch (e: any) {
@@ -506,7 +553,7 @@ export class TunnelsPage extends LoomElement {
       try {
         emit("attaching connector to the target's network…");
         emit("updating tunnel ingress + DNS…");
-        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), c.id, project, service, container, (v.path || "").trim()]);
+        const res = await this.rpc.callOn<OpResult>(this.hostOf(c), "Tunnels", "addTunnel", [host, v.port.trim(), c.id, project, service, container, (v.path || "").trim()]);
         if (res && res.ok === false) {
           emit("failed: " + (res.error || "error"));
           return false;

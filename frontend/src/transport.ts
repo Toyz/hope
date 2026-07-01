@@ -15,16 +15,23 @@ export class HopeTransport extends RpcTransport {
   // a DI token (an optional ctor param breaks loom's inject() typing).
   private readonly baseUrl = "/rpc";
 
-  private headers(): Record<string, string> {
+  private headers(host?: string): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (this.auth.token) h["Authorization"] = `Bearer ${this.auth.token}`;
+    if (host) h["X-Hope-Host"] = host; // per-request host target (fleet views)
     return h;
   }
 
-  async call<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false): Promise<T> {
+  /** callOn runs an RPC against a specific host (X-Hope-Host) without changing
+   *  the globally-active host — used to aggregate across hosts in fleet views. */
+  callOn<T>(host: string, router: string, method: string, args: any[], signal?: AbortSignal): Promise<T> {
+    return this.call<T>(router, method, args, signal, false, host);
+  }
+
+  async call<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false, host?: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${router}/${method}`, {
       method: "POST",
-      headers: this.headers(),
+      headers: this.headers(host),
       body: JSON.stringify({ args }),
       signal,
     });
@@ -42,7 +49,7 @@ export class HopeTransport extends RpcTransport {
     // methods (login/sso) don't recurse.
     if (res.status === 401 && router !== "Auth") {
       if (!retried && (await this.trySso())) {
-        return this.call<T>(router, method, args, signal, true);
+        return this.call<T>(router, method, args, signal, true, host);
       }
       this.auth.clear();
       this.redirectLogin();
@@ -75,10 +82,11 @@ export class HopeTransport extends RpcTransport {
     method: string,
     args: any[],
     signal?: AbortSignal,
+    host?: string,
   ): AsyncIterable<T> {
     const res = await fetch(`${this.baseUrl}/${router}/${method}`, {
       method: "POST",
-      headers: this.headers(),
+      headers: this.headers(host),
       body: JSON.stringify({ args }),
       signal,
     });
