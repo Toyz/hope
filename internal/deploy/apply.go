@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -22,7 +23,7 @@ type Engine struct {
 func NewEngine(hs *hosts.Set, store *Store) *Engine { return &Engine{hosts: hs, store: store} }
 
 func (e *Engine) dock(ctx context.Context) *docker.Client { return e.hosts.ActiveFor(ctx) }
-func (e *Engine) hostID() string       { return e.hosts.ActiveID() }
+func (e *Engine) hostID() string                          { return e.hosts.ActiveID() }
 
 // Store exposes the spec store for the router's read paths.
 func (e *Engine) Store() *Store { return e.store }
@@ -304,10 +305,10 @@ func (e *Engine) removeService(ctx context.Context, project, service string, emi
 // ── label helpers ───────────────────────────────────────────────────────────
 
 const (
-	labelProject  = "com.docker.compose.project"
-	labelService  = "com.docker.compose.service"
-	labelNumber   = "com.docker.compose.container-number"
-	labelManaged  = "ink.hope.managed"
+	labelProject = "com.docker.compose.project"
+	labelService = "com.docker.compose.service"
+	labelNumber  = "com.docker.compose.container-number"
+	labelManaged = "ink.hope.managed"
 )
 
 func composeLabels(user map[string]string, project, service string) map[string]string {
@@ -317,25 +318,19 @@ func composeLabels(user map[string]string, project, service string) map[string]s
 		labelNumber:  "1",
 		labelManaged: "1",
 	}
-	for k, v := range user {
-		out[k] = v
-	}
+	maps.Copy(out, user)
 	return out
 }
 
 func withManaged(user map[string]string) map[string]string {
 	out := map[string]string{labelManaged: "1"}
-	for k, v := range user {
-		out[k] = v
-	}
+	maps.Copy(out, user)
 	return out
 }
 
 func withProject(user map[string]string, project string) map[string]string {
 	out := map[string]string{labelProject: project, labelManaged: "1"}
-	for k, v := range user {
-		out[k] = v
-	}
+	maps.Copy(out, user)
 	return out
 }
 

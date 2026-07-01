@@ -67,6 +67,15 @@ See [config.example.toml](config.example.toml). Every key can be overridden with
   (defaults to `~/.docker/config.json`). hope reads only **inline** `auth`
   entries — `docker login` writes those on Linux. Credential helpers / credsStore
   keep secrets outside the file and can't run in hope's minimal container.
+  **Podman** works too — it serves the same API: run `podman system service` and
+  point `host` at its socket (`unix:///run/podman/podman.sock`, or
+  `unix://$XDG_RUNTIME_DIR/podman/podman.sock` rootless). hope groups stacks by
+  the Docker *or* podman compose labels (`io.podman.compose.*`), so
+  `podman compose` / `podman-compose` projects show up grouped.
+- `[auth] api_keys` — optional static keys for **headless RPC** (pass one as the
+  bearer token). Enabling them also turns on the in-app API explorer at `/api`
+  and sov's schema at `/rpc/_introspect`. Off by default. See the in-app API page
+  for the calling convention.
 - `[[registry]]` — explicit registry credentials (`server` / `username` /
   `password`), the reliable way to authenticate pulls without mounting a
   config.json or running a helper. Use a Docker Hub account + access token so

@@ -49,8 +49,8 @@ func normalizeLegacyArgs() {
 	for i, a := range os.Args {
 		if a == "-config" {
 			os.Args[i] = "--config"
-		} else if strings.HasPrefix(a, "-config=") {
-			os.Args[i] = "--config=" + strings.TrimPrefix(a, "-config=")
+		} else if after, ok := strings.CutPrefix(a, "-config="); ok {
+			os.Args[i] = "--config=" + after
 		}
 	}
 }

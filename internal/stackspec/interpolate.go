@@ -1,5 +1,7 @@
 package stackspec
 
+import "maps"
+
 import "strings"
 
 // interpolate performs compose-style ${VAR} substitution over the raw compose
@@ -81,8 +83,8 @@ func expandBraced(expr string, vars map[string]string) string {
 
 // cut1 splits expr on sep once; ok is false if sep is absent.
 func cut1(expr, sep string) (name, rest string, ok bool) {
-	if i := strings.Index(expr, sep); i >= 0 {
-		return expr[:i], expr[i+len(sep):], true
+	if before, after, ok := strings.Cut(expr, sep); ok {
+		return before, after, true
 	}
 	return "", "", false
 }
@@ -107,7 +109,7 @@ func isNameChar(c byte) bool {
 // Surrounding single/double quotes on the value are stripped.
 func parseDotenv(text string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -134,11 +136,7 @@ func parseDotenv(text string) map[string]string {
 // mergeEnv layers env over base (env wins), returning a new map.
 func mergeEnv(base, env map[string]string) map[string]string {
 	out := make(map[string]string, len(base)+len(env))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range env {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, env)
 	return out
 }

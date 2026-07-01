@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -112,10 +113,8 @@ func audContains(raw json.RawMessage, want string) bool {
 	}
 	var many []string
 	if json.Unmarshal(raw, &many) == nil {
-		for _, a := range many {
-			if a == want {
-				return true
-			}
+		if slices.Contains(many, want) {
+			return true
 		}
 	}
 	return false

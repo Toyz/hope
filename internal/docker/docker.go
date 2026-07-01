@@ -31,6 +31,31 @@ const (
 	labelNumber      = "com.docker.compose.container-number"
 )
 
+// podman-compose fallbacks: podman's compose implementation groups under its own
+// label namespace when the com.docker.compose.* labels aren't present, so hope
+// works the same against a podman socket.
+const (
+	podmanLabelProject = "io.podman.compose.project"
+	podmanLabelService = "io.podman.compose.service"
+)
+
+// projectLabel resolves a container's compose project, preferring the Docker
+// label and falling back to podman-compose's.
+func projectLabel(l map[string]string) string {
+	if v := l[labelProject]; v != "" {
+		return v
+	}
+	return l[podmanLabelProject]
+}
+
+// serviceLabel resolves a container's compose service (Docker, else podman).
+func serviceLabel(l map[string]string) string {
+	if v := l[labelService]; v != "" {
+		return v
+	}
+	return l[podmanLabelService]
+}
+
 // ungrouped is the synthetic project name for containers with no compose label.
 const ungrouped = "(ungrouped)"
 
@@ -158,7 +183,7 @@ func (c *Client) Stacks(ctx context.Context) ([]StackSummary, error) {
 	byProject := map[string]*StackSummary{}
 	for _, raw := range containers {
 		cs := toSummary(raw)
-		proj := raw.Labels[labelProject]
+		proj := projectLabel(raw.Labels)
 		if proj == "" {
 			proj = ungrouped
 		}
@@ -315,7 +340,7 @@ func toSummary(raw container.Summary) ContainerSummary {
 	return ContainerSummary{
 		ID:      raw.ID,
 		Name:    name,
-		Service: raw.Labels[labelService],
+		Service: serviceLabel(raw.Labels),
 		Image:   raw.Image,
 		State:   raw.State,
 		Status:  raw.Status,

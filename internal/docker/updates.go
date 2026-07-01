@@ -314,8 +314,8 @@ func (c *Client) AllUpdates(ctx context.Context) ([]ClusterUpdate, time.Time, er
 		}
 		out = append(out, ClusterUpdate{
 			ID:      ct.ID,
-			Project: ct.Labels[labelProject],
-			Service: ct.Labels[labelService],
+			Project: projectLabel(ct.Labels),
+			Service: serviceLabel(ct.Labels),
 			Name:    name,
 			Image:   ct.Image,
 			Status:  r.status,

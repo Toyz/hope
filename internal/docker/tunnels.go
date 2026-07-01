@@ -63,7 +63,7 @@ func (c *Client) Connectors(ctx context.Context) ([]Connector, error) {
 			TunnelID:    ct.Labels[labelTunnel],
 			Title:       title,
 			Default:     ct.Labels[labelConnectorFirst] == "1",
-			Project:     ct.Labels[labelProject],
+			Project:     projectLabel(ct.Labels),
 			Networks:    nets,
 			Image:       ct.Image,
 			Running:     ct.State == "running",
@@ -105,8 +105,8 @@ func (c *Client) OriginIndex(ctx context.Context) (map[string]OriginRef, error) 
 		ref := OriginRef{
 			ContainerID: ct.ID,
 			Name:        name,
-			Project:     ct.Labels[labelProject],
-			Service:     ct.Labels[labelService],
+			Project:     projectLabel(ct.Labels),
+			Service:     serviceLabel(ct.Labels),
 		}
 		if ct.NetworkSettings != nil {
 			for n, ep := range ct.NetworkSettings.Networks {

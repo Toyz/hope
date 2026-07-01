@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 )
@@ -28,19 +28,23 @@ type ContainerRef struct {
 	Service string
 }
 
-// ProjectContainers returns refs for a project, optionally filtered to a single
-// compose service. Ordered by service then container-number.
-func (c *Client) ProjectContainers(ctx context.Context, project, service string) ([]ContainerRef, error) {
-	args := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	if service != "" {
-		args.Add("label", labelService+"="+service)
-	}
-	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: args})
+// projectList returns every container in a compose project, matched in code so
+// it works for both Docker (com.docker.compose.*) and podman (io.podman.compose.*)
+// labels — a server-side label filter could only match one namespace. Sorted by
+// service then container-number.
+func (c *Client) projectList(ctx context.Context, project string) ([]container.Summary, error) {
+	all, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("list project %q: %w", project, err)
 	}
+	var list []container.Summary
+	for _, ct := range all {
+		if projectLabel(ct.Labels) == project {
+			list = append(list, ct)
+		}
+	}
 	sort.Slice(list, func(i, j int) bool {
-		si, sj := list[i].Labels[labelService], list[j].Labels[labelService]
+		si, sj := serviceLabel(list[i].Labels), serviceLabel(list[j].Labels)
 		if si != sj {
 			return si < sj
 		}
@@ -48,13 +52,26 @@ func (c *Client) ProjectContainers(ctx context.Context, project, service string)
 		nj, _ := strconv.Atoi(list[j].Labels[labelNumber])
 		return ni < nj
 	})
+	return list, nil
+}
+
+// ProjectContainers returns refs for a project, optionally filtered to a single
+// compose service. Ordered by service then container-number.
+func (c *Client) ProjectContainers(ctx context.Context, project, service string) ([]ContainerRef, error) {
+	list, err := c.projectList(ctx, project)
+	if err != nil {
+		return nil, err
+	}
 	refs := make([]ContainerRef, 0, len(list))
 	for _, ct := range list {
+		if service != "" && serviceLabel(ct.Labels) != service {
+			continue
+		}
 		name := ct.ID[:12]
 		if len(ct.Names) > 0 {
 			name = strings.TrimPrefix(ct.Names[0], "/")
 		}
-		refs = append(refs, ContainerRef{ID: ct.ID, Name: name, Service: ct.Labels[labelService]})
+		refs = append(refs, ContainerRef{ID: ct.ID, Name: name, Service: serviceLabel(ct.Labels)})
 	}
 	return refs, nil
 }
@@ -62,23 +79,13 @@ func (c *Client) ProjectContainers(ctx context.Context, project, service string)
 // ProjectContainerIDs returns the container ids of a compose project, ordered
 // by service then container-number for stable operation order.
 func (c *Client) ProjectContainerIDs(ctx context.Context, project string) ([]string, error) {
-	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.projectList(ctx, project)
 	if err != nil {
-		return nil, fmt.Errorf("list project %q: %w", project, err)
+		return nil, err
 	}
 	if len(list) == 0 {
 		return nil, fmt.Errorf("no containers for project %q", project)
 	}
-	sort.Slice(list, func(i, j int) bool {
-		si, sj := list[i].Labels[labelService], list[j].Labels[labelService]
-		if si != sj {
-			return si < sj
-		}
-		ni, _ := strconv.Atoi(list[i].Labels[labelNumber])
-		nj, _ := strconv.Atoi(list[j].Labels[labelNumber])
-		return ni < nj
-	})
 	ids := make([]string, len(list))
 	for i, ct := range list {
 		ids[i] = ct.ID
@@ -394,12 +401,7 @@ func (c *Client) isHopeManaged(ctx context.Context, id string) bool {
 	if err != nil || info.Config == nil {
 		return false
 	}
-	for _, e := range info.Config.Env {
-		if e == "HOPE_MANAGED=1" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(info.Config.Env, "HOPE_MANAGED=1")
 }
 
 // recreateDetached launches a throwaway container from hope's (freshly pulled)
@@ -432,10 +434,9 @@ func (c *Client) recreateDetached(ctx context.Context, id string) error {
 // ImagesForProject returns the unique image references used by a project's
 // containers, for a stack-wide pull.
 func (c *Client) ImagesForProject(ctx context.Context, project string) ([]string, error) {
-	f := filters.NewArgs(filters.Arg("label", labelProject+"="+project))
-	list, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	list, err := c.projectList(ctx, project)
 	if err != nil {
-		return nil, fmt.Errorf("list project %q: %w", project, err)
+		return nil, err
 	}
 	seen := map[string]struct{}{}
 	var out []string

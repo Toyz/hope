@@ -54,7 +54,7 @@ func recreate(id string) {
 	time.Sleep(1500 * time.Millisecond)
 
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		err := d.Recreate(ctx, id)
 		cancel()

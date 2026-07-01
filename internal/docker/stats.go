@@ -53,7 +53,7 @@ func (c *Client) StatsSnapshot(ctx context.Context, id string) (ContainerStat, e
 
 	dec := json.NewDecoder(resp.Body)
 	var s statsRaw
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := dec.Decode(&s); err != nil {
 			if i == 0 {
 				return ContainerStat{}, fmt.Errorf("stats %s: %w", id, err)

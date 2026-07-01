@@ -52,7 +52,7 @@ func userFrom(ct container.Summary) ResourceUser {
 	if len(ct.Names) > 0 {
 		name = strings.TrimPrefix(ct.Names[0], "/")
 	}
-	return ResourceUser{ID: ct.ID, Name: name, Service: ct.Labels[labelService], Project: ct.Labels[labelProject]}
+	return ResourceUser{ID: ct.ID, Name: name, Service: serviceLabel(ct.Labels), Project: projectLabel(ct.Labels)}
 }
 
 // Networks lists Docker networks with the containers attached to each (the

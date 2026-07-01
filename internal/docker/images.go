@@ -49,8 +49,8 @@ func (c *Client) Images(ctx context.Context) ([]ImageInfo, error) {
 			usedBy[ct.ImageID] = append(usedBy[ct.ImageID], ImageUser{
 				ID:      ct.ID,
 				Name:    name,
-				Service: ct.Labels[labelService],
-				Project: ct.Labels[labelProject],
+				Service: serviceLabel(ct.Labels),
+				Project: projectLabel(ct.Labels),
 			})
 		}
 	}

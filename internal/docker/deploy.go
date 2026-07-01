@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -232,7 +233,7 @@ func (c *Client) ProjectSpec(ctx context.Context, project string) (*stackspec.St
 		}
 		svc := ""
 		if info.Config != nil {
-			svc = info.Config.Labels[labelService]
+			svc = serviceLabel(info.Config.Labels)
 		}
 		if svc == "" {
 			svc = strings.TrimPrefix(info.Name, "/")
@@ -272,8 +273,8 @@ func (c *Client) ContainerSpecOf(ctx context.Context, id string) (*stackspec.Con
 		return nil, fmt.Errorf("inspect %s: %w", id, err)
 	}
 	name := strings.TrimPrefix(info.Name, "/")
-	if info.Config != nil && info.Config.Labels[labelService] != "" {
-		name = info.Config.Labels[labelService]
+	if info.Config != nil && serviceLabel(info.Config.Labels) != "" {
+		name = serviceLabel(info.Config.Labels)
 	}
 	cs := specFromInspect(info, name)
 	return &cs, nil
@@ -366,9 +367,7 @@ func (c *Client) RecreateFromSpec(ctx context.Context, id string, spec stackspec
 			}
 		}
 	}
-	for k, v := range spec.Labels {
-		merged[k] = v
-	}
+	maps.Copy(merged, spec.Labels)
 	spec.Labels = merged
 
 	emit("stop + remove " + name)
@@ -577,9 +576,7 @@ func filterLabels(in map[string]string) map[string]string {
 // withManaged tags labels with ink.hope.managed=1 (creating the map if needed).
 func withManaged(in map[string]string) map[string]string {
 	out := map[string]string{labelManaged: "1"}
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

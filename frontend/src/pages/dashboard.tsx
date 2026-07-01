@@ -188,8 +188,8 @@ const UNGROUPED = "(ungrouped)";
   .tile:hover { border-color: var(--line2); background: var(--raised); }
   .tile.off { opacity: .55; }
   .tile .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .tile .nm { display: flex; align-items: center; gap: 9px; min-width: 0; font: 500 13px/1.1 var(--mono); color: var(--hi); }
-  .tile .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .nm { display: flex; align-items: center; gap: 9px; min-width: 0; font: 500 13px/1.4 var(--mono); color: var(--hi); }
+  .tile .nm .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; padding-block: 1px; }
   .tile .ct { font: 13px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tile .ct b { color: var(--hi); font-weight: 600; }
   .tile .ct .tupd { color: var(--upd); display: inline-flex; vertical-align: middle; margin-right: 6px; }

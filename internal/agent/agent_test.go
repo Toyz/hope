@@ -49,8 +49,7 @@ func TestTunnel(t *testing.T) {
 	}
 	defer hubLn.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Agent dials the hub and serves backend over the tunnel.
 	go func() {
