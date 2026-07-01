@@ -15,6 +15,9 @@ import type { PromptOpts } from "../prompt";
   @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
   .head { display: flex; align-items: center; gap: 10px; padding: 16px 20px 0;
     font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
+  .head .grow { flex: 1; }
+  .head .x { background: transparent; border: 0; color: var(--dim); cursor: pointer; display: flex; padding: 2px; }
+  .head .x:hover { color: var(--hi); }
   .msg { margin: 0; padding: 12px 20px 4px; font: 12.5px/1.6 var(--sans); color: var(--dim); }
   .fields { padding: 8px 20px 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -95,6 +98,8 @@ export default class PromptModalImpl extends LoomElement {
           <div class="head">
             <loom-icon name={o.icon || "link"} size={16} color="var(--upd)"></loom-icon>
             <span>{o.title || "Input"}</span>
+            <span class="grow"></span>
+            <button class="x" onClick={() => this.settle(null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           {o.message ? <p class="msg">{o.message}</p> : null}
           <div class="fields">
