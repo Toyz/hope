@@ -181,9 +181,23 @@ export class TunnelsPage extends LoomElement {
             }
           }),
         );
+        // Dedup by connector id / route key: a stale backend that ignores
+        // X-Hope-Host returns the active host's connectors for every query, so
+        // guard against showing the same connector (and its routes) N times.
+        const seenC = new Set<string>();
+        const seenR = new Set<string>();
         for (const p of per) {
-          for (const c of p.cons) cons.push({ ...c, host: p.host });
-          for (const t of p.routes) routes.push({ ...t, host: p.host });
+          for (const c of p.cons) {
+            if (seenC.has(c.id)) continue;
+            seenC.add(c.id);
+            cons.push({ ...c, host: p.host });
+          }
+          for (const t of p.routes) {
+            const k = `${t.connector}|${t.hostname}|${t.path || ""}`;
+            if (seenR.has(k)) continue;
+            seenR.add(k);
+            routes.push({ ...t, host: p.host });
+          }
         }
       } else {
         try {
