@@ -115,6 +115,38 @@ const MAX_LINES = 600;
   .ov .v.bad { color: var(--bad); }
   .ov .v.slink { color: var(--hi); cursor: pointer; }
   .ov .v.slink:hover { color: #fff; text-decoration: underline; }
+  .ov .v .hlink { display: inline-flex; align-items: center; gap: 5px; background: transparent; border: 0; padding: 0;
+    color: inherit; font: inherit; cursor: pointer; }
+  .ov .v .hlink loom-icon { color: var(--dim); }
+  .ov .v .hlink:hover { text-decoration: underline; }
+  .ov .v .hlink:hover loom-icon { color: var(--hi); }
+
+  /* healthcheck log modal */
+  .hmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); }
+  .hbox { width: 720px; max-width: 100%; max-height: 80vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--bad); }
+  .hhead { display: flex; align-items: center; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .hhead .ht { font: 600 13px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
+  .hhead .hstat { font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; padding: 4px 8px; border: 1px solid var(--line); }
+  .hhead .hstat.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .hhead .hstat.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .hhead .hstat.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .hhead .grow { flex: 1; }
+  .hx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .hx:hover { color: var(--hi); }
+  .hcmd { padding: 11px 18px; border-bottom: 1px solid var(--line); font: 12px/1.5 var(--mono); color: var(--mid); word-break: break-all; }
+  .hcmd .hk { color: var(--dim); text-transform: uppercase; font-size: 9.5px; letter-spacing: .12em; margin-right: 7px; }
+  .hbody { overflow: auto; padding: 6px 18px 14px; }
+  .hentry { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .hentry:last-child { border-bottom: 0; }
+  .hmeta { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .hmeta .hcode { font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 7px; border: 1px solid var(--line); }
+  .hmeta .hcode.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .hmeta .hcode.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .hmeta .htime { font: 11.5px/1 var(--mono); color: var(--dim); }
+  .hout { margin: 0; font: 12px/1.5 var(--mono); color: var(--hi); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .hempty { padding: 24px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 
   /* long values — image / ports / id as full-width rows */
   .kv { border: 1px solid var(--line); margin-bottom: 22px; }
@@ -247,6 +279,7 @@ export class ContainerPage extends LoomElement {
   @reactive accessor tunnelConnectors: ConnectorView[] = [];
   @reactive accessor tunnelZones: ZoneView[] = [];
   @reactive accessor tunnelsOn = false;
+  @reactive accessor healthOpen = false;
   @reactive accessor tab: Tab = "logs";
   @reactive accessor logLines: string[] = [];
   @reactive accessor cpu = "—";
@@ -774,6 +807,50 @@ export class ContainerPage extends LoomElement {
     const t = this.info?.Config?.Healthcheck?.Test;
     return Array.isArray(t) && t.length > 0 && t[0] !== "NONE";
   }
+  // Recent healthcheck probe results (newest last in docker; we show newest first).
+  private healthLog(): { Start: string; End: string; ExitCode: number; Output: string }[] {
+    return this.info?.State?.Health?.Log ?? [];
+  }
+  private healthCmd(): string {
+    const t: string[] = this.info?.Config?.Healthcheck?.Test ?? [];
+    return t[0] === "CMD-SHELL" ? t.slice(1).join(" ") : t.filter((x) => x !== "CMD").join(" ");
+  }
+
+  private renderHealthModal() {
+    const log = [...this.healthLog()].reverse(); // newest first
+    const status = this.health();
+    const streak = this.info?.State?.Health?.FailingStreak ?? 0;
+    const iv = (this.info?.Config?.Healthcheck?.Interval ?? 0) / 1e9;
+    const t = (iso: string) => {
+      const d = Date.parse(iso);
+      return isNaN(d) || d < 0 ? "—" : new Date(d).toLocaleTimeString();
+    };
+    return (
+      <div class="hmodal" onClick={() => (this.healthOpen = false)}>
+        <div class="hbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="hhead">
+            <span class="ht">healthcheck log</span>
+            <span class={"hstat " + (status === "healthy" ? "ok" : status === "starting" ? "warn" : "bad")}>{status || "—"}</span>
+            <span class="grow"></span>
+            <button class="hx" onClick={() => (this.healthOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="hcmd"><span class="hk">check</span> {this.healthCmd() || "—"}{iv ? ` · every ${iv}s` : ""}{streak > 0 ? ` · ${streak} failing in a row` : ""}</div>
+          <div class="hbody">
+            {log.length === 0 ? <div class="hempty">No probes recorded yet.</div> : null}
+            {log.map((e) => (
+              <div class="hentry">
+                <div class="hmeta">
+                  <span class={"hcode " + (e.ExitCode === 0 ? "ok" : "bad")}>exit {e.ExitCode}</span>
+                  <span class="htime">{t(e.Start)}</span>
+                </div>
+                <pre class="hout">{(e.Output || "").trim() || "(no output)"}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   private ports(): string {
     const p = this.info?.NetworkSettings?.Ports ?? {};
     const out: string[] = [];
@@ -889,7 +966,13 @@ export class ContainerPage extends LoomElement {
             <div class="c">
               <span class="k">Health</span>
               <span class={"v" + (this.health() === "unhealthy" ? " bad" : this.health() === "starting" ? " warn" : "")}>
-                {this.hasHealthcheck() ? this.health() || "—" : "no check"}
+                {!this.hasHealthcheck() ? (
+                  "no check"
+                ) : this.healthLog().length ? (
+                  <button class="hlink" title="view healthcheck log" onClick={() => (this.healthOpen = true)}>{this.health() || "—"}<loom-icon name="terminal" size={11}></loom-icon></button>
+                ) : (
+                  this.health() || "—"
+                )}
               </span>
             </div>
             {this.project() ? (
@@ -999,6 +1082,7 @@ export class ContainerPage extends LoomElement {
           ) : null}
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
+        {this.healthOpen ? this.renderHealthModal() : null}
       </div>
     );
   }
