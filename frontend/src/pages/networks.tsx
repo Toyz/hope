@@ -8,6 +8,7 @@ import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
+import { ProcService } from "../proc";
 import type { NetworkInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -34,6 +35,7 @@ export class NetworksPage extends LoomElement {
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(ToastService) accessor toast!: ToastService;
+  @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -64,21 +66,27 @@ export class NetworksPage extends LoomElement {
       danger: true,
       confirmLabel: `Remove ${nets.length}`,
       message: `Remove ${nets.length} empty network(s)?`,
+      stats: [{ label: "networks", value: String(nets.length) }],
     });
     if (!ok) return;
-    this.busy = true;
-    try {
+    await this.proc.run("removing selected networks", async (emit) => {
+      let okv = true;
       for (const n of nets) {
-        if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
-        await this.rpc.call("System", "removeNetwork", [n.id]);
+        const label = (n.host ? n.host + " / " : "") + n.name;
+        try {
+          if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
+          await this.rpc.call("System", "removeNetwork", [n.id]);
+          emit("removed " + label);
+        } catch (err: any) {
+          emit("skip " + label + " — " + (err?.message ?? "failed"));
+          okv = false;
+        }
       }
-      this.selected = [];
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "remove failed";
-    } finally {
-      this.busy = false;
-    }
+      emit("done");
+      return okv;
+    });
+    this.selected = [];
+    await this.load();
   };
 
   get fleetMode() {
@@ -165,21 +173,38 @@ export class NetworksPage extends LoomElement {
   };
 
   private del = async (n: NetworkInfo & { host?: string }) => {
+    const inUse = n.used_by.length > 0;
     const ok = await this.confirm.ask({
       title: "remove network",
       danger: true,
       confirmLabel: "Remove",
-      message: `Remove network "${n.name}"?`,
+      message: inUse
+        ? `"${n.name}" has ${n.used_by.length} attached container(s) — remove them first.`
+        : `Remove network "${n.name}"?`,
+      stats: [
+        { label: "network", value: n.name },
+        ...(n.host ? [{ label: "host", value: n.host }] : []),
+        { label: "driver", value: n.driver },
+        { label: "attached", value: String(n.used_by.length) },
+      ],
     });
     if (!ok) return;
     this.detail = null;
-    try {
-      if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
-      await this.rpc.call("System", "removeNetwork", [n.id]);
-      await this.load();
-    } catch (err: any) {
-      this.error = `remove ${n.name} — ${err?.message ?? "failed"}`;
-    }
+    const label = (n.host ? n.host + " / " : "") + n.name;
+    await this.proc.run(`remove ${n.name}`, async (emit) => {
+      try {
+        if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
+        emit("deleting network " + label + "…");
+        await this.rpc.call("System", "removeNetwork", [n.id]);
+        emit("removed " + label);
+        return true;
+      } catch (err: any) {
+        emit("failed: " + (err?.message ?? "error"));
+        this.error = `remove ${n.name} — ${err?.message ?? "failed"}`;
+        return false;
+      }
+    });
+    await this.load();
   };
 
   private visible() {

@@ -8,6 +8,7 @@ import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
+import { ProcService } from "../proc";
 import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -51,6 +52,7 @@ export class VolumesPage extends LoomElement {
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(ToastService) accessor toast!: ToastService;
+  @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -100,26 +102,36 @@ export class VolumesPage extends LoomElement {
   private removeSelected = async () => {
     const vols = this.vols.filter((v) => this.selected.includes(v.name));
     if (!vols.length) return;
+    const free = vols.reduce((a, v) => a + v.size, 0);
     const ok = await this.confirm.ask({
       title: "remove volumes",
       danger: true,
       confirmLabel: `Remove ${vols.length}`,
       message: `Remove ${vols.length} unused volume(s)? Their data is deleted.`,
+      stats: [
+        { label: "volumes", value: String(vols.length) },
+        { label: "frees", value: bytes(free) },
+      ],
     });
     if (!ok) return;
-    this.busy = true;
-    try {
+    await this.proc.run("removing selected volumes", async (emit) => {
+      let okv = true;
       for (const v of vols) {
-        if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
-        await this.rpc.call("System", "removeVolume", [v.name]);
+        const label = (v.host ? v.host + " / " : "") + v.name;
+        try {
+          if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
+          await this.rpc.call("System", "removeVolume", [v.name]);
+          emit("removed " + label);
+        } catch (err: any) {
+          emit("skip " + label + " — " + (err?.message ?? "failed"));
+          okv = false;
+        }
       }
-      this.selected = [];
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "remove failed";
-    } finally {
-      this.busy = false;
-    }
+      emit("done");
+      return okv;
+    });
+    this.selected = [];
+    await this.load();
   };
 
   get fleetMode() {
@@ -188,16 +200,30 @@ export class VolumesPage extends LoomElement {
       message: inUse
         ? `"${v.name}" is mounted by ${v.used_by.length} container(s) — force-removing deletes its data.`
         : `Remove volume "${v.name}"? Its data is deleted.`,
+      stats: [
+        { label: "volume", value: v.name },
+        ...(v.host ? [{ label: "host", value: v.host }] : []),
+        { label: "frees", value: bytes(v.size) },
+        { label: "mounted by", value: String(v.used_by.length) },
+      ],
     });
     if (!ok) return;
     this.detail = null;
-    try {
-      if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
-      await this.rpc.call("System", "removeVolume", [v.name]);
-      await this.load();
-    } catch (err: any) {
-      this.error = `remove ${v.name} — ${err?.message ?? "failed"}`;
-    }
+    const label = (v.host ? v.host + " / " : "") + v.name;
+    await this.proc.run(`remove ${v.name}`, async (emit) => {
+      try {
+        if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
+        emit("deleting volume " + label + "…");
+        await this.rpc.call("System", "removeVolume", [v.name]);
+        emit("removed " + label);
+        return true;
+      } catch (err: any) {
+        emit("failed: " + (err?.message ?? "error"));
+        this.error = `remove ${v.name} — ${err?.message ?? "failed"}`;
+        return false;
+      }
+    });
+    await this.load();
   };
 
   private visible() {
