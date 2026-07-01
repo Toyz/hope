@@ -16,7 +16,7 @@ const ITEMS: [string, string][] = [
 @component("hope-nav")
 @styles(css`
   :host { display: flex; align-items: stretch; }
-  .nav { display: flex; align-items: center; gap: 16px; padding: 0 18px; border-right: 1px solid var(--line); }
+  .item { display: flex; align-items: center; padding: 0 16px; border-right: 1px solid var(--line); }
   .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
   .navlink:hover { color: var(--hi); }
   .navlink.on { color: var(--hi); }
@@ -29,9 +29,9 @@ export class HopeNav extends LoomElement {
 
   update() {
     return (
-      <div class="nav">
+      <div style="display:flex; align-items:stretch">
         {ITEMS.map(([label, path]) => (
-          <span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.router.navigate(path)}>{label}</span>
+          <div class="item"><span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.router.navigate(path)}>{label}</span></div>
         ))}
       </div>
     );
