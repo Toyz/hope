@@ -149,6 +149,28 @@ func (r *TunnelsRouter) Tunnels(ctx *rpc.Context) ([]TunnelView, error) {
 	return out, nil
 }
 
+// ZoneView is a selectable Cloudflare zone (domain) for the hostname picker.
+type ZoneView struct {
+	Name string `json:"name"`
+}
+
+// Zones lists the domains the token can see, so the UI can offer a domain picker
+// instead of a free-text hostname.
+func (r *TunnelsRouter) Zones(ctx *rpc.Context) ([]ZoneView, error) {
+	if err := r.enabled(ctx); err != nil {
+		return nil, err
+	}
+	zs, err := r.cf.Zones(ctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	out := make([]ZoneView, len(zs))
+	for i, z := range zs {
+		out[i] = ZoneView{Name: z.Name}
+	}
+	return out, nil
+}
+
 // ── connector lifecycle ─────────────────────────────────────────────────
 
 // CreateConnectorParams names a new hope-deployed connector.
@@ -228,6 +250,7 @@ type AddTunnelParams struct {
 	Project   string `sov:"project,3" json:"project"`
 	Service   string `sov:"service,4" json:"service"`
 	Container string `sov:"container,5" json:"container"` // loose-container id
+	Path      string `sov:"path,6" json:"path"`           // optional path prefix (e.g. /api)
 }
 
 // AddTunnel wires hostname -> service through a connector: attaches the connector
@@ -260,7 +283,7 @@ func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*OpResu
 	if err != nil {
 		return nil, rpc.Internal("read tunnel config: %v", err)
 	}
-	rules = upsertIngress(rules, host, "http://"+origin+":"+p.Port)
+	rules = upsertIngress(rules, host, normalizePath(p.Path), "http://"+origin+":"+p.Port)
 	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, rules); err != nil {
 		return nil, rpc.Internal("update tunnel config: %v", err)
 	}
@@ -274,15 +297,17 @@ func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*OpResu
 // RemoveTunnelParams targets a route by hostname.
 type RemoveTunnelParams struct {
 	Hostname string `sov:"hostname,0,required" json:"hostname"`
+	Path     string `sov:"path,1" json:"path"`
 }
 
-// RemoveTunnel drops the ingress rule for hostname on whichever connector serves
-// it and deletes the matching DNS record.
+// RemoveTunnel drops the exact host+path ingress rule on whichever connector
+// serves it; the DNS record is deleted only when no rules for that host remain.
 func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*OpResult, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
 	host := strings.ToLower(strings.TrimSpace(p.Hostname))
+	path := normalizePath(p.Path)
 	cons, err := r.dock().Connectors(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
@@ -292,15 +317,17 @@ func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*
 		if err != nil {
 			continue
 		}
-		kept, found := dropIngress(rules, host)
+		kept, found, remaining := dropIngress(rules, host, path)
 		if !found {
 			continue
 		}
 		if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, kept); err != nil {
 			return nil, rpc.Internal("update tunnel config: %v", err)
 		}
-		if err := r.deleteDNS(ctx, host); err != nil {
-			return &OpResult{OK: false, Error: "route removed but DNS delete failed: " + err.Error()}, nil
+		if remaining == 0 {
+			if err := r.deleteDNS(ctx, host); err != nil {
+				return &OpResult{OK: false, Error: "route removed but DNS delete failed: " + err.Error()}, nil
+			}
 		}
 		return &OpResult{OK: true}, nil
 	}
@@ -394,9 +421,15 @@ func (r *TunnelsRouter) ensureDNS(ctx *rpc.Context, host, tunnelID string) error
 		return err
 	}
 	for _, rec := range recs {
-		if rec.Type == "CNAME" && rec.Content == content {
-			return nil // already points at this tunnel
+		if rec.Type == "CNAME" {
+			if rec.Content == content {
+				return nil // already points at this tunnel
+			}
+			// An existing CNAME (e.g. from another tunnel) — repoint it here.
+			return r.cf.UpdateDNS(ctx, zone.ID, rec.ID, content)
 		}
+		// A non-CNAME record (A/AAAA/…) would conflict — don't clobber it.
+		return rpc.BadRequest("a %s record already exists for %s; remove it in Cloudflare first", rec.Type, host)
 	}
 	_, err = r.cf.CreateDNS(ctx, zone.ID, cloudflare.DNSRecord{Type: "CNAME", Name: host, Content: content, Proxied: true})
 	return err
@@ -444,34 +477,59 @@ func hasDefault(cons []docker.Connector) bool {
 	return false
 }
 
-// upsertIngress replaces any rule for host (drops catch-all; PutTunnelConfig
-// re-adds it) and appends the new one.
-func upsertIngress(rules []cloudflare.IngressRule, host, service string) []cloudflare.IngressRule {
+// normalizePath cleans an optional ingress path prefix ("" stays "").
+func normalizePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
+}
+
+// upsertIngress replaces any rule for the exact host+path (drops the catch-all;
+// PutTunnelConfig re-adds it). A path rule is inserted BEFORE the same host's
+// path-less rule, since Cloudflare matches ingress top-down (first match wins).
+func upsertIngress(rules []cloudflare.IngressRule, host, path, service string) []cloudflare.IngressRule {
 	out := make([]cloudflare.IngressRule, 0, len(rules)+1)
 	for _, r := range rules {
-		if r.Hostname == host || r.Hostname == "" {
+		if r.Hostname == "" || (r.Hostname == host && r.Path == path) {
 			continue
 		}
 		out = append(out, r)
 	}
-	return append(out, cloudflare.IngressRule{Hostname: host, Service: service})
+	nr := cloudflare.IngressRule{Hostname: host, Path: path, Service: service}
+	if path == "" {
+		return append(out, nr)
+	}
+	for i, r := range out {
+		if r.Hostname == host && r.Path == "" {
+			return append(out[:i:i], append([]cloudflare.IngressRule{nr}, out[i:]...)...)
+		}
+	}
+	return append(out, nr)
 }
 
-// dropIngress removes the rule for host, reporting whether one existed.
-func dropIngress(rules []cloudflare.IngressRule, host string) ([]cloudflare.IngressRule, bool) {
-	out := make([]cloudflare.IngressRule, 0, len(rules))
-	found := false
+// dropIngress removes the exact host+path rule, reporting whether it existed and
+// how many rules for that host remain (so DNS is only removed when host is empty).
+func dropIngress(rules []cloudflare.IngressRule, host, path string) (out []cloudflare.IngressRule, found bool, remaining int) {
+	out = make([]cloudflare.IngressRule, 0, len(rules))
 	for _, r := range rules {
-		if r.Hostname == host {
-			found = true
-			continue
-		}
 		if r.Hostname == "" {
 			continue // catch-all re-added by PutTunnelConfig
 		}
+		if r.Hostname == host && r.Path == path {
+			found = true
+			continue
+		}
+		if r.Hostname == host {
+			remaining++
+		}
 		out = append(out, r)
 	}
-	return out, found
+	return out, found, remaining
 }
 
 // countRoutes counts non-catch-all ingress rules.

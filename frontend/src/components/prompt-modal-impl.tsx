@@ -67,7 +67,13 @@ export default class PromptModalImpl extends LoomElement {
   };
 
   private set(key: string, val: string) {
-    this.values = { ...this.values, [key]: val };
+    const next = { ...this.values, [key]: val };
+    // Dependent fields recompute: prefill from defaultFrom, else clear so a stale
+    // child value can't survive a parent change.
+    for (const f of this.opts.fields) {
+      if (f.dependsOn === key) next[f.key] = f.defaultFrom ? f.defaultFrom(next) : "";
+    }
+    this.values = next;
   }
 
   private submit = () => {
@@ -96,7 +102,7 @@ export default class PromptModalImpl extends LoomElement {
               <div class="field">
                 <label>{f.label}</label>
                 {f.type === "select" ? (
-                  <hope-select options={f.options || []} value={this.values[f.key]} placeholder={f.placeholder || "—"} onSelect={(e: any) => this.set(f.key, e.detail)}></hope-select>
+                  <hope-select options={f.optionsFrom ? f.optionsFrom(this.values) : f.options || []} value={this.values[f.key]} placeholder={f.placeholder || "—"} onSelect={(e: any) => this.set(f.key, e.detail)}></hope-select>
                 ) : (
                   <input type="text" placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)} />
                 )}

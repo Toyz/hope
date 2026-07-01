@@ -2,6 +2,11 @@
 // sibling of ConfirmService. A page collects one or more fields with
 // `await prompt.ask({...})`; it resolves the field values, or null on cancel.
 // Reusable: add fields to the `fields` array, no new component needed.
+export interface PromptOption {
+  value: string;
+  label: string;
+}
+
 export type PromptField = {
   key: string;
   label: string;
@@ -9,7 +14,14 @@ export type PromptField = {
   placeholder?: string;
   value?: string;
   optional?: boolean; // required by default
-  options?: { value: string; label: string }[]; // for type: "select"
+  options?: PromptOption[]; // static options for type: "select"
+  // Dynamic options computed from the current field values (dependent selects).
+  // When `dependsOn` changes, this field's value is cleared and options recomputed.
+  optionsFrom?: (values: Record<string, string>) => PromptOption[];
+  dependsOn?: string;
+  // When `dependsOn` changes, prefill this field's value from the new values
+  // (e.g. auto-populate a detected port) instead of clearing it.
+  defaultFrom?: (values: Record<string, string>) => string;
 };
 
 export interface PromptOpts {

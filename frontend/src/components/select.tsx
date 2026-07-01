@@ -24,7 +24,11 @@ export interface SelectOption {
   .trigger loom-icon { color: var(--dim); flex: none; transition: transform .12s ease; }
   .trigger.open loom-icon { transform: rotate(180deg); }
   .menu { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 50;
-    max-height: 240px; overflow: auto; background: var(--panel); border: 1px solid var(--line2); }
+    max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line2); }
+  .msearch { position: sticky; top: 0; width: 100%; box-sizing: border-box; background: var(--ink);
+    border: 0; border-bottom: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); padding: 10px 12px; }
+  .msearch::placeholder { color: var(--dim); }
+  .msearch:focus { outline: none; }
   .opt { padding: 10px 12px; font: 13px/1.2 var(--mono); color: var(--mid); cursor: pointer;
     border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .opt:last-child { border-bottom: 0; }
@@ -37,6 +41,7 @@ export class HopeSelect extends LoomElement {
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
   @reactive accessor open = false;
+  @reactive accessor query = "";
 
   @mount
   onMount() {
@@ -55,6 +60,7 @@ export class HopeSelect extends LoomElement {
 
   private toggle = (e: Event) => {
     e.stopPropagation();
+    this.query = "";
     this.open = !this.open;
   };
 
@@ -67,6 +73,8 @@ export class HopeSelect extends LoomElement {
 
   update() {
     const cur = this.options.find((o) => o.value === this.value);
+    const q = this.query.trim().toLowerCase();
+    const shown = q ? this.options.filter((o) => o.label.toLowerCase().includes(q)) : this.options;
     return (
       <div>
         <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle}>
@@ -74,9 +82,12 @@ export class HopeSelect extends LoomElement {
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
-          <div class="menu">
-            {this.options.length === 0 ? <div class="empty">nothing to pick</div> : null}
-            {this.options.map((o) => (
+          <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
+            {this.options.length > 6 ? (
+              <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
+            ) : null}
+            {shown.length === 0 ? <div class="empty">{this.options.length === 0 ? "nothing to pick" : "no match"}</div> : null}
+            {shown.map((o) => (
               <div class={"opt" + (o.value === this.value ? " on" : "")} onClick={(e: Event) => this.pick(o.value, e)}>{o.label}</div>
             ))}
           </div>

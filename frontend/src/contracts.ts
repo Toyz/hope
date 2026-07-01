@@ -268,12 +268,20 @@ export class Tunnels {
   removeConnector(_id: string, _deleteTunnel: boolean): OpResult {
     return undefined!;
   }
-  addTunnel(_hostname: string, _port: string, _connector: string, _project: string, _service: string, _container: string): OpResult {
+  addTunnel(_hostname: string, _port: string, _connector: string, _project: string, _service: string, _container: string, _path: string): OpResult {
     return undefined!;
   }
-  removeTunnel(_hostname: string): OpResult {
+  removeTunnel(_hostname: string, _path: string): OpResult {
     return undefined!;
   }
+  zones(): ZoneView[] {
+    return undefined!;
+  }
+}
+
+// ZoneView is a selectable Cloudflare zone (domain).
+export interface ZoneView {
+  name: string;
 }
 
 // ConnectorView is one cloudflared connector (container) + live tunnel status.

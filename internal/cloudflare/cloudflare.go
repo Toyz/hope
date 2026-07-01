@@ -217,11 +217,18 @@ type Zone struct {
 	Name string `json:"name"`
 }
 
+// Zones lists every zone the token can see (for the hostname domain picker).
+func (c *Client) Zones(ctx context.Context) ([]Zone, error) {
+	var zones []Zone
+	err := c.do(ctx, http.MethodGet, "/zones?per_page=200", nil, &zones)
+	return zones, err
+}
+
 // ZoneForHost returns the zone whose name is the longest suffix of host (so
 // "blog.helba.ai" resolves to the "helba.ai" zone).
 func (c *Client) ZoneForHost(ctx context.Context, host string) (Zone, error) {
-	var zones []Zone
-	if err := c.do(ctx, http.MethodGet, "/zones?per_page=200", nil, &zones); err != nil {
+	zones, err := c.Zones(ctx)
+	if err != nil {
 		return Zone{}, err
 	}
 	best := Zone{}
@@ -261,6 +268,12 @@ func (c *Client) CreateDNS(ctx context.Context, zoneID string, rec DNSRecord) (D
 	var out DNSRecord
 	err := c.do(ctx, http.MethodPost, fmt.Sprintf("/zones/%s/dns_records", zoneID), rec, &out)
 	return out, err
+}
+
+// UpdateDNS repoints an existing CNAME record at new content (keeps it proxied).
+func (c *Client) UpdateDNS(ctx context.Context, zoneID, recordID, content string) error {
+	body := map[string]any{"content": content, "proxied": true}
+	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, recordID), body, nil)
 }
 
 // DeleteDNS removes a record by id.

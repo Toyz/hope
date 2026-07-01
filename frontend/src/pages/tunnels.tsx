@@ -10,12 +10,20 @@ import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
-import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView } from "../contracts";
+import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView } from "../contracts";
+import type { PromptOption } from "../prompt";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
 const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "—");
 const UNGROUPED = "(ungrouped)";
+
+// Internal (container-side) port from a docker port string
+// ("127.0.0.1:8080->8080/tcp" -> "8080", "9000/tcp" -> "9000").
+const innerPort = (p: string): string => {
+  const arrow = p.indexOf("->");
+  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
+};
 
 @route("/tunnels")
 @component("hope-tunnels")
@@ -66,6 +74,7 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor routes: TunnelView[] = [];
   @reactive accessor stacks: StackSummary[] = [];
   @reactive accessor hosts: HostView[] = [];
+  @reactive accessor zones: ZoneView[] = [];
   @reactive accessor loaded = false;
   @reactive accessor error = "";
   @reactive accessor disabled = false;
@@ -92,16 +101,18 @@ export class TunnelsPage extends LoomElement {
   private load = async () => {
     this.busy = true;
     try {
-      const [cons, routes, stacks, hosts] = await Promise.all([
+      const [cons, routes, stacks, hosts, zones] = await Promise.all([
         this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
         this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
         this.rpc.call<StackSummary[]>("Stacks", "list", []).catch(() => []),
         this.rpc.call<HostView[]>("System", "hosts", []).catch(() => []),
+        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
       ]);
       this.connectors = cons || [];
       this.routes = routes || [];
       this.stacks = stacks || [];
       this.hosts = hosts || [];
+      this.zones = zones || [];
       this.error = "";
       this.disabled = false;
       this.loaded = true;
@@ -192,7 +203,7 @@ export class TunnelsPage extends LoomElement {
     await this.proc.run(`remove route ${t.hostname}`, async (emit) => {
       try {
         emit("dropping ingress rule + DNS…");
-        await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [t.hostname]);
+        await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [t.hostname, t.path || ""]);
         emit("removed");
         return true;
       } catch (e: any) {
@@ -203,52 +214,85 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  // Every stack service + every loose container, flattened so the dialog is one
-  // select. The value encodes the target as "svc::project::service" or "ct::id".
-  private targetOptions() {
-    const out: { value: string; label: string }[] = [];
+  private stackOptions(): PromptOption[] {
+    const out: PromptOption[] = [];
     for (const s of this.stacks) {
       if (s.project === UNGROUPED) continue;
-      const seen = new Set<string>();
-      for (const c of s.containers) {
-        const svc = c.service || c.name;
-        if (seen.has(svc)) continue;
-        seen.add(svc);
-        out.push({ value: ["svc", s.project, svc].join("::"), label: `${s.project} / ${svc}` });
-      }
+      out.push({ value: s.project, label: s.project });
     }
-    const loose = this.stacks.find((x) => x.project === UNGROUPED);
-    for (const c of loose?.containers || []) {
-      out.push({ value: ["ct", c.id].join("::"), label: `loose: ${c.name}` });
-    }
+    if (this.stacks.some((s) => s.project === UNGROUPED)) out.push({ value: UNGROUPED, label: "(loose containers)" });
     return out;
+  }
+
+  // Services in the chosen stack, replicas collapsed to one entry with a count.
+  // Loose containers are listed individually. Value encodes the target.
+  private serviceOptions(stack: string): PromptOption[] {
+    if (!stack) return [];
+    const s = this.stacks.find((x) => x.project === stack);
+    if (!s) return [];
+    if (stack === UNGROUPED) {
+      return s.containers.map((c) => ({ value: ["ct", c.id].join("::"), label: c.name }));
+    }
+    const counts = new Map<string, number>();
+    for (const c of s.containers) counts.set(c.service || c.name, (counts.get(c.service || c.name) || 0) + 1);
+    return [...counts.entries()].map(([svc, n]) => ({ value: ["svc", stack, svc].join("::"), label: n > 1 ? `${svc}  ×${n}` : svc }));
+  }
+
+  // The first detected internal port for a target value, to auto-fill the port.
+  private portForTarget(target: string): string {
+    if (!target) return "";
+    const [kind, a, b] = target.split("::");
+    const firstPort = (ports?: string[]) => (ports || []).map(innerPort).find(Boolean) || "";
+    if (kind === "svc") {
+      const s = this.stacks.find((x) => x.project === a);
+      for (const c of s?.containers || []) if ((c.service || c.name) === b) { const p = firstPort(c.ports); if (p) return p; }
+    } else if (kind === "ct") {
+      for (const s of this.stacks) { const c = s.containers.find((x) => x.id === a); if (c) return firstPort(c.ports); }
+    }
+    return "";
   }
 
   // A route belongs to a connector, so this is a per-connector action — the
   // connector (and thus its host) is implied, not a field.
   private addRoute = async (c: ConnectorView) => {
+    const haveZones = this.zones.length > 0;
     const v = await this.prompt.ask({
       title: `add route · ${c.title || c.name}`,
       icon: "link",
       message: "hope attaches the connector to the target's network, updates the tunnel ingress, and creates the DNS record.",
       submitLabel: "Add route",
       fields: [
-        { key: "target", label: "target (stack service or loose container)", type: "select", placeholder: "—", options: this.targetOptions() },
-        { key: "port", label: "port", placeholder: "8080" },
-        { key: "host_name", label: "hostname", placeholder: "blog.example.com" },
+        { key: "stack", label: "stack", type: "select", placeholder: "pick a stack", options: this.stackOptions() },
+        { key: "target", label: "service", type: "select", placeholder: "pick a service", dependsOn: "stack", optionsFrom: (vals) => this.serviceOptions(vals.stack) },
+        { key: "port", label: "port", placeholder: "8080", dependsOn: "target", defaultFrom: (vals) => this.portForTarget(vals.target) },
+        ...(haveZones
+          ? ([
+              { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: "blog" },
+              { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", options: this.zones.map((z) => ({ value: z.name, label: z.name })) },
+            ] as const)
+          : ([{ key: "host_name", label: "hostname", placeholder: "blog.example.com" }] as const)),
+        { key: "path", label: "path (optional)", optional: true, placeholder: "/api" },
       ],
     });
     if (!v) return;
+    if (!v.target) {
+      this.error = "pick a service";
+      return;
+    }
     const [kind, a, b] = v.target.split("::");
     const project = kind === "svc" ? a : "";
     const service = kind === "svc" ? b : "";
     const container = kind === "ct" ? a : "";
-    const host = v.host_name.trim().toLowerCase();
+    const host = (haveZones ? (v.sub.trim() ? `${v.sub.trim()}.${v.domain}` : v.domain) : v.host_name).trim().toLowerCase();
+    if (!host) {
+      this.error = "hostname required";
+      return;
+    }
     await this.proc.run(`add route ${host}`, async (emit) => {
       try {
         emit("attaching connector to the target's network…");
         emit("updating tunnel ingress + DNS…");
-        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), c.id, project, service, container]);
+        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), c.id, project, service, container, (v.path || "").trim()]);
         if (res && res.ok === false) {
           emit("failed: " + (res.error || "error"));
           return false;
