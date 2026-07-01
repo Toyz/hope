@@ -343,16 +343,32 @@ export class TunnelsPage extends LoomElement {
     return { sub: "", domain: "" };
   }
 
+  // Resolve a route's origin back to a stack+service (or loose container) so
+  // "duplicate" can prefill the target, even when the backend couldn't map it.
+  private resolveTarget(t: TunnelView): { stack: string; target: string } {
+    if (t.project && t.svc_name) return { stack: t.project, target: ["svc", t.project, t.svc_name].join("::") };
+    const origin = t.service.replace(/^https?:\/\//, "").split(":")[0].split("/")[0];
+    // Direct container-name match.
+    for (const s of this.stacks) {
+      const ct = s.containers.find((c) => c.name === origin);
+      if (ct) {
+        if (s.project === UNGROUPED) return { stack: UNGROUPED, target: ["ct", ct.id].join("::") };
+        return { stack: s.project, target: ["svc", s.project, ct.service || ct.name].join("::") };
+      }
+    }
+    // Replica alias match: hope-<project>-<service>.
+    for (const s of this.stacks) {
+      if (s.project === UNGROUPED) continue;
+      for (const svc of new Set(s.containers.map((c) => c.service || c.name))) {
+        if (`hope-${s.project}-${svc}` === origin) return { stack: s.project, target: ["svc", s.project, svc].join("::") };
+      }
+    }
+    return { stack: "", target: "" };
+  }
+
   // Build add-route initial values from an existing route (for "duplicate").
   private routeInit(t: TunnelView): Record<string, string> {
-    const stack = t.project || (t.container ? UNGROUPED : "");
-    let target = "";
-    if (t.project && t.svc_name) target = ["svc", t.project, t.svc_name].join("::");
-    else if (t.container) {
-      const loose = this.stacks.find((s) => s.project === UNGROUPED);
-      const ct = loose?.containers.find((c) => c.name === t.container);
-      if (ct) target = ["ct", ct.id].join("::");
-    }
+    const { stack, target } = this.resolveTarget(t);
     const { sub, domain } = this.splitHost(t.hostname);
     return { stack, target, port: t.port || "", sub, domain, host_name: domain ? "" : t.hostname, path: t.path || "" };
   }
