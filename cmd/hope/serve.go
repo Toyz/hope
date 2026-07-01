@@ -16,6 +16,7 @@ import (
 	hope "github.com/toyz/hope"
 	"github.com/toyz/hope/internal/agent"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/cloudflare"
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
@@ -28,6 +29,7 @@ import (
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
 	"github.com/toyz/hope/internal/system"
+	"github.com/toyz/hope/internal/tunnels"
 	"github.com/toyz/hope/internal/version"
 )
 
@@ -176,7 +178,11 @@ func runServe(configPath string) error {
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
 	gw.Register(system.NewSystemRouter(hostSet))
+	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
+	if cfg.Cloudflare.Enabled {
+		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
+	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is
 	// signed straight into hope (password login stays as the LAN/ZT fallback).

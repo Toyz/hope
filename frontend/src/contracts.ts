@@ -254,6 +254,72 @@ export class System {
   }
 }
 
+@service("Tunnels")
+export class Tunnels {
+  connectors(): ConnectorView[] {
+    return undefined!;
+  }
+  tunnels(): TunnelView[] {
+    return undefined!;
+  }
+  createConnector(_name: string): ConnectorView {
+    return undefined!;
+  }
+  removeConnector(_id: string, _deleteTunnel: boolean): OpResult {
+    return undefined!;
+  }
+  addTunnel(_hostname: string, _port: string, _connector: string, _project: string, _service: string, _container: string, _path: string): OpResult {
+    return undefined!;
+  }
+  removeTunnel(_hostname: string, _path: string): OpResult {
+    return undefined!;
+  }
+  moveRoute(_connector: string, _hostname: string, _path: string, _dir: string): OpResult {
+    return undefined!;
+  }
+  zones(): ZoneView[] {
+    return undefined!;
+  }
+}
+
+// ZoneView is a selectable Cloudflare zone (domain).
+export interface ZoneView {
+  name: string;
+}
+
+// ConnectorView is one cloudflared connector (container) + live tunnel status.
+export interface ConnectorView {
+  id: string;
+  name: string;
+  title: string;
+  tunnel_id: string;
+  default: boolean;
+  running: boolean;
+  online: boolean;
+  status: string; // healthy | degraded | down | inactive
+  connections: number;
+  colos: string[] | null; // edge locations
+  version: string; // cloudflared version
+  created_at: string;
+  project: string;
+  networks: string[] | null;
+  routes: number;
+  update_ready: boolean; // newer cloudflared image available
+}
+
+// TunnelView is one public route: a hostname served through a connector.
+export interface TunnelView {
+  hostname: string;
+  path?: string;
+  service: string; // raw ingress origin, e.g. http://blog-web-1:8080
+  connector: string;
+  tunnel_id: string;
+  project: string;
+  svc_name: string;
+  container: string;
+  port: string;
+}
+
 // AgentView is one connected agent's detail (build info + daemon + counts).
 export interface AgentView {
   id: string;

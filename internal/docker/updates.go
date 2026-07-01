@@ -240,6 +240,20 @@ func (c *Client) saveUpdateCache() {
 	_ = os.Rename(tmp, c.updPath)
 }
 
+// CachedStatus returns the cached freshness verdict for an image ref
+// ("current" | "outdated" | "unknown") with no network call.
+func (c *Client) CachedStatus(ref string) string {
+	if ref == "" {
+		return "unknown"
+	}
+	c.updMu.RLock()
+	defer c.updMu.RUnlock()
+	if r, ok := c.updByRef[ref]; ok && r.status != "" {
+		return r.status
+	}
+	return "unknown"
+}
+
 // RefreshImageStatus re-checks one image ref and updates the cache. Call it
 // after a pull/redeploy so the freshness tag doesn't go stale.
 func (c *Client) RefreshImageStatus(ctx context.Context, ref string) {

@@ -21,7 +21,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
-  .bar .back { color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .back:hover { color: var(--hi); }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .grow { flex: 1; }
@@ -654,10 +654,7 @@ export class ImagesPage extends LoomElement {
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/images")}>images</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+                              <hope-nav active="images"></hope-nav>
           <div class="grow"></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>

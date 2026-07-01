@@ -99,3 +99,22 @@ enabled = false
 listen = ":2375"
 allow_methods = ["GET", "HEAD"]
 allow_paths = ["/_ping", "/version", "/info", "/v1.*/containers/*", "/v1.*/images/*"]
+
+[cloudflare]
+# Opt-in "tunnels" domain: manage public routes per stack via the Cloudflare API,
+# so a shared cloudflared connector fronts everything (no dashboard trips, no
+# one-container-per-stack). hope does NOT run cloudflared — you run a connector
+# (a cloudflared container) with a remotely-managed tunnel's token, labeled
+#   ink.hope.tunnel=<tunnel-id>        # marks it a hope-managed connector
+#   ink.hope.connector.default=1       # optional: the shared/default connector
+#   ink.hope.connector=<friendly name> # optional label shown in the UI
+# and hope adds/removes that tunnel's ingress + the matching DNS.
+#
+# api_token needs TWO policies (minimal):
+#   Account   -> Cloudflare Tunnel: Edit   (manage the tunnel + its ingress config)
+#   All zones -> DNS: Edit + Zone: Read    (create/delete the CNAME, resolve zones)
+# (Optional, live connector health only: Account -> Cloudflare One Connector:
+#  cloudflared: Read.)  The token is a secret — keep this file gitignored.
+enabled = false
+api_token = ""
+account_id = ""

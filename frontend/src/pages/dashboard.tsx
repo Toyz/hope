@@ -603,10 +603,7 @@ export class DashboardPage extends LoomElement {
           <div class="s brand">HOPE</div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
           <div class="s"><span class="k">all hosts</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+                              <hope-nav></hope-nav>
           <div class="grow"></div>
           <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{hosts}</span></span></div>
           <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
@@ -747,10 +744,7 @@ export class DashboardPage extends LoomElement {
           <div class="s brand">HOPE</div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
           <div class="s"><span class="k">fleet</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/images")}>images</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
-          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+                              <hope-nav></hope-nav>
           <div class="grow"></div>
           <div class="s"><span class="k">stacks</span><span class="v">{vis.length}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>

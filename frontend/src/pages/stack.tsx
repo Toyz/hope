@@ -7,9 +7,16 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult } from "../contracts";
+import { PromptService, type PromptField } from "../prompt";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
+
+// Internal (container-side) port from a docker port string, for tunnel autofill.
+const innerPort = (p: string): string => {
+  const arrow = p.indexOf("->");
+  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
+};
 
 // One fixed action order for every row (single, replica, group) so columns line
 // up. Actions that don't apply to a container's state are disabled, not
@@ -154,6 +161,49 @@ function aggMark(items: ContainerSummary[]): string {
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .tchip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; font: 600 10.5px/1 var(--mono); cursor: pointer;
+    color: var(--ok); background: transparent; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
+  .tchip loom-icon { color: var(--ok); flex: none; }
+  .tchip .thost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .tchip b { color: var(--mid); font-weight: 600; flex: none; }
+  .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
+  /* clean detail modal (mirrors the images/networks view) for public routes */
+  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); }
+  .dbox { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--ok); }
+  .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .dhead .dt { font: 600 13px/1.2 var(--mono); letter-spacing: .04em; color: var(--hi); }
+  .dhead .grow { flex: 1; }
+  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .dx:hover { color: var(--hi); }
+  .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .dfacts .st { flex: 1 1 0; min-width: 108px; display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .st:last-child { border-right: 0; }
+  .dfacts .sv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .dfacts .sv.ok { color: var(--ok); }
+  .dfacts .sv.warn { color: var(--warn); }
+  .dfacts .sv.bad { color: var(--bad); }
+  .dbody { padding: 4px 8px 10px; }
+  .rroute { display: flex; align-items: center; gap: 10px; padding: 11px 10px; border-bottom: 1px solid var(--line); }
+  .rroute:last-child { border-bottom: 0; }
+  .rroute:hover { background: var(--raised); }
+  .rroute .grow { flex: 1; }
+  .rhost { display: inline-flex; align-items: center; gap: 7px; flex: 1; min-width: 0; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
+  .rhost loom-icon { color: var(--ok); flex: none; }
+  .rhost .rtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .rhost b { font-weight: 600; }
+  .rhost .dim { color: var(--dim); font-weight: 400; }
+  .rhost .rpath { color: var(--mid); margin-left: 2px; }
+  .rhost:hover { text-decoration: underline; }
+  .rport { color: var(--dim); font: 12px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .rrm { display: inline-grid; place-items: center; width: 26px; height: 26px; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+  .rrm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
+  .dacts { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .dacts .grow { flex: 1; }
+  .dacts .dnote { font: 11px/1 var(--mono); color: var(--dim); }
   tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -251,12 +301,17 @@ export class StackPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(PromptService) accessor prompt!: PromptService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
 
   @reactive accessor project = "";
   @reactive accessor stack: StackSummary | null = null;
+  @reactive accessor tunnelRoutes: TunnelView[] = [];
+  @reactive accessor tunnelConnectors: ConnectorView[] = [];
+  @reactive accessor tunnelZones: ZoneView[] = [];
+  @reactive accessor tunnelsOn = false;
   @reactive accessor error = "";
   @reactive accessor busy = "";
   @reactive accessor opLog = "";
@@ -274,6 +329,7 @@ export class StackPage extends LoomElement {
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
+  @reactive accessor tunnelModalSvc = ""; // service whose public-routes modal is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
   @reactive accessor rdPull = true; // "pull latest" toggle (default on)
@@ -349,6 +405,9 @@ export class StackPage extends LoomElement {
           <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : c.id; }}>···</button>
           {open ? (
             <div class="menu">
+              {this.tunnelsOn ? (
+                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(c.service || c.name, c.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+              ) : null}
               <button class="mitem" disabled={!!this.busy}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "pull", c.service || c.name); }}><loom-icon name="download" size={13}></loom-icon><span>pull</span></button>
               <button class="mitem" disabled={!!this.busy}
@@ -381,6 +440,9 @@ export class StackPage extends LoomElement {
           <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : "grp:" + g.service; }}>···</button>
           {open ? (
             <div class="menu">
+              {this.tunnelsOn ? (
+                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(g.service, g.items[0]?.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+              ) : null}
               <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "stop")}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "stop"); }}><loom-icon name="stop" size={13}></loom-icon><span>stop all</span></button>
               <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "kill")}
@@ -443,11 +505,159 @@ export class StackPage extends LoomElement {
       if (this.stack) {
         this.snapshot(); // auto-fill the CPU/MEM columns
         this.loadUpdates(); // surface cached image-freshness chips immediately
+        this.loadTunnels(); // public-route chips (if cloudflare is on)
       }
     } catch (err: any) {
       this.error = err?.message ?? "Failed to load.";
     }
   }
+
+  // Best-effort tunnel data so service rows can show their public hostname +
+  // offer "add tunnel". Silently no-ops when the cloudflare integration is off.
+  private async loadTunnels() {
+    try {
+      const [routes, connectors, zones] = await Promise.all([
+        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
+        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
+      ]);
+      this.tunnelRoutes = routes || [];
+      this.tunnelConnectors = connectors || [];
+      this.tunnelZones = zones || [];
+      this.tunnelsOn = true;
+    } catch {
+      this.tunnelsOn = false; // disabled or unreachable — hide tunnel UI
+    }
+  }
+
+  // Routes whose origin resolves to this stack's service.
+  private routesForService(service: string): TunnelView[] {
+    return this.tunnelRoutes.filter((t) => t.project === this.project && t.svc_name === service);
+  }
+
+  private tunnelChip(service: string) {
+    if (!this.tunnelsOn) return null;
+    const routes = this.routesForService(service);
+    if (!routes.length) return null;
+    const first = routes[0];
+    return (
+      <button class="tchip" title={routes.map((r) => r.hostname).join(", ")} onClick={(e: Event) => { e.stopPropagation(); this.tunnelModalSvc = service; }}>
+        <loom-icon name="link" size={11}></loom-icon><span class="thost">{first.hostname}</span>{routes.length > 1 ? <b>+{routes.length - 1}</b> : null}
+      </button>
+    );
+  }
+
+  private removeRoute = async (hostname: string, path: string) => {
+    const ok = await this.confirm.ask({ title: "remove route", danger: true, confirmLabel: "Remove", message: `Remove the route ${hostname}?` });
+    if (!ok) return;
+    try {
+      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
+      await this.loadTunnels();
+    } catch (err: any) {
+      this.showToast(err?.message ?? "remove failed", "bad");
+    }
+  };
+
+  private splitHost(host: string): { sub: string; domain: string } {
+    for (const z of this.tunnelZones) {
+      if (host === z.name) return { sub: "", domain: z.name };
+      if (host.endsWith("." + z.name)) return { sub: host.slice(0, -(z.name.length + 1)), domain: z.name };
+    }
+    return { sub: "", domain: "" };
+  }
+
+  // Modal: all public routes for a service + the connector serving them.
+  private renderTunnelModal() {
+    const svc = this.tunnelModalSvc;
+    const routes = this.routesForService(svc);
+    if (!routes.length) return null;
+    const con = this.tunnelConnectors.find((c) => c.name === routes[0].connector);
+    const svcPorts = (this.stack?.containers.find((c) => (c.service || c.name) === svc)?.ports) || [];
+    const conState = con ? (con.online ? "ok" : con.running ? "warn" : "bad") : "bad";
+    return (
+      <div class="dmodal" onClick={() => (this.tunnelModalSvc = "")}>
+        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt">public routes · {svc}</span>
+            <span class="grow"></span>
+            <button class="dx" onClick={() => (this.tunnelModalSvc = "")}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          {con ? (
+            <div class="dfacts">
+              <span class="st"><i class="sk">connector</i><i class="sv">{con.title || con.name}</i></span>
+              <span class="st"><i class="sk">status</i><i class={"sv " + conState}>{con.status || (con.running ? "connecting" : "stopped")}</i></span>
+              <span class="st"><i class="sk">edge conns</i><i class="sv">{con.connections}</i></span>
+              {con.colos && con.colos.length ? <span class="st"><i class="sk">edge</i><i class="sv" title={con.colos.join(" ")}>{con.colos.join(" ")}</i></span> : null}
+              <span class="st"><i class="sk">tunnel</i><i class="sv">{con.tunnel_id.slice(0, 12)}</i></span>
+            </div>
+          ) : null}
+          <div class="dbody">
+            {routes.map((r) => {
+              const { sub, domain } = this.splitHost(r.hostname);
+              return (
+                <div class="rroute">
+                  <a class="rhost" href={`https://${r.hostname}`} target="_blank" rel="noreferrer" title={r.hostname + (r.path || "")}>
+                    <loom-icon name="link" size={12}></loom-icon>
+                    <span class="rtxt">{domain && sub ? <span><b>{sub}</b><span class="dim">.{domain}</span></span> : domain ? <span class="dim">{domain}</span> : <span>{r.hostname}</span>}{r.path ? <span class="rpath">{r.path}</span> : null}</span>
+                  </a>
+                  <span class="rport">:{r.port || "?"}</span>
+                  <button class="rrm" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={13}></loom-icon></button>
+                </div>
+              );
+            })}
+          </div>
+          <div class="dacts">
+            <span class="dnote">{routes.length} route{routes.length === 1 ? "" : "s"}</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.tunnelModalSvc = "")}>close</button>
+            <button class="tbtn" onClick={() => { this.tunnelModalSvc = ""; this.addTunnel(svc, svcPorts); }}>+ add route</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Add a public route for a service in this stack (target is implied).
+  private addTunnel = async (service: string, ports: string[]) => {
+    if (!this.tunnelConnectors.length) {
+      this.showToast("no connectors — deploy one on the Tunnels page", "bad");
+      return;
+    }
+    const haveZones = this.tunnelZones.length > 0;
+    const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
+    const port = ports.map(innerPort).find(Boolean) || "";
+    const fields: PromptField[] = [
+      { key: "connector", label: "connector", type: "select", value: def.id, options: this.tunnelConnectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
+      { key: "port", label: "port", placeholder: "8080", value: port },
+      ...(haveZones
+        ? ([
+            { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: service },
+            { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", options: this.tunnelZones.map((z) => ({ value: z.name, label: z.name })) },
+          ] as const)
+        : ([{ key: "host_name", label: "hostname", placeholder: "app.example.com" }] as const)),
+      { key: "path", label: "path (optional)", optional: true, placeholder: "/api" },
+    ];
+    const v = await this.prompt.ask({ title: `add tunnel · ${service}`, icon: "link", submitLabel: "Add route", fields });
+    if (!v) return;
+    const host = (haveZones ? (v.sub.trim() ? `${v.sub.trim()}.${v.domain}` : v.domain) : v.host_name).trim().toLowerCase();
+    if (!host) return;
+    await this.proc.run(`add tunnel ${host}`, async (emit) => {
+      try {
+        emit("attaching connector + updating ingress + DNS…");
+        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), v.connector, this.project, service, "", (v.path || "").trim()]);
+        if (res && res.ok === false) {
+          emit("failed: " + (res.error || "error"));
+          return false;
+        }
+        emit(`route live -> https://${host}`);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    this.loadTunnels();
+  };
 
   // Pull the cached cluster freshness (cheap) and keep this project's rows.
   private async loadUpdates() {
@@ -837,6 +1047,7 @@ export class StackPage extends LoomElement {
             <div class="s"><span class="hostcrumb">{this.host}</span></div>
           ) : null}
           <div class="s"><span class="crumb">{this.project}</span></div>
+                    <hope-nav></hope-nav>
           <div class="grow"></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
@@ -931,6 +1142,7 @@ export class StackPage extends LoomElement {
                               <span class={"mark " + markClass(c.state)}></span>
                               <span class="link">{c.service || c.name}</span>
                               {this.updChip(c)}
+                              {this.tunnelChip(c.service || c.name)}
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
@@ -955,6 +1167,7 @@ export class StackPage extends LoomElement {
                             <span class="gname">{g.service}</span>
                             <span class="badge"><b>{g.items.length}</b> pods</span>
                             {this.groupUpdate(g.items) === "outdated" ? <span class="upd static" title="one or more replicas have an update available">update</span> : null}
+                            {this.tunnelChip(g.service)}
                           </span>
                         </td>
                         <td class="state">{running}/{g.items.length} up</td>
@@ -1013,6 +1226,7 @@ export class StackPage extends LoomElement {
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
         {this.pullOpen && s ? this.renderPull(s) : null}
+        {this.tunnelModalSvc ? this.renderTunnelModal() : null}
       </div>
     );
   }

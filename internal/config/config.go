@@ -22,6 +22,7 @@ type Config struct {
 	Updates     UpdatesConfig     `mapstructure:"updates"`
 	Registries  []RegistryConfig  `mapstructure:"registry"`
 	Agent       AgentConfig       `mapstructure:"agent"`
+	Cloudflare  CloudflareConfig  `mapstructure:"cloudflare"`
 }
 
 // AgentConfig is the hub side: hope listens here for hope-agents dialing in
@@ -109,6 +110,20 @@ type ComposeConfig struct {
 	Roots []string `mapstructure:"roots"`
 }
 
+// CloudflareConfig enables the opt-in tunnels domain: hope manages a
+// remotely-managed Cloudflare tunnel's ingress + the matching DNS records via
+// the Cloudflare API, so public routes can be added/removed per stack without
+// touching the dashboard. hope does NOT run cloudflared — you run one connector
+// (labeled ink.hope.tunnel=<tunnel-id>) and hope manages its routes.
+type CloudflareConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// APIToken needs two policies: Account -> Cloudflare Tunnel: Edit, and
+	// All zones -> DNS: Edit + Zone: Read. A secret — never logged.
+	APIToken string `mapstructure:"api_token"`
+	// AccountID is the Cloudflare account the tunnel lives under.
+	AccountID string `mapstructure:"account_id"`
+}
+
 // SocketProxyConfig configures the opt-in LAN-facing reverse proxy that
 // forwards the Docker API to the unix socket behind a method/path allowlist.
 type SocketProxyConfig struct {
@@ -176,6 +191,11 @@ func (c *Config) validate() error {
 	}
 	if c.Updates.Interval <= 0 {
 		c.Updates.Interval = 6 * time.Hour
+	}
+	if c.Cloudflare.Enabled {
+		if c.Cloudflare.APIToken == "" || c.Cloudflare.AccountID == "" {
+			return fmt.Errorf("config: cloudflare.api_token and cloudflare.account_id are required when cloudflare.enabled")
+		}
 	}
 	return nil
 }
