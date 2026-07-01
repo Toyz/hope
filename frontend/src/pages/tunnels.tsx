@@ -653,19 +653,26 @@ export class TunnelsPage extends LoomElement {
             <tbody>
               {(() => {
                 const rows: any[] = [];
-                let prevDomain: string | null = null;
+                // Group routes by domain (each domain header once) — routes for the
+                // same domain aren't necessarily contiguous in ingress order, and
+                // cross-hostname order doesn't affect Cloudflare matching.
+                const groups = new Map<string, TunnelView[]>();
+                const order: string[] = [];
                 for (const t of shown) {
-                  const { sub, domain } = this.splitHost(t.hostname);
+                  const { domain } = this.splitHost(t.hostname);
                   const dkey = domain || t.hostname;
-                  if (dkey !== prevDomain) {
-                    rows.push(
-                      <tr class="dgroup"><td colSpan={4}><a href={`https://${dkey}`} target="_blank" rel="noreferrer">{dkey}</a></td></tr>,
-                    );
-                    prevDomain = dkey;
-                  }
-                  const idx = all.indexOf(t);
+                  if (!groups.has(dkey)) { groups.set(dkey, []); order.push(dkey); }
+                  groups.get(dkey)!.push(t);
+                }
+                for (const dkey of order) {
                   rows.push(
-                    <tr class="route" data-rid={this.ridOf(t)} data-cid={t.connector}>
+                    <tr class="dgroup"><td colSpan={4}><a href={`https://${dkey}`} target="_blank" rel="noreferrer">{dkey}</a></td></tr>,
+                  );
+                  for (const t of groups.get(dkey)!) {
+                    const { sub, domain } = this.splitHost(t.hostname);
+                    const idx = all.indexOf(t);
+                    rows.push(
+                      <tr class="route" data-rid={this.ridOf(t)} data-cid={t.connector}>
                       <td class="host">
                         <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <span class="sub">{sub}</span> : <span class="rootlbl">root</span>}</a>
                         {t.path ? <span class="svc"> {t.path}</span> : null}
@@ -683,7 +690,8 @@ export class TunnelsPage extends LoomElement {
                         <button class="rmx del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button>
                       </td>
                     </tr>,
-                  );
+                    );
+                  }
                 }
                 return rows;
               })()}
