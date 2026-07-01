@@ -537,7 +537,7 @@ export class TunnelsPage extends LoomElement {
                               <hope-nav active="tunnels"></hope-nav>
           <div class="grow"></div>
           {!this.disabled && this.loaded ? (
-            <div class="s act"><button disabled={this.busy} onClick={this.deployConnector}>deploy connector</button></div>
+            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.deployConnector}><loom-icon name="plus" size={12}></loom-icon> connector</button></div>
           ) : null}
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>

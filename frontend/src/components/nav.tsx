@@ -35,14 +35,14 @@ export class HopeNav extends LoomElement {
     capabilities().then((c) => (this.apiOn = !!c.api_enabled));
   }
 
-  // /rpc/* is a server route (sov's explorer UI), not an SPA route.
+  // /rpc/* is a server route (sov's explorer UI); everything else is an SPA route.
   private go(path: string) {
     if (path.startsWith("/rpc/")) location.href = path;
     else this.router.navigate(path);
   }
 
   update() {
-    const items = this.apiOn ? [...ITEMS, ["api", "/rpc/_explorer/"] as [string, string]] : ITEMS;
+    const items = this.apiOn ? [...ITEMS, ["api", "/api-docs"] as [string, string]] : ITEMS;
     return (
       <div style="display:flex; align-items:stretch">
         {items.map(([label, path]) => (

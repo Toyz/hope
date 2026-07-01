@@ -20,7 +20,7 @@ const UNGROUPED = "(ungrouped)";
 @component("hope-dashboard")
 @styles(css`
   ${theme}
-  :host { display: block; min-height: 100vh; background: var(--ink); }
+  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   /* ── status bar (tmux/vim airline) ── */
   .bar {

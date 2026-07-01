@@ -27,18 +27,20 @@ func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled b
 	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled}
 }
 
-// Capabilities reports which optional features are on, so the UI can show/hide
+// FeatureFlags reports which optional features are on, so the UI can show/hide
 // affordances (e.g. the API explorer link).
-type Capabilities struct {
+type FeatureFlags struct {
 	APIEnabled bool `json:"api_enabled"`
 }
 
-// Capabilities returns the feature flags the UI needs at load.
-func (r *SystemRouter) Capabilities(ctx *rpc.Context) (*Capabilities, error) {
+// Features returns the feature flags the UI needs at load. (Named Features, not
+// Capabilities — "Capabilities" is a reserved sov marker method, so it would be
+// skipped at registration and 404 as an RPC endpoint.)
+func (r *SystemRouter) Features(ctx *rpc.Context) (*FeatureFlags, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	return &Capabilities{APIEnabled: r.apiEnabled}, nil
+	return &FeatureFlags{APIEnabled: r.apiEnabled}, nil
 }
 
 // AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run

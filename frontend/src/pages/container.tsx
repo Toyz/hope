@@ -26,7 +26,7 @@ const MAX_LINES = 600;
 @component("hope-container")
 @styles(css`
   ${theme}
-  :host { display: block; min-height: 100vh; background: var(--ink); }
+  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {
     position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;

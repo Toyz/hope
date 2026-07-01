@@ -1,6 +1,6 @@
 // Shared styles for the networks + volumes pages (same list/usage layout).
 export const resourceStyles = `
-  :host { display: block; min-height: 100vh; background: var(--ink); }
+  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {
     position: sticky; top: 0; z-index: 20;

@@ -258,7 +258,7 @@ export class System {
   agentEnroll(): AgentEnroll {
     return undefined!;
   }
-  capabilities(): Capabilities {
+  features(): Capabilities {
     return undefined!;
   }
 }

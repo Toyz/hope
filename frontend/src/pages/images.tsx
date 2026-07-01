@@ -16,7 +16,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
 @component("hope-images")
 @styles(css`
   ${theme}
-  :host { display: block; min-height: 100vh; background: var(--ink); }
+  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }

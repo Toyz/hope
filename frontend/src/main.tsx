@@ -31,6 +31,7 @@ import "./pages/networks";
 import "./pages/volumes";
 import "./pages/agents";
 import "./pages/tunnels";
+import "./pages/api-docs";
 
 app.use(AuthStore);
 app.use(ConfirmService);
