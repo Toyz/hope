@@ -1,6 +1,12 @@
 # hope-agent configuration. Copy to agent.toml and run:
 #   hope agent --agent-config agent.toml
 #
+# Self-update note: hope recreates the agent through a detached helper (hope-boot)
+# so updating it doesn't sever the tunnel mid-op. This relies on the agent
+# reporting its own container id in the handshake — a one-time chicken-and-egg:
+# an agent from before this change will EOF on its FIRST update (it can't detach
+# retroactively), then run the new binary and update cleanly from then on.
+#
 # Every key can also be passed as a flag (--connect, --host-id, ...) or an env
 # var (HOPE_AGENT_CONNECT, HOPE_AGENT_TOKEN, HOPE_AGENT_HOST_ID, ...).
 # Precedence: flag > env > this file > default. Keep secrets out of the args by

@@ -30,22 +30,26 @@ COPY . .
 # Drop in the freshly built SPA so //go:embed all:frontend/dist picks it up.
 RUN rm -rf frontend/dist
 COPY --from=ui /ui/dist ./frontend/dist
-RUN CGO_ENABLED=0 go build \
-      -ldflags="-s -w \
+ARG LDFLAGS="-s -w \
         -X github.com/toyz/hope/internal/version.Version=${VERSION} \
         -X github.com/toyz/hope/internal/version.Revision=${REVISION} \
-        -X github.com/toyz/hope/internal/version.BuildTime=${BUILDTIME}" \
-      -o /hope ./cmd/hope
+        -X github.com/toyz/hope/internal/version.BuildTime=${BUILDTIME}"
+RUN CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o /hope ./cmd/hope
+# hope-boot: the tiny launcher + self-update helper (no SPA/gateway). It execs
+# hope for normal runs and does the detached container recreate for updates.
+RUN CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o /hope-boot ./cmd/hope-boot
 
-# 3) Minimal runtime — scratch. The binary is a static (CGO_ENABLED=0) pure-Go
-# build, hope reaches the daemon over the mounted socket (or tcp), and the
+# 3) Minimal runtime — scratch. Both binaries are static (CGO_ENABLED=0) pure-Go
+# builds, hope reaches the daemon over the mounted socket (or tcp), and the
 # daemon does the registry calls — so no shell, no CLI, no libc needed. CA
 # certs are carried for a tcp+tls:// daemon. Code uses UTC only, so no tzdata.
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /hope /usr/local/bin/hope
+COPY --from=build /hope-boot /usr/local/bin/hope-boot
 # scratch has no /etc/passwd; set HOME so ~/.docker/config.json resolves and
 # the conventional /root/.docker/config.json mount is found.
 ENV HOME=/root
 EXPOSE 8080
-ENTRYPOINT ["hope", "-config", "/app/config.toml"]
+# hope-boot forwards these straight to hope (and intercepts `recreate` for updates).
+ENTRYPOINT ["hope-boot", "-config", "/app/config.toml"]
