@@ -219,6 +219,33 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
+  // Rename the connector's Cloudflare tunnel. Pure API change — routes and the
+  // connector's networks are untouched (the title reads the live tunnel name).
+  private renameConnector = async (c: ConnectorView) => {
+    const v = await this.prompt.ask({
+      title: "rename tunnel",
+      icon: "link",
+      submitLabel: "Rename",
+      fields: [{ key: "name", label: "new name", placeholder: c.title || c.name, value: c.title || c.name }],
+    });
+    if (!v) return;
+    const name = v.name.trim();
+    if (!name || name === (c.title || c.name)) return;
+    await this.proc.run(`rename ${c.title || c.name}`, async (emit) => {
+      try {
+        emit("renaming Cloudflare tunnel…");
+        const res = await this.rpc.call<OpResult>("Tunnels", "renameConnector", [c.id, name]);
+        if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
+        emit("renamed -> " + name);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.load();
+  };
+
   private removeConnector = async (c: ConnectorView) => {
     const del = await this.confirm.ask({
       title: "remove connector",
@@ -604,6 +631,7 @@ export class TunnelsPage extends LoomElement {
           </div>
           <span class="cgrow"></span>
           {c.update_ready ? <button class="caddr upd" title="a newer cloudflared is available — pull + recreate" onClick={() => this.updateConnector(c)}>update</button> : null}
+          <button class="caddr" title="rename this tunnel" onClick={() => this.renameConnector(c)}>rename</button>
           <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
           <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={15}></loom-icon></button>
         </div>

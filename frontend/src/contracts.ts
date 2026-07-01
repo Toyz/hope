@@ -286,6 +286,9 @@ export class Tunnels {
   createConnector(_name: string): ConnectorView {
     return undefined!;
   }
+  renameConnector(_id: string, _name: string): OpResult {
+    return undefined!;
+  }
   removeConnector(_id: string, _deleteTunnel: boolean): OpResult {
     return undefined!;
   }

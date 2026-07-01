@@ -95,6 +95,9 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 				out[i].Online = d.Status == "healthy" || d.Status == "degraded"
 				out[i].Connections = len(d.Connections)
 				out[i].CreatedAt = d.CreatedAt
+				if d.Name != "" {
+					out[i].Title = d.Name // live tunnel name, so renames show without a recreate
+				}
 				seen := map[string]bool{}
 				for _, cn := range d.Connections {
 					if cn.ColoName != "" && !seen[cn.ColoName] {
@@ -222,6 +225,36 @@ func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorPara
 		return nil, rpc.Internal("deploy cloudflared: %v", err)
 	}
 	return &docker.Connector{ContainerID: cid, Name: p.Name, Title: p.Name, TunnelID: id, Default: isDefault, Running: true}, nil
+}
+
+// RenameConnectorParams renames a connector's Cloudflare tunnel + hope title.
+type RenameConnectorParams struct {
+	ID   string `sov:"id,0,required" json:"id"`
+	Name string `sov:"name,1,required" json:"name"`
+}
+
+// RenameConnector renames the connector's Cloudflare tunnel. This is a pure
+// Cloudflare API change — the cloudflared container is NOT touched, so its route
+// ingress (which lives in the tunnel config) and its Docker network attachments
+// (added per-route so it can reach origins) are preserved. The connector's
+// displayed title reads the live tunnel name (see Connectors), so it updates
+// without a container recreate.
+func (r *TunnelsRouter) RenameConnector(ctx *rpc.Context, p *RenameConnectorParams) (*RouteResult, error) {
+	if err := r.enabled(ctx); err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return nil, rpc.BadRequest("name required")
+	}
+	con, ok := r.findConnector(ctx, p.ID)
+	if !ok {
+		return nil, rpc.NotFound("connector not found")
+	}
+	if err := r.cf.RenameTunnel(ctx, con.TunnelID, name); err != nil {
+		return nil, rpc.Internal("rename tunnel: %v", err)
+	}
+	return &RouteResult{OK: true}, nil
 }
 
 // RemoveConnectorParams targets a connector container (and optionally its tunnel).

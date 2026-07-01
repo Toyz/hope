@@ -191,6 +191,13 @@ func (c *Client) DeleteTunnel(ctx context.Context, tunnelID string) error {
 		fmt.Sprintf("/accounts/%s/cfd_tunnel/%s", c.accountID, tunnelID), nil, nil)
 }
 
+// RenameTunnel changes a tunnel's name in Cloudflare.
+func (c *Client) RenameTunnel(ctx context.Context, tunnelID, name string) error {
+	body := map[string]string{"name": name}
+	return c.do(ctx, http.MethodPatch,
+		fmt.Sprintf("/accounts/%s/cfd_tunnel/%s", c.accountID, tunnelID), body, nil)
+}
+
 // TunnelDetail is the subset of a tunnel's status we surface.
 type TunnelDetail struct {
 	ID          string `json:"id"`
