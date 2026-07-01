@@ -8,8 +8,15 @@ import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame } from "../contracts";
+import { PromptService, type PromptField } from "../prompt";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView } from "../contracts";
 import { theme, markClass } from "../styles";
+
+// Internal (container-side) port from a docker port string, for tunnel autofill.
+const cInnerPort = (p: string): string => {
+  const arrow = p.indexOf("->");
+  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
+};
 
 type Tab = "logs" | "stats" | "inspect";
 const MAX_LINES = 600;
@@ -118,8 +125,23 @@ const MAX_LINES = 600;
   .kv .v.dim { color: var(--mid); }
 
   .netblk { border: 1px solid var(--line); margin-bottom: 22px; }
-  .netlbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
+  .netlbl { display: flex; align-items: center; gap: 10px; font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  .netlbl .grow { flex: 1; }
+  .netlbl .rshare { font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ok);
+    border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
+  .netlbl .addr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
+    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 9px; }
+  .netlbl .addr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .netrow.trow { align-items: center; }
+  .netrow.none { color: var(--dim); font: 12.5px/1.6 var(--mono); }
+  .netrow .rhost { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); min-width: 150px; }
+  .netrow .rhost loom-icon { color: var(--ok); flex: none; }
+  .netrow .rhost:hover { text-decoration: underline; }
+  .netrow .rhost .rpath { color: var(--mid); }
+  .netrow .grow { flex: 1; }
+  .netrow .rrm { display: inline-grid; place-items: center; width: 26px; height: 26px; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+  .netrow .rrm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
   .netrow { display: flex; flex-wrap: wrap; gap: 9px 24px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); }
   .netrow:last-child { border-bottom: 0; }
   .netrow .nn { font: 600 13px/1 var(--mono); color: var(--hi); min-width: 150px; }
@@ -214,12 +236,17 @@ export class ContainerPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(PromptService) accessor prompt!: PromptService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
 
   @reactive accessor id = "";
   @reactive accessor info: any = null;
+  @reactive accessor tunnelRoutes: TunnelView[] = [];
+  @reactive accessor tunnelConnectors: ConnectorView[] = [];
+  @reactive accessor tunnelZones: ZoneView[] = [];
+  @reactive accessor tunnelsOn = false;
   @reactive accessor tab: Tab = "logs";
   @reactive accessor logLines: string[] = [];
   @reactive accessor cpu = "—";
@@ -419,10 +446,100 @@ export class ContainerPage extends LoomElement {
       this.info = await this.rpc.call<any>("Containers", "inspect", [this.id]);
       await this.loadSiblings();
       this.loadUpdateStatus();
+      this.loadTunnels();
     } catch {
       /* header falls back to the id */
     }
   }
+
+  // Best-effort tunnel data (no-op when cloudflare is off). A replicated service
+  // shares one tunnel across all replicas, so any replica shows the service's
+  // routes; a loose container matches by its own name.
+  private async loadTunnels() {
+    try {
+      const [routes, connectors, zones] = await Promise.all([
+        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
+        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
+      ]);
+      this.tunnelRoutes = routes || [];
+      this.tunnelConnectors = connectors || [];
+      this.tunnelZones = zones || [];
+      this.tunnelsOn = true;
+    } catch {
+      this.tunnelsOn = false;
+    }
+  }
+
+  private ownName(): string {
+    return (this.info?.Name || "").replace(/^\//, "");
+  }
+
+  // Routes serving this container: its service's routes (shared across replicas)
+  // or, for a loose container, routes targeting it by name.
+  private myRoutes(): TunnelView[] {
+    const proj = this.project();
+    const svc = this.labels()["com.docker.compose.service"];
+    if (proj && svc) return this.tunnelRoutes.filter((t) => t.project === proj && t.svc_name === svc);
+    const name = this.ownName();
+    return this.tunnelRoutes.filter((t) => t.container === name);
+  }
+
+  private removeRoute = async (hostname: string, path: string) => {
+    const ok = await this.confirm.ask({ title: "remove route", danger: true, confirmLabel: "Remove", message: `Remove the route ${hostname}?` });
+    if (!ok) return;
+    try {
+      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
+      await this.loadTunnels();
+    } catch (err: any) {
+      this.showToast(`remove — ${err?.message ?? "failed"}`, "bad");
+    }
+  };
+
+  private addTunnel = async () => {
+    if (!this.tunnelConnectors.length) {
+      this.showToast("no connectors — deploy one on the Tunnels page", "bad");
+      return;
+    }
+    const proj = this.project();
+    const svc = this.labels()["com.docker.compose.service"];
+    const haveZones = this.tunnelZones.length > 0;
+    const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
+    const port = (this.info?.NetworkSettings?.Ports ? Object.keys(this.info.NetworkSettings.Ports) : []).map(cInnerPort).find(Boolean) || "";
+    const fields: PromptField[] = [
+      { key: "connector", label: "connector", type: "select", value: def.id, options: this.tunnelConnectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
+      { key: "port", label: "port", placeholder: "8080", value: port },
+      ...(haveZones
+        ? ([
+            { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: svc || "app" },
+            { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", options: this.tunnelZones.map((z) => ({ value: z.name, label: z.name })) },
+          ] as const)
+        : ([{ key: "host_name", label: "hostname", placeholder: "app.example.com" }] as const)),
+      { key: "path", label: "path (optional)", optional: true, placeholder: "/api" },
+    ];
+    const v = await this.prompt.ask({ title: `add tunnel · ${svc || this.service()}`, icon: "link", submitLabel: "Add route", fields });
+    if (!v) return;
+    const host = (haveZones ? (v.sub.trim() ? `${v.sub.trim()}.${v.domain}` : v.domain) : v.host_name).trim().toLowerCase();
+    if (!host) return;
+    // Replicated compose service -> target the service; loose -> the container.
+    const args = proj && svc ? [host, v.port.trim(), v.connector, proj, svc, "", (v.path || "").trim()] : [host, v.port.trim(), v.connector, "", "", this.id, (v.path || "").trim()];
+    await this.proc.run(`add tunnel ${host}`, async (emit) => {
+      try {
+        emit("attaching connector + updating ingress + DNS…");
+        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", args);
+        if (res && res.ok === false) {
+          emit("failed: " + (res.error || "error"));
+          return false;
+        }
+        emit(`route live -> https://${host}`);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    this.loadTunnels();
+  };
 
   // Find the other pods in this container's replica set (same compose service).
   private async loadSiblings() {
@@ -651,6 +768,12 @@ export class ContainerPage extends LoomElement {
   private health(): string {
     return this.info?.State?.Health?.Status ?? "";
   }
+  // Whether the image/container defines a HEALTHCHECK at all (else "health" is
+  // meaningless — docker reports nothing).
+  private hasHealthcheck(): boolean {
+    const t = this.info?.Config?.Healthcheck?.Test;
+    return Array.isArray(t) && t.length > 0 && t[0] !== "NONE";
+  }
   private ports(): string {
     const p = this.info?.NetworkSettings?.Ports ?? {};
     const out: string[] = [];
@@ -766,7 +889,7 @@ export class ContainerPage extends LoomElement {
             <div class="c">
               <span class="k">Health</span>
               <span class={"v" + (this.health() === "unhealthy" ? " bad" : this.health() === "starting" ? " warn" : "")}>
-                {this.health() || "—"}
+                {this.hasHealthcheck() ? this.health() || "—" : "no check"}
               </span>
             </div>
             {this.project() ? (
@@ -797,6 +920,32 @@ export class ContainerPage extends LoomElement {
                   {n.mac ? <span class="nf"><i>mac</i>{n.mac}</span> : null}
                 </div>
               ))}
+            </div>
+          ) : null}
+
+          {this.tunnelsOn ? (
+            <div class="netblk">
+              <div class="netlbl">
+                Public routes
+                {this.siblings.length > 1 ? <span class="rshare" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</span> : null}
+                <span class="grow"></span>
+                <button class="addr" onClick={this.addTunnel}>+ add tunnel</button>
+              </div>
+              {this.myRoutes().length ? (
+                this.myRoutes().map((r) => (
+                  <div class="netrow trow">
+                    <a class="rhost" href={`https://${r.hostname}`} target="_blank" rel="noreferrer" title={r.hostname + (r.path || "")}>
+                      <loom-icon name="link" size={12}></loom-icon>{r.hostname}{r.path ? <span class="rpath">{r.path}</span> : null}
+                    </a>
+                    <span class="nf"><i>port</i>{r.port || "—"}</span>
+                    <span class="nf"><i>via</i>{r.connector}</span>
+                    <span class="grow"></span>
+                    <button class="rrm" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={13}></loom-icon></button>
+                  </div>
+                ))
+              ) : (
+                <div class="netrow none">No public routes — <b>+ add tunnel</b> to expose this service.</div>
+              )}
             </div>
           ) : null}
 
