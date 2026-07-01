@@ -717,8 +717,8 @@ export class ContainerPage extends LoomElement {
               ) : null}
             </div>
           ) : null}
+                    <hope-nav></hope-nav>
           <div class="grow"></div>
-          <hope-nav></hope-nav>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 

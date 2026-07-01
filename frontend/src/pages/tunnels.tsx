@@ -463,8 +463,8 @@ export class TunnelsPage extends LoomElement {
         <div class="bar">
           <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
-                    <div class="grow"></div>
-          <hope-nav active="tunnels"></hope-nav>
+                              <hope-nav active="tunnels"></hope-nav>
+          <div class="grow"></div>
           {!this.disabled && this.loaded ? (
             <div class="s act"><button disabled={this.busy} onClick={this.deployConnector}>deploy connector</button></div>
           ) : null}
