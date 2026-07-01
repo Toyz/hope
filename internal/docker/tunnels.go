@@ -27,6 +27,7 @@ type Connector struct {
 	Default     bool     `json:"default"`  // the shared/default connector
 	Project     string   `json:"project"`  // compose project, if the connector lives in a stack
 	Networks    []string `json:"networks"` // user-defined networks it's attached to
+	Image       string   `json:"image"`    // the cloudflared image ref
 	Running     bool     `json:"running"`
 }
 
@@ -64,6 +65,7 @@ func (c *Client) Connectors(ctx context.Context) ([]Connector, error) {
 			Default:     ct.Labels[labelConnectorFirst] == "1",
 			Project:     ct.Labels[labelProject],
 			Networks:    nets,
+			Image:       ct.Image,
 			Running:     ct.State == "running",
 		})
 	}

@@ -9,8 +9,9 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
+import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView } from "../contracts";
+import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView, OpFrame } from "../contracts";
 import type { PromptOption } from "../prompt";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -33,25 +34,27 @@ const innerPort = (p: string): string => {
 
   /* a connector and the routes it owns are one bordered unit */
   .cblock { border: 1px solid var(--line); margin-bottom: 22px; }
-  .ccard { border: 0; }
-  .ccard .chead { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-  .ccard .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
-  .ccard .cdot.off { background: var(--bad); }
-  .ccard .cdot.warn { background: var(--warn); }
-  .ccard .cname { font: 700 13px/1 var(--mono); color: var(--hi); }
-  .ccard .cdef { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
-  .ccard .cstat { margin-left: auto; font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
-  .ccard .caddr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
-    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; }
-  .ccard .caddr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .ccard .cx { background: transparent; border: 0; color: var(--dim); cursor: pointer; padding: 2px; display: flex; }
-  .ccard .cx:hover { color: var(--bad); }
-  .ccard .crows { display: flex; }
-  .ccard .cm { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-right: 1px solid var(--line); }
-  .ccard .cm:last-child { border-right: 0; }
-  .ccard .cmk { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .ccard .cv { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
-  .ccard .cfoot { padding: 10px 16px; border-top: 1px solid var(--line); font: 11.5px/1.5 var(--mono); color: var(--dim); word-break: break-all; }
+  .chead { display: flex; align-items: center; gap: 12px; padding: 13px 16px; }
+  .chead .cdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+  .chead .cdot.off { background: var(--bad); }
+  .chead .cdot.warn { background: var(--warn); }
+  .cwho { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .cl1 { display: flex; align-items: center; gap: 9px; }
+  .cl1 .cname { font: 700 14px/1 var(--mono); color: var(--hi); }
+  .cl1 .cdef { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
+  .cl2 { font: 11.5px/1 var(--mono); color: var(--dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .cl2 .sep { color: var(--faint); }
+  .cl2 .ok { color: var(--ok); }
+  .cl2 .warn { color: var(--warn); }
+  .cl2 .bad { color: var(--bad); }
+  .cgrow { flex: 1; }
+  .caddr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
+    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 6px 10px; }
+  .caddr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .caddr.upd { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .caddr.upd:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
+  .cx { background: transparent; border: 0; color: var(--dim); cursor: pointer; padding: 4px; display: flex; }
+  .cx:hover { color: var(--bad); }
   .seclbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin: 0 0 12px; }
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
@@ -82,6 +85,7 @@ export class TunnelsPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -223,12 +227,42 @@ export class TunnelsPage extends LoomElement {
   private moveRoute = async (t: TunnelView, dir: "up" | "down") => {
     const cid = this.connectors.find((c) => c.name === t.connector)?.id;
     if (!cid) return;
+    // Optimistic swap so the UI moves instantly; reconcile on failure.
+    const arr = [...this.routes];
+    const i = arr.indexOf(t);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= arr.length || arr[j].connector !== t.connector) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    this.routes = arr;
     try {
       await this.rpc.call<OpResult>("Tunnels", "moveRoute", [cid, t.hostname, t.path || "", dir]);
-      await this.load();
+      this.toast.ok("route reordered");
     } catch (err: any) {
       this.error = err?.message ?? "reorder failed";
+      await this.load(); // resync the true order
     }
+  };
+
+  private updateConnector = async (c: ConnectorView) => {
+    await this.proc.run(`update ${c.title || c.name}`, async (emit, signal) => {
+      let ok = true;
+      try {
+        emit("pulling latest cloudflared…");
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [c.id, "true", "true"], signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) {
+            ok = false;
+            emit("failed: " + (f.error ?? ""));
+          }
+        }
+        emit(ok ? "connector updated" : "done");
+      } catch (e: any) {
+        ok = false;
+        emit("connection lost — connector is restarting…");
+      }
+      return ok;
+    });
+    await this.load();
   };
 
   private removeRoute = async (t: TunnelView) => {
@@ -448,22 +482,27 @@ export class TunnelsPage extends LoomElement {
     const shown = q ? all.filter((t) => t.hostname.toLowerCase().includes(q) || (t.svc_name || "").toLowerCase().includes(q) || (t.project || "").toLowerCase().includes(q)) : all;
     return (
       <div class="cblock">
-        <div class="ccard">
-          <div class="chead">
-            <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
-            <span class="cname">{c.title || c.name}</span>
-            {c.default ? <span class="cdef">shared</span> : null}
-            {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.activeHostId()}</span> : null}
-            <span class="cstat">{c.status || (c.running ? "connecting" : "stopped")}</span>
-            <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
-            <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={14}></loom-icon></button>
+        <div class="chead">
+          <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
+          <div class="cwho">
+            <div class="cl1">
+              <span class="cname">{c.title || c.name}</span>
+              {c.default ? <span class="cdef">shared</span> : null}
+              {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.activeHostId()}</span> : null}
+            </div>
+            <div class="cl2">
+              <span class={c.online ? "ok" : c.running ? "warn" : "bad"}>{c.status || (c.running ? "connecting" : "stopped")}</span>
+              <span class="sep">·</span>{c.connections} conns
+              {c.colos && c.colos.length ? <span><span class="sep">·</span>edge {c.colos.join(" ")}</span> : null}
+              {c.version ? <span><span class="sep">·</span>{c.version}</span> : null}
+              <span class="sep">·</span>tunnel {short(c.tunnel_id)}
+              <span class="sep">·</span>{(c.networks || []).join(", ") || "no networks yet"}
+            </div>
           </div>
-          <div class="crows">
-            <div class="cm"><span class="cmk">routes</span><span class="cv">{c.routes}</span></div>
-            <div class="cm"><span class="cmk">edge conns</span><span class="cv">{c.connections}</span></div>
-            <div class="cm"><span class="cmk">tunnel</span><span class="cv" style="font-size:12px">{short(c.tunnel_id)}</span></div>
-          </div>
-          <div class="cfoot">{c.project ? `stack ${c.project} · ` : ""}{(c.networks || []).join(", ") || "no user networks yet"}</div>
+          <span class="cgrow"></span>
+          {c.update_ready ? <button class="caddr upd" title="a newer cloudflared is available — pull + recreate" onClick={() => this.updateConnector(c)}>update</button> : null}
+          <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
+          <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={15}></loom-icon></button>
         </div>
         {all.length === 0 ? (
           <div class="noroutes">No routes yet — <b>+ route</b> to publish a service through this connector.</div>

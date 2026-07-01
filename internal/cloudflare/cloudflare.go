@@ -195,9 +195,13 @@ func (c *Client) DeleteTunnel(ctx context.Context, tunnelID string) error {
 type TunnelDetail struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Status      string `json:"status"` // healthy | degraded | down | inactive
+	Status      string `json:"status"`     // healthy | degraded | down | inactive
+	CreatedAt   string `json:"created_at"` // when the tunnel was created
 	Connections []struct {
-		ColoName string `json:"colo_name"`
+		ColoName           string `json:"colo_name"`
+		ClientVersion      string `json:"client_version"` // cloudflared version
+		OpenedAt           string `json:"opened_at"`
+		IsPendingReconnect bool   `json:"is_pending_reconnect"`
 	} `json:"connections"`
 }
 

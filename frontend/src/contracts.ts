@@ -298,9 +298,13 @@ export interface ConnectorView {
   online: boolean;
   status: string; // healthy | degraded | down | inactive
   connections: number;
+  colos: string[] | null; // edge locations
+  version: string; // cloudflared version
+  created_at: string;
   project: string;
   networks: string[] | null;
   routes: number;
+  update_ready: boolean; // newer cloudflared image available
 }
 
 // TunnelView is one public route: a hostname served through a connector.

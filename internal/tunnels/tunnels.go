@@ -7,6 +7,7 @@ package tunnels
 import (
 	"errors"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 
@@ -58,9 +59,13 @@ type ConnectorView struct {
 	Online      bool     `json:"online"`      // tunnel healthy per Cloudflare
 	Status      string   `json:"status"`      // healthy | degraded | down | inactive
 	Connections int      `json:"connections"` // active edge connections
+	Colos       []string `json:"colos"`       // distinct edge locations (LAX, SJC…)
+	Version     string   `json:"version"`     // cloudflared version reported by a connection
+	CreatedAt   string   `json:"created_at"`  // tunnel creation time
 	Project     string   `json:"project"`     // set when the connector lives in a stack
 	Networks    []string `json:"networks"`
-	Routes      int      `json:"routes"` // ingress rules pointing through it
+	Routes      int      `json:"routes"`       // ingress rules pointing through it
+	UpdateReady bool     `json:"update_ready"` // a newer cloudflared image is available
 }
 
 // Connectors lists hope-managed connectors on the active host with tunnel status.
@@ -78,6 +83,7 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 		out[i] = ConnectorView{
 			ID: c.ContainerID, Name: c.Name, Title: c.Title, TunnelID: c.TunnelID,
 			Default: c.Default, Running: c.Running, Project: c.Project, Networks: c.Networks,
+			UpdateReady: r.dock().CachedStatus(c.Image) == "outdated",
 		}
 		wg.Add(1)
 		go func(i int, tunnelID string) {
@@ -86,6 +92,18 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 				out[i].Status = d.Status
 				out[i].Online = d.Status == "healthy" || d.Status == "degraded"
 				out[i].Connections = len(d.Connections)
+				out[i].CreatedAt = d.CreatedAt
+				seen := map[string]bool{}
+				for _, cn := range d.Connections {
+					if cn.ColoName != "" && !seen[cn.ColoName] {
+						seen[cn.ColoName] = true
+						out[i].Colos = append(out[i].Colos, cn.ColoName)
+					}
+					if out[i].Version == "" {
+						out[i].Version = cn.ClientVersion
+					}
+				}
+				sort.Strings(out[i].Colos)
 			}
 			if rules, err := r.cf.TunnelConfig(ctx, tunnelID); err == nil {
 				out[i].Routes = countRoutes(rules)
