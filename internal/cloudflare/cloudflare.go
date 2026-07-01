@@ -157,6 +157,40 @@ func withCatchAll(in []IngressRule) []IngressRule {
 	return append(out, IngressRule{Service: "http_status:404"})
 }
 
+// CreateTunnel creates a remotely-managed named tunnel and returns its id + the
+// connector run token (so hope can start a cloudflared for it).
+func (c *Client) CreateTunnel(ctx context.Context, name string) (id, token string, err error) {
+	var res struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	body := map[string]any{"name": name, "config_src": "cloudflare"}
+	if err = c.do(ctx, http.MethodPost, fmt.Sprintf("/accounts/%s/cfd_tunnel", c.accountID), body, &res); err != nil {
+		return "", "", err
+	}
+	token = res.Token
+	if token == "" { // some API versions omit the token on create; fetch it
+		if token, err = c.TunnelToken(ctx, res.ID); err != nil {
+			return "", "", err
+		}
+	}
+	return res.ID, token, nil
+}
+
+// TunnelToken returns a tunnel's connector run token.
+func (c *Client) TunnelToken(ctx context.Context, tunnelID string) (string, error) {
+	var token string
+	err := c.do(ctx, http.MethodGet,
+		fmt.Sprintf("/accounts/%s/cfd_tunnel/%s/token", c.accountID, tunnelID), nil, &token)
+	return token, err
+}
+
+// DeleteTunnel deletes a tunnel (must have no active connections).
+func (c *Client) DeleteTunnel(ctx context.Context, tunnelID string) error {
+	return c.do(ctx, http.MethodDelete,
+		fmt.Sprintf("/accounts/%s/cfd_tunnel/%s", c.accountID, tunnelID), nil, nil)
+}
+
 // TunnelDetail is the subset of a tunnel's status we surface.
 type TunnelDetail struct {
 	ID          string `json:"id"`

@@ -166,6 +166,60 @@ func (c *Client) DetachNetwork(ctx context.Context, containerID, netName string)
 	return err
 }
 
+// connectorImage is the cloudflared image hope deploys.
+const connectorImage = "cloudflare/cloudflared:latest"
+
+// DeployConnector pulls cloudflared and runs it as a hope-managed connector for
+// the given tunnel token, labeled so Connectors() discovers it. Returns the new
+// container id.
+func (c *Client) DeployConnector(ctx context.Context, name, tunnelID, token string, isDefault bool) (string, error) {
+	if err := c.PullImage(ctx, connectorImage); err != nil {
+		return "", err
+	}
+	labels := map[string]string{
+		labelTunnel:         tunnelID,
+		labelConnectorTitle: name,
+	}
+	if isDefault {
+		labels[labelConnectorFirst] = "1"
+	}
+	cfg := &container.Config{
+		Image:  connectorImage,
+		Cmd:    []string{"tunnel", "--no-autoupdate", "run", "--token", token},
+		Labels: labels,
+	}
+	host := &container.HostConfig{
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+	}
+	cname := "hope-connector-" + sanitizeName(name)
+	created, err := c.sdk().ContainerCreate(ctx, cfg, host, nil, nil, cname)
+	if err != nil {
+		return "", err
+	}
+	if err := c.sdk().ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		return "", err
+	}
+	return created.ID, nil
+}
+
+// sanitizeName makes a docker-safe container name suffix.
+func sanitizeName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-_")
+	if out == "" {
+		out = "cf"
+	}
+	return out
+}
+
 // EnsureTunnelsNetwork makes sure the fallback user-defined bridge exists (for
 // loose containers that only have the default bridge, which lacks name DNS).
 func (c *Client) EnsureTunnelsNetwork(ctx context.Context) (string, error) {
