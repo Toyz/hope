@@ -166,15 +166,39 @@ function aggMark(items: ContainerSummary[]): string {
   .tchip loom-icon { color: var(--ok); }
   .tchip b { color: var(--mid); font-weight: 600; }
   .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
-  /* public-routes modal rows */
-  .trow { display: flex; align-items: center; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
-  .trow:last-child { border-bottom: 0; }
-  .trow .th { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
-  .trow .th loom-icon { color: var(--ok); }
-  .trow .th:hover { text-decoration: underline; }
-  .trow .th .tp { color: var(--dim); }
-  .trow .tport { color: var(--dim); font: 12px/1 var(--mono); }
-  .rdx.del:hover { color: var(--bad); }
+  /* clean detail modal (mirrors the images/networks view) for public routes */
+  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); }
+  .dbox { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--ok); }
+  .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .dhead .dt { font: 600 13px/1.2 var(--mono); letter-spacing: .04em; color: var(--hi); }
+  .dhead .grow { flex: 1; }
+  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .dx:hover { color: var(--hi); }
+  .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
+  .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
+  .dfacts .sv.ok { color: var(--ok); }
+  .dfacts .sv.warn { color: var(--warn); }
+  .dfacts .sv.bad { color: var(--bad); }
+  .dbody { padding: 4px 18px 10px; }
+  .rroute { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .rroute:last-child { border-bottom: 0; }
+  .rroute .grow { flex: 1; }
+  .rhost { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
+  .rhost loom-icon { color: var(--ok); }
+  .rhost b { font-weight: 600; }
+  .rhost .dim { color: var(--dim); font-weight: 400; }
+  .rhost .rpath { color: var(--mid); margin-left: 2px; }
+  .rhost:hover { text-decoration: underline; }
+  .rport { color: var(--dim); font: 12px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .rrm { display: inline-grid; place-items: center; width: 26px; height: 26px; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+  .rrm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
+  .dacts { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .dacts .grow { flex: 1; }
+  .dacts .dnote { font: 11px/1 var(--mono); color: var(--dim); }
   tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -529,6 +553,14 @@ export class StackPage extends LoomElement {
     }
   };
 
+  private splitHost(host: string): { sub: string; domain: string } {
+    for (const z of this.tunnelZones) {
+      if (host === z.name) return { sub: "", domain: z.name };
+      if (host.endsWith("." + z.name)) return { sub: host.slice(0, -(z.name.length + 1)), domain: z.name };
+    }
+    return { sub: "", domain: "" };
+  }
+
   // Modal: all public routes for a service + the connector serving them.
   private renderTunnelModal() {
     const svc = this.tunnelModalSvc;
@@ -536,32 +568,46 @@ export class StackPage extends LoomElement {
     if (!routes.length) return null;
     const con = this.tunnelConnectors.find((c) => c.name === routes[0].connector);
     const svcPorts = (this.stack?.containers.find((c) => (c.service || c.name) === svc)?.ports) || [];
+    const conState = con ? (con.online ? "ok" : con.running ? "warn" : "bad") : "bad";
     return (
-      <div class="rdmodal" onClick={() => (this.tunnelModalSvc = "")}>
-        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="rdhead">
-            <loom-icon name="link" size={15} color="var(--ok)"></loom-icon>
-            <span class="rdt">public routes · {svc}</span>
+      <div class="dmodal" onClick={() => (this.tunnelModalSvc = "")}>
+        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt">public routes · {svc}</span>
             <span class="grow"></span>
-            <button class="rdx" onClick={() => (this.tunnelModalSvc = "")}><loom-icon name="x" size={15}></loom-icon></button>
+            <button class="dx" onClick={() => (this.tunnelModalSvc = "")}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           {con ? (
-            <p class="rdmsg">via <b>{con.title || con.name}</b> · {con.status || (con.running ? "connecting" : "stopped")} · {con.connections} edge conns{con.colos && con.colos.length ? ` · ${con.colos.join(" ")}` : ""} · tunnel {con.tunnel_id.slice(0, 12)}</p>
+            <div class="dfacts">
+              <span class="st"><i class="sk">connector</i><i class="sv">{con.title || con.name}</i></span>
+              <span class="st"><i class="sk">status</i><i class={"sv " + conState}>{con.status || (con.running ? "connecting" : "stopped")}</i></span>
+              <span class="st"><i class="sk">edge conns</i><i class="sv">{con.connections}</i></span>
+              {con.colos && con.colos.length ? <span class="st"><i class="sk">edge</i><i class="sv">{con.colos.join(" ")}</i></span> : null}
+              <span class="st"><i class="sk">tunnel</i><i class="sv">{con.tunnel_id.slice(0, 12)}</i></span>
+            </div>
           ) : null}
-          <div class="rdbody">
-            {routes.map((r) => (
-              <div class="trow">
-                <a class="th" href={`https://${r.hostname}`} target="_blank" rel="noreferrer"><loom-icon name="link" size={12}></loom-icon>{r.hostname}{r.path ? <span class="tp"> {r.path}</span> : null}</a>
-                <span class="grow"></span>
-                <span class="tport">:{r.port || "?"}</span>
-                <button class="rdx del" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={14}></loom-icon></button>
-              </div>
-            ))}
+          <div class="dbody">
+            {routes.map((r) => {
+              const { sub, domain } = this.splitHost(r.hostname);
+              return (
+                <div class="rroute">
+                  <a class="rhost" href={`https://${r.hostname}`} target="_blank" rel="noreferrer">
+                    <loom-icon name="link" size={12}></loom-icon>
+                    {domain && sub ? <span><b>{sub}</b><span class="dim">.{domain}</span></span> : domain ? <span class="dim">{domain}</span> : <span>{r.hostname}</span>}
+                    {r.path ? <span class="rpath">{r.path}</span> : null}
+                  </a>
+                  <span class="grow"></span>
+                  <span class="rport">:{r.port || "?"}</span>
+                  <button class="rrm" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={13}></loom-icon></button>
+                </div>
+              );
+            })}
           </div>
-          <div class="rdacts">
+          <div class="dacts">
+            <span class="dnote">{routes.length} route{routes.length === 1 ? "" : "s"}</span>
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.tunnelModalSvc = "")}>close</button>
-            <button class="tbtn warnbtn" onClick={() => { this.tunnelModalSvc = ""; this.addTunnel(svc, svcPorts); }}>add another</button>
+            <button class="tbtn" onClick={() => { this.tunnelModalSvc = ""; this.addTunnel(svc, svcPorts); }}>+ add route</button>
           </div>
         </div>
       </div>
