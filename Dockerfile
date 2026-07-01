@@ -50,6 +50,10 @@ COPY --from=build /hope-boot /usr/local/bin/hope-boot
 # scratch has no /etc/passwd; set HOME so ~/.docker/config.json resolves and
 # the conventional /root/.docker/config.json mount is found.
 ENV HOME=/root
+# Marks any container from this image (hope itself, hope-agent) as hope-managed,
+# so a recreate routes through the detached helper instead of a direct stop over
+# the very connection it provides — which would sever the tunnel mid-op (EOF).
+ENV HOPE_MANAGED=1
 EXPOSE 8080
 # hope-boot forwards these straight to hope (and intercepts `recreate` for updates).
 ENTRYPOINT ["hope-boot", "-config", "/app/config.toml"]

@@ -372,14 +372,34 @@ func (c *Client) isSelf(id string) bool {
 	return strings.HasPrefix(id, s) || strings.HasPrefix(s, id)
 }
 
-// RecreateManaged recreates a container, but if it's hope's OWN container it
-// hands the job to a detached helper so hope can be torn down and replaced
-// without killing the process mid-recreate (which would leave it gone).
+// RecreateManaged recreates a container, but if it's a hope-image container
+// (hope itself, or a hope-agent — anything carrying HOPE_MANAGED=1) it hands the
+// job to a detached helper. Recreating such a container directly would stop it
+// mid-request over the very connection it provides (hope's process, or the agent
+// tunnel), severing that connection before the recreate completes — the EOF.
+// Keyed on the image marker, not os.Hostname()-based self detection (which is
+// unreliable when the container runs with a custom --hostname or host network).
 func (c *Client) RecreateManaged(ctx context.Context, id string) error {
-	if c.isSelf(id) {
+	if c.isSelf(id) || c.isHopeManaged(ctx, id) {
 		return c.recreateDetached(ctx, id)
 	}
 	return c.Recreate(ctx, id)
+}
+
+// isHopeManaged reports whether a container was built from the hope image (it
+// carries the HOPE_MANAGED=1 env baked into that image). Such a container also
+// carries hope-boot, so the detached helper it spawns can do the recreate.
+func (c *Client) isHopeManaged(ctx context.Context, id string) bool {
+	info, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil || info.Config == nil {
+		return false
+	}
+	for _, e := range info.Config.Env {
+		if e == "HOPE_MANAGED=1" {
+			return true
+		}
+	}
+	return false
 }
 
 // recreateDetached launches a throwaway container from hope's (freshly pulled)
