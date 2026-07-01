@@ -8,6 +8,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
+import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
 import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView } from "../contracts";
 import { theme } from "../styles";
@@ -31,6 +32,9 @@ const UNGROUPED = "(ungrouped)";
   .ccard .cname { font: 700 13px/1 var(--mono); color: var(--hi); }
   .ccard .cdef { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
   .ccard .cstat { margin-left: auto; font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .ccard .caddr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
+    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 8px; }
+  .ccard .caddr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ccard .cx { background: transparent; border: 0; color: var(--dim); cursor: pointer; padding: 2px; display: flex; }
   .ccard .cx:hover { color: var(--bad); }
   .ccard .crows { display: flex; }
@@ -52,6 +56,7 @@ export class TunnelsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ProcService) accessor proc!: ProcService;
   @inject(PromptService) accessor prompt!: PromptService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -137,16 +142,20 @@ export class TunnelsPage extends LoomElement {
       fields,
     });
     if (!v) return;
-    this.busy = true;
-    try {
-      await this.targetHost(v);
-      await this.rpc.call<ConnectorView>("Tunnels", "createConnector", [v.name.trim()]);
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "deploy failed";
-    } finally {
-      this.busy = false;
-    }
+    await this.proc.run(`deploy connector ${v.name.trim()}`, async (emit) => {
+      try {
+        await this.targetHost(v);
+        emit("creating Cloudflare tunnel…");
+        emit("pulling cloudflared + starting (first pull can take a moment)…");
+        await this.rpc.call<ConnectorView>("Tunnels", "createConnector", [v.name.trim()]);
+        emit("connector deployed");
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    await this.load();
   };
 
   private removeConnector = async (c: ConnectorView) => {
@@ -157,12 +166,19 @@ export class TunnelsPage extends LoomElement {
       message: `Remove connector "${c.title || c.name}"? This stops and deletes the cloudflared container AND deletes its Cloudflare tunnel (${short(c.tunnel_id)}). Its routes stop working.`,
     });
     if (!del) return;
-    try {
-      await this.rpc.call<OpResult>("Tunnels", "removeConnector", [c.id, true]);
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "remove failed";
-    }
+    await this.proc.run(`remove connector ${c.title || c.name}`, async (emit) => {
+      try {
+        emit("stopping + removing cloudflared…");
+        emit("deleting Cloudflare tunnel…");
+        await this.rpc.call<OpResult>("Tunnels", "removeConnector", [c.id, true]);
+        emit("removed");
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    await this.load();
   };
 
   private removeRoute = async (t: TunnelView) => {
@@ -173,12 +189,18 @@ export class TunnelsPage extends LoomElement {
       message: `Remove the route ${t.hostname}? Drops the tunnel ingress rule and deletes its DNS record.`,
     });
     if (!ok) return;
-    try {
-      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [t.hostname]);
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "remove failed";
-    }
+    await this.proc.run(`remove route ${t.hostname}`, async (emit) => {
+      try {
+        emit("dropping ingress rule + DNS…");
+        await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [t.hostname]);
+        emit("removed");
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    await this.load();
   };
 
   // Every stack service + every loose container, flattened so the dialog is one
@@ -202,42 +224,44 @@ export class TunnelsPage extends LoomElement {
     return out;
   }
 
-  private addRoute = async () => {
-    if (!this.connectors.length) return;
-    const def = this.connectors.find((c) => c.default) || this.connectors[0];
-    const fields: PromptField[] = [];
-    const hf = this.hostField();
-    if (hf) fields.push(hf);
-    fields.push(
-      { key: "connector", label: "connector", type: "select", value: def.id, options: this.connectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
-      { key: "target", label: "target (stack service or loose container)", type: "select", placeholder: "—", options: this.targetOptions() },
-      { key: "port", label: "port", placeholder: "8080" },
-      { key: "host_name", label: "hostname", placeholder: "blog.example.com" },
-    );
+  // A route belongs to a connector, so this is a per-connector action — the
+  // connector (and thus its host) is implied, not a field.
+  private addRoute = async (c: ConnectorView) => {
     const v = await this.prompt.ask({
-      title: "add route",
+      title: `add route · ${c.title || c.name}`,
       icon: "link",
       message: "hope attaches the connector to the target's network, updates the tunnel ingress, and creates the DNS record.",
       submitLabel: "Add route",
-      fields,
+      fields: [
+        { key: "target", label: "target (stack service or loose container)", type: "select", placeholder: "—", options: this.targetOptions() },
+        { key: "port", label: "port", placeholder: "8080" },
+        { key: "host_name", label: "hostname", placeholder: "blog.example.com" },
+      ],
     });
     if (!v) return;
     const [kind, a, b] = v.target.split("::");
     const project = kind === "svc" ? a : "";
     const service = kind === "svc" ? b : "";
     const container = kind === "ct" ? a : "";
-    try {
-      await this.targetHost(v);
-      const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [v.host_name.trim().toLowerCase(), v.port.trim(), v.connector, project, service, container]);
-      if (res && res.ok === false) {
-        this.error = res.error || "add failed";
-        return;
+    const host = v.host_name.trim().toLowerCase();
+    await this.proc.run(`add route ${host}`, async (emit) => {
+      try {
+        emit("attaching connector to the target's network…");
+        emit("updating tunnel ingress + DNS…");
+        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), c.id, project, service, container]);
+        if (res && res.ok === false) {
+          emit("failed: " + (res.error || "error"));
+          return false;
+        }
+        if ((res as any)?.reattached) emit("reattached replicas for load-balancing");
+        emit(`route live -> ${(res as any)?.origin || service || container}`);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
       }
-      this.error = "";
-      await this.load();
-    } catch (err: any) {
-      this.error = err?.message ?? "add failed";
-    }
+    });
+    await this.load();
   };
 
   private logout = () => {
@@ -260,9 +284,6 @@ export class TunnelsPage extends LoomElement {
           <div class="grow"></div>
           {!this.disabled && this.loaded ? (
             <div class="s act"><button disabled={this.busy} onClick={this.deployConnector}>deploy connector</button></div>
-          ) : null}
-          {!this.disabled && this.connectors.length > 0 ? (
-            <div class="s act"><button onClick={this.addRoute}>add route</button></div>
           ) : null}
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
@@ -298,6 +319,7 @@ export class TunnelsPage extends LoomElement {
                       <span class="cname">{c.title || c.name}</span>
                       {c.default ? <span class="cdef">shared</span> : null}
                       <span class="cstat">{c.status || (c.running ? "connecting" : "stopped")}</span>
+                      <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
                       <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={14}></loom-icon></button>
                     </div>
                     <div class="crows">

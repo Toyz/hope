@@ -13,6 +13,7 @@ import { PromptService } from "./prompt";
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
 import "./components/prompt-modal"; // reusable input dialog (<hope-prompt>)
+import "./components/select"; // reusable custom dropdown (<hope-select>)
 import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
 import "./app";
