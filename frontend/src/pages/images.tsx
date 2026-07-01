@@ -21,7 +21,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
-  .bar .back { color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .back:hover { color: var(--hi); }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .grow { flex: 1; }

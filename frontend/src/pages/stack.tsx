@@ -161,20 +161,20 @@ function aggMark(items: ContainerSummary[]): string {
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
-  .tchipwrap { position: relative; display: inline-flex; }
   .tchip { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 var(--mono); cursor: pointer;
     color: var(--ok); background: transparent; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
   .tchip loom-icon { color: var(--ok); }
   .tchip b { color: var(--mid); font-weight: 600; }
   .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
-  .tmenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 200px;
-    background: var(--panel); border: 1px solid var(--line2); }
-  .tmitem { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line);
-    color: var(--hi); text-decoration: none; font: 12px/1 var(--mono); white-space: nowrap; }
-  .tmitem:last-child { border-bottom: 0; }
-  .tmitem loom-icon { color: var(--ok); }
-  .tmitem:hover { background: var(--raised); }
-  .tmitem .pth { color: var(--dim); }
+  /* public-routes modal rows */
+  .trow { display: flex; align-items: center; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
+  .trow:last-child { border-bottom: 0; }
+  .trow .th { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
+  .trow .th loom-icon { color: var(--ok); }
+  .trow .th:hover { text-decoration: underline; }
+  .trow .th .tp { color: var(--dim); }
+  .trow .tport { color: var(--dim); font: 12px/1 var(--mono); }
+  .rdx.del:hover { color: var(--bad); }
   tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -300,7 +300,7 @@ export class StackPage extends LoomElement {
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
-  @reactive accessor openChip = ""; // service whose public-routes menu is open
+  @reactive accessor tunnelModalSvc = ""; // service whose public-routes modal is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
   @reactive accessor rdPull = true; // "pull latest" toggle (default on)
@@ -356,7 +356,6 @@ export class StackPage extends LoomElement {
   private closeMenu = () => {
     this.menuOpen = false;
     this.openRow = "";
-    this.openChip = "";
   };
 
   // Common actions stay visible as icons; only kill hides in the kebab menu.
@@ -512,26 +511,60 @@ export class StackPage extends LoomElement {
     const routes = this.routesForService(service);
     if (!routes.length) return null;
     const first = routes[0];
-    const open = this.openChip === service;
     return (
-      <span class="tchipwrap">
-        <button
-          class="tchip"
-          title="public routes"
-          onClick={(e: Event) => { e.stopPropagation(); this.openChip = open ? "" : service; }}
-        >
-          <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
-        </button>
-        {open ? (
-          <div class="tmenu" onClick={(e: Event) => e.stopPropagation()}>
+      <button class="tchip" title="public routes" onClick={(e: Event) => { e.stopPropagation(); this.tunnelModalSvc = service; }}>
+        <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
+      </button>
+    );
+  }
+
+  private removeRoute = async (hostname: string, path: string) => {
+    const ok = await this.confirm.ask({ title: "remove route", danger: true, confirmLabel: "Remove", message: `Remove the route ${hostname}?` });
+    if (!ok) return;
+    try {
+      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
+      await this.loadTunnels();
+    } catch (err: any) {
+      this.showToast(err?.message ?? "remove failed", "bad");
+    }
+  };
+
+  // Modal: all public routes for a service + the connector serving them.
+  private renderTunnelModal() {
+    const svc = this.tunnelModalSvc;
+    const routes = this.routesForService(svc);
+    if (!routes.length) return null;
+    const con = this.tunnelConnectors.find((c) => c.name === routes[0].connector);
+    const svcPorts = (this.stack?.containers.find((c) => (c.service || c.name) === svc)?.ports) || [];
+    return (
+      <div class="rdmodal" onClick={() => (this.tunnelModalSvc = "")}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name="link" size={15} color="var(--ok)"></loom-icon>
+            <span class="rdt">public routes · {svc}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.tunnelModalSvc = "")}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          {con ? (
+            <p class="rdmsg">via <b>{con.title || con.name}</b> · {con.status || (con.running ? "connecting" : "stopped")} · {con.connections} edge conns{con.colos && con.colos.length ? ` · ${con.colos.join(" ")}` : ""} · tunnel {con.tunnel_id.slice(0, 12)}</p>
+          ) : null}
+          <div class="rdbody">
             {routes.map((r) => (
-              <a class="tmitem" href={`https://${r.hostname}`} target="_blank" rel="noreferrer">
-                <loom-icon name="link" size={11}></loom-icon>{r.hostname}{r.path ? <span class="pth">{r.path}</span> : null}
-              </a>
+              <div class="trow">
+                <a class="th" href={`https://${r.hostname}`} target="_blank" rel="noreferrer"><loom-icon name="link" size={12}></loom-icon>{r.hostname}{r.path ? <span class="tp"> {r.path}</span> : null}</a>
+                <span class="grow"></span>
+                <span class="tport">:{r.port || "?"}</span>
+                <button class="rdx del" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={14}></loom-icon></button>
+              </div>
             ))}
           </div>
-        ) : null}
-      </span>
+          <div class="rdacts">
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.tunnelModalSvc = "")}>close</button>
+            <button class="tbtn warnbtn" onClick={() => { this.tunnelModalSvc = ""; this.addTunnel(svc, svcPorts); }}>add another</button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1144,6 +1177,7 @@ export class StackPage extends LoomElement {
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
         {this.pullOpen && s ? this.renderPull(s) : null}
+        {this.tunnelModalSvc ? this.renderTunnelModal() : null}
       </div>
     );
   }
