@@ -274,6 +274,9 @@ export class Tunnels {
   removeTunnel(_hostname: string, _path: string): OpResult {
     return undefined!;
   }
+  moveRoute(_connector: string, _hostname: string, _path: string, _dir: string): OpResult {
+    return undefined!;
+  }
   zones(): ZoneView[] {
     return undefined!;
   }

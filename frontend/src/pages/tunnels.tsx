@@ -31,8 +31,9 @@ const innerPort = (p: string): string => {
   ${theme}
   ${resourceStyles}
 
-  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; margin-bottom: 22px; }
-  .ccard { border: 1px solid var(--line); }
+  /* a connector and the routes it owns are one bordered unit */
+  .cblock { border: 1px solid var(--line); margin-bottom: 22px; }
+  .ccard { border: 0; }
   .ccard .chead { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
   .ccard .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
   .ccard .cdot.off { background: var(--bad); }
@@ -55,10 +56,23 @@ const innerPort = (p: string): string => {
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
   td.origin .svc { color: var(--dim); }
-  td.rx { text-align: right; }
-  .rmx { background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; padding: 5px 7px; display: inline-flex; }
-  .rmx:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
+  .cblock .rtbl { border: 0; border-top: 1px solid var(--line2); }
+  .cblock .rtbl thead th { background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  colgroup col.c-port { width: 90px; }
+  colgroup col.c-act { width: 132px; }
+  .noroutes { padding: 13px 16px; border-top: 1px solid var(--line2); color: var(--dim); font: 12.5px/1.6 var(--mono); }
+  td.rx { text-align: right; white-space: nowrap; }
+  .ord { display: inline-flex; margin-right: 6px; vertical-align: middle; }
+  .ord loom-icon.up { transform: rotate(180deg); }
+  .rmx { background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; padding: 5px 6px; display: inline-flex; }
+  .rmx:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .ord .rmx:hover { color: var(--upd); }
+  .rmx.del:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+  .rmx:disabled { opacity: .3; cursor: not-allowed; }
+  .rmx:disabled:hover { color: var(--dim); border-color: transparent; background: transparent; }
   .disabled { padding: 40px; text-align: center; color: var(--dim); font: 13px/1.7 var(--mono); }
+  .chost { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; }
 `)
 export class TunnelsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -79,9 +93,15 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor error = "";
   @reactive accessor disabled = false;
   @reactive accessor busy = false;
+  @reactive accessor hostQuery = "";
 
   get fleetMode() {
     return localStorage.getItem("hope.fleet") === "1";
+  }
+
+  // The host these connectors were listed from (Connectors runs on the active host).
+  private activeHostId() {
+    return this.hosts.find((h) => h.active)?.id || "local";
   }
 
   @mount
@@ -192,6 +212,22 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
+  private duplicateRoute = (t: TunnelView) => {
+    const c = this.connectors.find((x) => x.name === t.connector);
+    if (c) this.addRoute(c, this.routeInit(t));
+  };
+
+  private moveRoute = async (t: TunnelView, dir: "up" | "down") => {
+    const cid = this.connectors.find((c) => c.name === t.connector)?.id;
+    if (!cid) return;
+    try {
+      await this.rpc.call<OpResult>("Tunnels", "moveRoute", [cid, t.hostname, t.path || "", dir]);
+      await this.load();
+    } catch (err: any) {
+      this.error = err?.message ?? "reorder failed";
+    }
+  };
+
   private removeRoute = async (t: TunnelView) => {
     const ok = await this.confirm.ask({
       title: "remove route",
@@ -252,26 +288,50 @@ export class TunnelsPage extends LoomElement {
     return "";
   }
 
+  // Split a hostname into subdomain + a known zone (domain), for prefilling.
+  private splitHost(host: string): { sub: string; domain: string } {
+    for (const z of this.zones) {
+      if (host === z.name) return { sub: "", domain: z.name };
+      if (host.endsWith("." + z.name)) return { sub: host.slice(0, -(z.name.length + 1)), domain: z.name };
+    }
+    return { sub: "", domain: "" };
+  }
+
+  // Build add-route initial values from an existing route (for "duplicate").
+  private routeInit(t: TunnelView): Record<string, string> {
+    const stack = t.project || (t.container ? UNGROUPED : "");
+    let target = "";
+    if (t.project && t.svc_name) target = ["svc", t.project, t.svc_name].join("::");
+    else if (t.container) {
+      const loose = this.stacks.find((s) => s.project === UNGROUPED);
+      const ct = loose?.containers.find((c) => c.name === t.container);
+      if (ct) target = ["ct", ct.id].join("::");
+    }
+    const { sub, domain } = this.splitHost(t.hostname);
+    return { stack, target, port: t.port || "", sub, domain, host_name: domain ? "" : t.hostname, path: t.path || "" };
+  }
+
   // A route belongs to a connector, so this is a per-connector action — the
-  // connector (and thus its host) is implied, not a field.
-  private addRoute = async (c: ConnectorView) => {
+  // connector (and thus its host) is implied, not a field. `init` prefills the
+  // dialog (used by "duplicate").
+  private addRoute = async (c: ConnectorView, init: Record<string, string> = {}) => {
     const haveZones = this.zones.length > 0;
     const v = await this.prompt.ask({
-      title: `add route · ${c.title || c.name}`,
+      title: `${init.target ? "duplicate route" : "add route"} · ${c.title || c.name}`,
       icon: "link",
       message: "hope attaches the connector to the target's network, updates the tunnel ingress, and creates the DNS record.",
       submitLabel: "Add route",
       fields: [
-        { key: "stack", label: "stack", type: "select", placeholder: "pick a stack", options: this.stackOptions() },
-        { key: "target", label: "service", type: "select", placeholder: "pick a service", dependsOn: "stack", optionsFrom: (vals) => this.serviceOptions(vals.stack) },
-        { key: "port", label: "port", placeholder: "8080", dependsOn: "target", defaultFrom: (vals) => this.portForTarget(vals.target) },
+        { key: "stack", label: "stack", type: "select", placeholder: "pick a stack", value: init.stack, options: this.stackOptions() },
+        { key: "target", label: "service", type: "select", placeholder: "pick a service", value: init.target, dependsOn: "stack", optionsFrom: (vals) => this.serviceOptions(vals.stack) },
+        { key: "port", label: "port", placeholder: "8080", value: init.port, dependsOn: "target", defaultFrom: (vals) => this.portForTarget(vals.target) },
         ...(haveZones
           ? ([
-              { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: "blog" },
-              { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", options: this.zones.map((z) => ({ value: z.name, label: z.name })) },
+              { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: "blog", value: init.sub },
+              { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", value: init.domain, options: this.zones.map((z) => ({ value: z.name, label: z.name })) },
             ] as const)
-          : ([{ key: "host_name", label: "hostname", placeholder: "blog.example.com" }] as const)),
-        { key: "path", label: "path (optional)", optional: true, placeholder: "/api" },
+          : ([{ key: "host_name", label: "hostname", placeholder: "blog.example.com", value: init.host_name }] as const)),
+        { key: "path", label: "path (optional)", optional: true, placeholder: "/api", value: init.path },
       ],
     });
     if (!v) return;
@@ -352,65 +412,86 @@ export class TunnelsPage extends LoomElement {
             </div>
           ) : null}
 
-          {this.connectors.length > 0 ? (
-            <div>
-              <p class="seclbl">Connectors</p>
-              <div class="cgrid">
-                {this.connectors.map((c) => (
-                  <div class="ccard">
-                    <div class="chead">
-                      <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
-                      <span class="cname">{c.title || c.name}</span>
-                      {c.default ? <span class="cdef">shared</span> : null}
-                      <span class="cstat">{c.status || (c.running ? "connecting" : "stopped")}</span>
-                      <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
-                      <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={14}></loom-icon></button>
-                    </div>
-                    <div class="crows">
-                      <div class="cm"><span class="cmk">routes</span><span class="cv">{c.routes}</span></div>
-                      <div class="cm"><span class="cmk">edge conns</span><span class="cv">{c.connections}</span></div>
-                      <div class="cm"><span class="cmk">tunnel</span><span class="cv" style="font-size:12px">{short(c.tunnel_id)}</span></div>
-                    </div>
-                    <div class="cfoot">{c.project ? `stack ${c.project} · ` : ""}{(c.networks || []).join(", ") || "no user networks yet"}</div>
-                  </div>
-                ))}
-              </div>
+          {!this.disabled && this.routes.length > 3 ? (
+            <div class="search">
+              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
+              <input type="text" placeholder="Filter routes by hostname…" value={this.hostQuery} onInput={(e: any) => (this.hostQuery = e.target.value)} />
             </div>
           ) : null}
 
-          {this.routes.length > 0 ? (
-            <div>
-              <p class="seclbl">Routes</p>
-              <table>
-                <colgroup>
-                  <col class="c-name" />
-                  <col class="c-meta" />
-                  <col class="c-meta" />
-                  <col class="c-meta" />
-                  <col class="c-act" />
-                </colgroup>
-                <thead>
-                  <tr><th>Hostname</th><th>Target</th><th>Port</th><th>Connector</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {this.routes.map((t) => (
-                    <tr>
-                      <td class="host"><a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{t.hostname}</a>{t.path ? <span class="svc"> {t.path}</span> : null}</td>
-                      <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
-                      <td class="rmeta">{t.port || "—"}</td>
-                      <td class="rmeta">{t.connector}</td>
-                      <td class="rx"><button class="rmx" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          {this.connectors.map((c) => this.renderConnector(c))}
 
           {!this.disabled && this.loaded && this.connectors.length === 0 && !this.error ? (
             <div class="empty">No connectors yet. <b>Deploy connector</b> lets hope create a Cloudflare tunnel and run cloudflared for you.</div>
           ) : null}
         </main>
+      </div>
+    );
+  }
+
+  // One connector block: its card, then the routes it serves (ingress order).
+  private renderConnector(c: ConnectorView) {
+    const all = this.routes.filter((t) => t.connector === c.name);
+    const q = this.hostQuery.trim().toLowerCase();
+    const shown = q ? all.filter((t) => t.hostname.toLowerCase().includes(q) || (t.svc_name || "").toLowerCase().includes(q) || (t.project || "").toLowerCase().includes(q)) : all;
+    return (
+      <div class="cblock">
+        <div class="ccard">
+          <div class="chead">
+            <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
+            <span class="cname">{c.title || c.name}</span>
+            {c.default ? <span class="cdef">shared</span> : null}
+            {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.activeHostId()}</span> : null}
+            <span class="cstat">{c.status || (c.running ? "connecting" : "stopped")}</span>
+            <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
+            <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={14}></loom-icon></button>
+          </div>
+          <div class="crows">
+            <div class="cm"><span class="cmk">routes</span><span class="cv">{c.routes}</span></div>
+            <div class="cm"><span class="cmk">edge conns</span><span class="cv">{c.connections}</span></div>
+            <div class="cm"><span class="cmk">tunnel</span><span class="cv" style="font-size:12px">{short(c.tunnel_id)}</span></div>
+          </div>
+          <div class="cfoot">{c.project ? `stack ${c.project} · ` : ""}{(c.networks || []).join(", ") || "no user networks yet"}</div>
+        </div>
+        {all.length === 0 ? (
+          <div class="noroutes">No routes yet — <b>+ route</b> to publish a service through this connector.</div>
+        ) : shown.length === 0 ? (
+          <div class="noroutes">No routes match "{this.hostQuery}".</div>
+        ) : (
+          <table class="rtbl">
+            <colgroup>
+              <col class="c-name" />
+              <col class="c-meta" />
+              <col class="c-port" />
+              <col class="c-act" />
+            </colgroup>
+            <thead>
+              <tr><th>Hostname</th><th>Target</th><th>Port</th><th></th></tr>
+            </thead>
+            <tbody>
+              {shown.map((t) => {
+                const idx = all.indexOf(t);
+                return (
+                  <tr>
+                    <td class="host"><a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{t.hostname}</a>{t.path ? <span class="svc"> {t.path}</span> : null}</td>
+                    <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
+                    <td class="rmeta">{t.port || "—"}</td>
+                    <td class="rx">
+                      {all.length > 1 ? (
+                        <span class="ord">
+                          <button class="rmx" title="move up" disabled={idx === 0} onClick={() => this.moveRoute(t, "up")}><loom-icon class="up" name="chevron-down" size={13}></loom-icon></button>
+                          <button class="rmx" title="move down" disabled={idx === all.length - 1} onClick={() => this.moveRoute(t, "down")}><loom-icon name="chevron-down" size={13}></loom-icon></button>
+                        </span>
+                      ) : null}
+                      <button class="rmx" title="duplicate route" onClick={() => this.duplicateRoute(t)}><loom-icon name="copy" size={13}></loom-icon></button>
+                      <button class="rmx del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     );
   }

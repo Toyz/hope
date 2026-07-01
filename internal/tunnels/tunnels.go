@@ -334,6 +334,61 @@ func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*
 	return nil, rpc.NotFound("no route for %q", host)
 }
 
+// MoveRouteParams reorders a route within its connector's ingress (order matters
+// — Cloudflare matches top-down, first match wins).
+type MoveRouteParams struct {
+	Connector string `sov:"connector,0,required" json:"connector"`
+	Hostname  string `sov:"hostname,1,required" json:"hostname"`
+	Path      string `sov:"path,2" json:"path"`
+	Dir       string `sov:"dir,3,required" json:"dir"` // "up" | "down"
+}
+
+// MoveRoute swaps a route with its neighbour in the connector's ingress order.
+func (r *TunnelsRouter) MoveRoute(ctx *rpc.Context, p *MoveRouteParams) (*OpResult, error) {
+	if err := r.enabled(ctx); err != nil {
+		return nil, err
+	}
+	con, ok := r.findConnector(ctx, p.Connector)
+	if !ok {
+		return nil, rpc.NotFound("connector not found")
+	}
+	rules, err := r.cf.TunnelConfig(ctx, con.TunnelID)
+	if err != nil {
+		return nil, rpc.Internal("read tunnel config: %v", err)
+	}
+	// Work on the ordered non-catch-all list.
+	list := make([]cloudflare.IngressRule, 0, len(rules))
+	for _, rule := range rules {
+		if rule.Hostname != "" {
+			list = append(list, rule)
+		}
+	}
+	host := strings.ToLower(strings.TrimSpace(p.Hostname))
+	path := normalizePath(p.Path)
+	idx := -1
+	for i, rule := range list {
+		if rule.Hostname == host && rule.Path == path {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, rpc.NotFound("no route for %q", host)
+	}
+	swap := idx - 1
+	if p.Dir == "down" {
+		swap = idx + 1
+	}
+	if swap < 0 || swap >= len(list) {
+		return &OpResult{OK: true}, nil // already at the edge — no-op
+	}
+	list[idx], list[swap] = list[swap], list[idx]
+	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, list); err != nil {
+		return nil, rpc.Internal("update tunnel config: %v", err)
+	}
+	return &OpResult{OK: true}, nil
+}
+
 // resolveOrigin returns the ingress origin host, the network to attach the
 // connector to, and whether replicas were reattached to add an alias.
 func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p *AddTunnelParams) (origin, netName string, reattached bool, err error) {

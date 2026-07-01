@@ -58,10 +58,30 @@ export class HopeSelect extends LoomElement {
     if (this.open) this.open = false;
   };
 
+  private openMenu(seed = "") {
+    this.query = seed;
+    this.open = true;
+    // Focus the filter box (if this list is searchable) so typing continues there.
+    setTimeout(() => this.shadowRoot?.querySelector<HTMLInputElement>(".msearch")?.focus(), 0);
+  }
+
   private toggle = (e: Event) => {
     e.stopPropagation();
-    this.query = "";
-    this.open = !this.open;
+    if (this.open) this.open = false;
+    else this.openMenu();
+  };
+
+  // Type-to-open: a printable key while the (focused) trigger is closed opens the
+  // menu and seeds the filter, so you can search without clicking first.
+  private onKey = (e: KeyboardEvent) => {
+    if (this.open || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+      e.preventDefault();
+      this.openMenu();
+    } else if (this.options.length > 6 && e.key.length === 1 && e.key.trim()) {
+      e.preventDefault();
+      this.openMenu(e.key);
+    }
   };
 
   private pick = (v: string, e: Event) => {
@@ -77,7 +97,7 @@ export class HopeSelect extends LoomElement {
     const shown = q ? this.options.filter((o) => o.label.toLowerCase().includes(q)) : this.options;
     return (
       <div>
-        <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle}>
+        <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle} onKeyDown={this.onKey}>
           <span class={"lbl" + (cur ? "" : " ph")}>{cur ? cur.label : this.placeholder}</span>
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
