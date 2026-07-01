@@ -22,6 +22,7 @@ import "./pages/images";
 import "./pages/networks";
 import "./pages/volumes";
 import "./pages/agents";
+import "./pages/tunnels";
 
 app.use(AuthStore);
 app.use(ConfirmService);

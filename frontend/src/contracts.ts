@@ -254,6 +254,45 @@ export class System {
   }
 }
 
+@service("Tunnels")
+export class Tunnels {
+  connectors(): ConnectorView[] {
+    return undefined!;
+  }
+  tunnels(): TunnelView[] {
+    return undefined!;
+  }
+}
+
+// ConnectorView is one cloudflared connector (container) + live tunnel status.
+export interface ConnectorView {
+  id: string;
+  name: string;
+  title: string;
+  tunnel_id: string;
+  default: boolean;
+  running: boolean;
+  online: boolean;
+  status: string; // healthy | degraded | down | inactive
+  connections: number;
+  project: string;
+  networks: string[] | null;
+  routes: number;
+}
+
+// TunnelView is one public route: a hostname served through a connector.
+export interface TunnelView {
+  hostname: string;
+  path?: string;
+  service: string; // raw ingress origin, e.g. http://blog-web-1:8080
+  connector: string;
+  tunnel_id: string;
+  project: string;
+  svc_name: string;
+  container: string;
+  port: string;
+}
+
 // AgentView is one connected agent's detail (build info + daemon + counts).
 export interface AgentView {
   id: string;

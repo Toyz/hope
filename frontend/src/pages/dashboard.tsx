@@ -607,6 +607,7 @@ export class DashboardPage extends LoomElement {
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/tunnels")}>tunnels</span></div>
           <div class="grow"></div>
           <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{hosts}</span></span></div>
           <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
@@ -751,6 +752,7 @@ export class DashboardPage extends LoomElement {
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/networks")}>networks</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/tunnels")}>tunnels</span></div>
           <div class="grow"></div>
           <div class="s"><span class="k">stacks</span><span class="v">{vis.length}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>

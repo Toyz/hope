@@ -167,6 +167,7 @@ export class NetworksPage extends LoomElement {
           <div class="s nav"><span class="navlink on" onClick={() => this.router.navigate("/networks")}>networks</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/volumes")}>volumes</span></div>
           <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/agents")}>agents</span></div>
+          <div class="s nav"><span class="navlink" onClick={() => this.router.navigate("/tunnels")}>tunnels</span></div>
           <div class="grow"></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
