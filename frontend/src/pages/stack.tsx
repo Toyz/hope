@@ -177,14 +177,16 @@ function aggMark(items: ContainerSummary[]): string {
   .dx:hover { color: var(--hi); }
   .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
   .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .st:last-child { border-right: 0; }
   .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
   .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
   .dfacts .sv.ok { color: var(--ok); }
   .dfacts .sv.warn { color: var(--warn); }
   .dfacts .sv.bad { color: var(--bad); }
-  .dbody { padding: 4px 18px 10px; }
-  .rroute { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .dbody { padding: 4px 8px 10px; }
+  .rroute { display: flex; align-items: center; gap: 10px; padding: 11px 10px; border-bottom: 1px solid var(--line); }
   .rroute:last-child { border-bottom: 0; }
+  .rroute:hover { background: var(--raised); }
   .rroute .grow { flex: 1; }
   .rhost { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
   .rhost loom-icon { color: var(--ok); }
