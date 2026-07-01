@@ -161,11 +161,20 @@ function aggMark(items: ContainerSummary[]): string {
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
-  .tchip { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 var(--mono); text-decoration: none;
-    color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
+  .tchipwrap { position: relative; display: inline-flex; }
+  .tchip { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 var(--mono); cursor: pointer;
+    color: var(--ok); background: transparent; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
   .tchip loom-icon { color: var(--ok); }
   .tchip b { color: var(--mid); font-weight: 600; }
   .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
+  .tmenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 200px;
+    background: var(--panel); border: 1px solid var(--line2); }
+  .tmitem { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line);
+    color: var(--hi); text-decoration: none; font: 12px/1 var(--mono); white-space: nowrap; }
+  .tmitem:last-child { border-bottom: 0; }
+  .tmitem loom-icon { color: var(--ok); }
+  .tmitem:hover { background: var(--raised); }
+  .tmitem .pth { color: var(--dim); }
   tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -291,6 +300,7 @@ export class StackPage extends LoomElement {
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
+  @reactive accessor openChip = ""; // service whose public-routes menu is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
   @reactive accessor rdPull = true; // "pull latest" toggle (default on)
@@ -346,6 +356,7 @@ export class StackPage extends LoomElement {
   private closeMenu = () => {
     this.menuOpen = false;
     this.openRow = "";
+    this.openChip = "";
   };
 
   // Common actions stay visible as icons; only kill hides in the kebab menu.
@@ -501,17 +512,26 @@ export class StackPage extends LoomElement {
     const routes = this.routesForService(service);
     if (!routes.length) return null;
     const first = routes[0];
+    const open = this.openChip === service;
     return (
-      <a
-        class="tchip"
-        href={`https://${first.hostname}`}
-        target="_blank"
-        rel="noreferrer"
-        title={routes.map((r) => r.hostname).join(", ")}
-        onClick={(e: Event) => e.stopPropagation()}
-      >
-        <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
-      </a>
+      <span class="tchipwrap">
+        <button
+          class="tchip"
+          title="public routes"
+          onClick={(e: Event) => { e.stopPropagation(); this.openChip = open ? "" : service; }}
+        >
+          <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
+        </button>
+        {open ? (
+          <div class="tmenu" onClick={(e: Event) => e.stopPropagation()}>
+            {routes.map((r) => (
+              <a class="tmitem" href={`https://${r.hostname}`} target="_blank" rel="noreferrer">
+                <loom-icon name="link" size={11}></loom-icon>{r.hostname}{r.path ? <span class="pth">{r.path}</span> : null}
+              </a>
+            ))}
+          </div>
+        ) : null}
+      </span>
     );
   }
 
