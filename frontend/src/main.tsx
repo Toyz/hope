@@ -8,9 +8,11 @@ import { AuthStore } from "./auth-store";
 import { HopeTransport } from "./transport";
 import { ConfirmService } from "./confirm";
 import { ProcService } from "./proc";
+import { PromptService } from "./prompt";
 
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
+import "./components/prompt-modal"; // reusable input dialog (<hope-prompt>)
 import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
 import "./app";
@@ -27,6 +29,7 @@ import "./pages/tunnels";
 app.use(AuthStore);
 app.use(ConfirmService);
 app.use(ProcService);
+app.use(PromptService);
 
 // Register the transport under both its concrete class (so components inject a
 // typed HopeTransport, incl. streamWithSignal) and the abstract RpcTransport
