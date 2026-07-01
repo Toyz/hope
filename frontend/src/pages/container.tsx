@@ -115,11 +115,12 @@ const MAX_LINES = 600;
   .ov .v.bad { color: var(--bad); }
   .ov .v.slink { color: var(--hi); cursor: pointer; }
   .ov .v.slink:hover { color: #fff; text-decoration: underline; }
-  .ov .v .hlink { display: inline-flex; align-items: center; gap: 5px; background: transparent; border: 0; padding: 0;
-    color: inherit; font: inherit; cursor: pointer; }
-  .ov .v .hlink loom-icon { color: var(--dim); }
-  .ov .v .hlink:hover { text-decoration: underline; }
-  .ov .v .hlink:hover loom-icon { color: var(--hi); }
+  .ov .v .hlink { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; background: transparent; cursor: pointer;
+    color: inherit; font: 600 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    border: 1px solid color-mix(in srgb, currentColor 35%, var(--line)); transition: background .1s; }
+  .ov .v .hlink loom-icon { color: currentColor; opacity: .65; }
+  .ov .v .hlink:hover { background: color-mix(in srgb, currentColor 13%, transparent); }
+  .ov .v .hlink:hover loom-icon { opacity: 1; }
 
   /* healthcheck log modal */
   .hmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
