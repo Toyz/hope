@@ -946,6 +946,7 @@ export class StackPage extends LoomElement {
           ) : null}
           <div class="s"><span class="crumb">{this.project}</span></div>
           <div class="grow"></div>
+          <hope-nav></hope-nav>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 

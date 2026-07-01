@@ -18,6 +18,7 @@ import "./components/select"; // reusable custom dropdown (<hope-select>)
 import "./components/toast-host"; // shared transient toasts (<hope-toast>)
 import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
+import "./components/nav"; // shared system nav strip (<hope-nav>)
 import "./app";
 import "./pages/login";
 import "./pages/dashboard";

@@ -123,6 +123,12 @@ func (c *Client) OriginIndex(ctx context.Context) (map[string]OriginRef, error) 
 		if name != "" {
 			idx[name] = ref
 		}
+		// The replica alias hope assigns (ContainerList doesn't return endpoint
+		// aliases, so reconstruct it from labels) — so a replicated service's
+		// route origin resolves back to its stack/service.
+		if ref.Project != "" && ref.Service != "" {
+			idx["hope-"+ref.Project+"-"+ref.Service] = ref
+		}
 	}
 	return idx, nil
 }
