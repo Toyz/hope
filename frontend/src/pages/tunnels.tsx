@@ -59,8 +59,14 @@ const innerPort = (p: string): string => {
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
   td.host .sub { color: var(--hi); font-weight: 600; }
-  td.host .dom { color: var(--dim); font-weight: 400; }
-  td.host .rootat { color: var(--dim); }
+  /* domain sub-header groups routes; subdomain rows sit indented under it */
+  tr.dgroup td { padding: 9px 14px; border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 45%, var(--panel)); }
+  tr.dgroup a { color: var(--mid); text-decoration: none; font: 600 11px/1 var(--mono); letter-spacing: .06em; }
+  tr.dgroup a:hover { color: var(--hi); }
+  tr.dgroup + tr td, tr.dgroup ~ tr td.host { }
+  td.host { padding-left: 30px; }
+  td.host .svc { color: var(--dim); }
   td.origin .svc { color: var(--dim); }
   .cblock .rtbl { border: 0; border-top: 1px solid var(--line2); }
   .cblock .rtbl thead th { background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
@@ -101,6 +107,7 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor disabled = false;
   @reactive accessor busy = false;
   @reactive accessor hostQuery = "";
+  private suppressUntil = 0; // pause the auto-reload right after a local change
 
   get fleetMode() {
     return localStorage.getItem("hope.fleet") === "1";
@@ -122,7 +129,7 @@ export class TunnelsPage extends LoomElement {
 
   @interval(8000)
   tick() {
-    if (this.auth.isAuthenticated && !this.disabled) this.load();
+    if (this.auth.isAuthenticated && !this.disabled && Date.now() >= this.suppressUntil) this.load();
   }
 
   private load = async () => {
@@ -234,11 +241,12 @@ export class TunnelsPage extends LoomElement {
     if (i < 0 || j < 0 || j >= arr.length || arr[j].connector !== t.connector) return;
     [arr[i], arr[j]] = [arr[j], arr[i]];
     this.routes = arr;
+    this.suppressUntil = Date.now() + 6000; // don't let the auto-reload snap it back
     try {
       await this.rpc.call<OpResult>("Tunnels", "moveRoute", [cid, t.hostname, t.path || "", dir]);
-      this.toast.ok("route reordered");
     } catch (err: any) {
       this.error = err?.message ?? "reorder failed";
+      this.suppressUntil = 0;
       await this.load(); // resync the true order
     }
   };
@@ -520,29 +528,42 @@ export class TunnelsPage extends LoomElement {
               <tr><th>Hostname</th><th>Target</th><th>Port</th><th></th></tr>
             </thead>
             <tbody>
-              {shown.map((t) => {
-                const idx = all.indexOf(t);
-                return (
-                  <tr>
-                    <td class="host">
-                      <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{this.renderHost(t.hostname)}</a>
-                      {t.path ? <span class="svc"> {t.path}</span> : null}
-                    </td>
-                    <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
-                    <td class="rmeta">{t.port || "—"}</td>
-                    <td class="rx">
-                      {all.length > 1 ? (
-                        <span class="ord">
-                          <button class="rmx" title="move up" disabled={idx === 0} onClick={() => this.moveRoute(t, "up")}><loom-icon class="up" name="chevron-down" size={13}></loom-icon></button>
-                          <button class="rmx" title="move down" disabled={idx === all.length - 1} onClick={() => this.moveRoute(t, "down")}><loom-icon name="chevron-down" size={13}></loom-icon></button>
-                        </span>
-                      ) : null}
-                      <button class="rmx" title="duplicate route" onClick={() => this.duplicateRoute(t)}><loom-icon name="copy" size={13}></loom-icon></button>
-                      <button class="rmx del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {(() => {
+                const rows: any[] = [];
+                let prevDomain: string | null = null;
+                for (const t of shown) {
+                  const { sub, domain } = this.splitHost(t.hostname);
+                  const dkey = domain || t.hostname;
+                  if (dkey !== prevDomain) {
+                    rows.push(
+                      <tr class="dgroup"><td colSpan={4}><a href={`https://${dkey}`} target="_blank" rel="noreferrer">{dkey}</a></td></tr>,
+                    );
+                    prevDomain = dkey;
+                  }
+                  const idx = all.indexOf(t);
+                  rows.push(
+                    <tr>
+                      <td class="host">
+                        <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain ? <span class="sub">{sub || "@"}</span> : <span class="sub">@</span>}</a>
+                        {t.path ? <span class="svc"> {t.path}</span> : null}
+                      </td>
+                      <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
+                      <td class="rmeta">{t.port || "—"}</td>
+                      <td class="rx">
+                        {all.length > 1 ? (
+                          <span class="ord">
+                            <button class="rmx" title="move up" disabled={idx === 0} onClick={() => this.moveRoute(t, "up")}><loom-icon class="up" name="chevron-down" size={13}></loom-icon></button>
+                            <button class="rmx" title="move down" disabled={idx === all.length - 1} onClick={() => this.moveRoute(t, "down")}><loom-icon name="chevron-down" size={13}></loom-icon></button>
+                          </span>
+                        ) : null}
+                        <button class="rmx" title="duplicate route" onClick={() => this.duplicateRoute(t)}><loom-icon name="copy" size={13}></loom-icon></button>
+                        <button class="rmx del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button>
+                      </td>
+                    </tr>,
+                  );
+                }
+                return rows;
+              })()}
             </tbody>
           </table>
         )}
