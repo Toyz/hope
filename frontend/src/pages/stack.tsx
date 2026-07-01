@@ -12,6 +12,12 @@ import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, Co
 import { theme, markClass, stackSeverity } from "../styles";
 import { stripAnsi } from "./container";
 
+// Internal (container-side) port from a docker port string, for tunnel autofill.
+const innerPort = (p: string): string => {
+  const arrow = p.indexOf("->");
+  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
+};
+
 // One fixed action order for every row (single, replica, group) so columns line
 // up. Actions that don't apply to a container's state are disabled, not
 // reordered or removed.
@@ -155,6 +161,11 @@ function aggMark(items: ContainerSummary[]): string {
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .tchip { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 var(--mono); text-decoration: none;
+    color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
+  .tchip loom-icon { color: var(--ok); }
+  .tchip b { color: var(--mid); font-weight: 600; }
+  .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
   tr.grp:hover .badge { border-color: var(--line2); }
   /* replica (child) rows are indented + dimmer */
   tr.rep td { background: rgba(255,255,255,.012); }
@@ -259,6 +270,10 @@ export class StackPage extends LoomElement {
 
   @reactive accessor project = "";
   @reactive accessor stack: StackSummary | null = null;
+  @reactive accessor tunnelRoutes: TunnelView[] = [];
+  @reactive accessor tunnelConnectors: ConnectorView[] = [];
+  @reactive accessor tunnelZones: ZoneView[] = [];
+  @reactive accessor tunnelsOn = false;
   @reactive accessor error = "";
   @reactive accessor busy = "";
   @reactive accessor opLog = "";
@@ -351,6 +366,9 @@ export class StackPage extends LoomElement {
           <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : c.id; }}>···</button>
           {open ? (
             <div class="menu">
+              {this.tunnelsOn ? (
+                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(c.service || c.name, c.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+              ) : null}
               <button class="mitem" disabled={!!this.busy}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "pull", c.service || c.name); }}><loom-icon name="download" size={13}></loom-icon><span>pull</span></button>
               <button class="mitem" disabled={!!this.busy}
@@ -383,6 +401,9 @@ export class StackPage extends LoomElement {
           <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : "grp:" + g.service; }}>···</button>
           {open ? (
             <div class="menu">
+              {this.tunnelsOn ? (
+                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(g.service, g.items[0]?.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+              ) : null}
               <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "stop")}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "stop"); }}><loom-icon name="stop" size={13}></loom-icon><span>stop all</span></button>
               <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "kill")}
@@ -445,11 +466,96 @@ export class StackPage extends LoomElement {
       if (this.stack) {
         this.snapshot(); // auto-fill the CPU/MEM columns
         this.loadUpdates(); // surface cached image-freshness chips immediately
+        this.loadTunnels(); // public-route chips (if cloudflare is on)
       }
     } catch (err: any) {
       this.error = err?.message ?? "Failed to load.";
     }
   }
+
+  // Best-effort tunnel data so service rows can show their public hostname +
+  // offer "add tunnel". Silently no-ops when the cloudflare integration is off.
+  private async loadTunnels() {
+    try {
+      const [routes, connectors, zones] = await Promise.all([
+        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
+        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
+      ]);
+      this.tunnelRoutes = routes || [];
+      this.tunnelConnectors = connectors || [];
+      this.tunnelZones = zones || [];
+      this.tunnelsOn = true;
+    } catch {
+      this.tunnelsOn = false; // disabled or unreachable — hide tunnel UI
+    }
+  }
+
+  // Routes whose origin resolves to this stack's service.
+  private routesForService(service: string): TunnelView[] {
+    return this.tunnelRoutes.filter((t) => t.project === this.project && t.svc_name === service);
+  }
+
+  private tunnelChip(service: string) {
+    if (!this.tunnelsOn) return null;
+    const routes = this.routesForService(service);
+    if (!routes.length) return null;
+    const first = routes[0];
+    return (
+      <a
+        class="tchip"
+        href={`https://${first.hostname}`}
+        target="_blank"
+        rel="noreferrer"
+        title={routes.map((r) => r.hostname).join(", ")}
+        onClick={(e: Event) => e.stopPropagation()}
+      >
+        <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
+      </a>
+    );
+  }
+
+  // Add a public route for a service in this stack (target is implied).
+  private addTunnel = async (service: string, ports: string[]) => {
+    if (!this.tunnelConnectors.length) {
+      this.showToast("no connectors — deploy one on the Tunnels page", "bad");
+      return;
+    }
+    const haveZones = this.tunnelZones.length > 0;
+    const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
+    const port = ports.map(innerPort).find(Boolean) || "";
+    const fields: PromptField[] = [
+      { key: "connector", label: "connector", type: "select", value: def.id, options: this.tunnelConnectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
+      { key: "port", label: "port", placeholder: "8080", value: port },
+      ...(haveZones
+        ? ([
+            { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: service },
+            { key: "domain", label: "domain", type: "select", placeholder: "pick a domain", options: this.tunnelZones.map((z) => ({ value: z.name, label: z.name })) },
+          ] as const)
+        : ([{ key: "host_name", label: "hostname", placeholder: "app.example.com" }] as const)),
+      { key: "path", label: "path (optional)", optional: true, placeholder: "/api" },
+    ];
+    const v = await this.prompt.ask({ title: `add tunnel · ${service}`, icon: "link", submitLabel: "Add route", fields });
+    if (!v) return;
+    const host = (haveZones ? (v.sub.trim() ? `${v.sub.trim()}.${v.domain}` : v.domain) : v.host_name).trim().toLowerCase();
+    if (!host) return;
+    await this.proc.run(`add tunnel ${host}`, async (emit) => {
+      try {
+        emit("attaching connector + updating ingress + DNS…");
+        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), v.connector, this.project, service, "", (v.path || "").trim()]);
+        if (res && res.ok === false) {
+          emit("failed: " + (res.error || "error"));
+          return false;
+        }
+        emit(`route live -> https://${host}`);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message ?? "error"));
+        return false;
+      }
+    });
+    this.loadTunnels();
+  };
 
   // Pull the cached cluster freshness (cheap) and keep this project's rows.
   private async loadUpdates() {
@@ -933,6 +1039,7 @@ export class StackPage extends LoomElement {
                               <span class={"mark " + markClass(c.state)}></span>
                               <span class="link">{c.service || c.name}</span>
                               {this.updChip(c)}
+                              {this.tunnelChip(c.service || c.name)}
                             </span>
                           </td>
                           <td class="state">{c.state}</td>
@@ -957,6 +1064,7 @@ export class StackPage extends LoomElement {
                             <span class="gname">{g.service}</span>
                             <span class="badge"><b>{g.items.length}</b> pods</span>
                             {this.groupUpdate(g.items) === "outdated" ? <span class="upd static" title="one or more replicas have an update available">update</span> : null}
+                            {this.tunnelChip(g.service)}
                           </span>
                         </td>
                         <td class="state">{running}/{g.items.length} up</td>
