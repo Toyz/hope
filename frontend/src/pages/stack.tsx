@@ -176,8 +176,9 @@ function aggMark(items: ContainerSummary[]): string {
   .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
   .dx:hover { color: var(--hi); }
   .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-  .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
+  .dfacts .st { flex: 1 1 0; min-width: 108px; display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
   .dfacts .st:last-child { border-right: 0; }
+  .dfacts .sv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
   .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
   .dfacts .sv.ok { color: var(--ok); }
@@ -584,7 +585,7 @@ export class StackPage extends LoomElement {
               <span class="st"><i class="sk">connector</i><i class="sv">{con.title || con.name}</i></span>
               <span class="st"><i class="sk">status</i><i class={"sv " + conState}>{con.status || (con.running ? "connecting" : "stopped")}</i></span>
               <span class="st"><i class="sk">edge conns</i><i class="sv">{con.connections}</i></span>
-              {con.colos && con.colos.length ? <span class="st"><i class="sk">edge</i><i class="sv">{con.colos.join(" ")}</i></span> : null}
+              {con.colos && con.colos.length ? <span class="st"><i class="sk">edge</i><i class="sv" title={con.colos.join(" ")}>{con.colos.join(" ")}</i></span> : null}
               <span class="st"><i class="sk">tunnel</i><i class="sv">{con.tunnel_id.slice(0, 12)}</i></span>
             </div>
           ) : null}
