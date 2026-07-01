@@ -7,7 +7,8 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
-import type { StackSummary, UpdatesResult, DiskResult, FleetHost } from "../contracts";
+import { ProcService } from "../proc";
+import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
@@ -145,11 +146,16 @@ const UNGROUPED = "(ungrouped)";
   .head .rfr .spin { animation: spin .9s linear infinite; }
 
   /* updates rows — grouped by stack, services as chips */
-  .urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto 14px;
+  .urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto max-content 14px;
     height: auto; min-height: 46px; padding-top: 9px; padding-bottom: 9px; align-items: center; }
   .urow.static { cursor: default; }
   .urow.static:hover { background: transparent; }
   .urow .name { white-space: nowrap; }
+  .urow .upgo { display: inline-flex; align-items: center; gap: 6px; background: transparent;
+    border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); color: var(--upd); cursor: pointer;
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 7px 11px; white-space: nowrap; }
+  .urow .upgo:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
+  .urow .upgo:disabled { opacity: .5; cursor: default; }
   .urow .svcs { display: flex; flex-wrap: wrap; gap: 6px; }
   .urow .svc { font: 11px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 4px 7px; white-space: nowrap; }
   .urow .svc b { color: var(--hi); font-weight: 600; }
@@ -207,6 +213,8 @@ const UNGROUPED = "(ungrouped)";
 export class DashboardPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(ProcService) accessor proc!: ProcService;
+  @reactive accessor updBusyProj = "";
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -492,10 +500,36 @@ export class DashboardPage extends LoomElement {
           {g.services.length > 8 ? <span class="svc more">+{g.services.length - 8}</span> : null}
         </span>
         <span class="why upd">{g.count}</span>
+        {linkable ? (
+          <button class="upgo" disabled={!!this.updBusyProj} title="pull latest + recreate the outdated containers"
+            onClick={(e: Event) => this.updateStack(g.project, opts.host, e)}>
+            <loom-icon name="download" size={12}></loom-icon>{this.updBusyProj === g.project ? "…" : "update"}
+          </button>
+        ) : <span></span>}
         {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
       </div>
     );
   }
+
+  // One-click update straight from the dashboard: pull latest + recreate only the
+  // outdated containers of a stack (force off), on its host, in the proc dialog.
+  private updateStack = async (project: string, host: string | undefined, e: Event) => {
+    e.stopPropagation();
+    if (this.updBusyProj) return;
+    this.updBusyProj = project;
+    let ok = false;
+    await this.proc.run(`update ${project}`, async (emit, signal) => {
+      let sok = true;
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeployStack", [project, "true", "false"], signal, host)) {
+        if (f.type === "log" && f.data) emit(f.data);
+        else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+      }
+      ok = sok;
+      return sok;
+    });
+    this.updBusyProj = "";
+    if (ok) this.refreshUpdates(); // clear the chip once images are current
+  };
 
   // Shared Attention row (single-host + all-hosts).
   private attentionRow(s: any, opts: { host?: string; onClick: () => void }) {
