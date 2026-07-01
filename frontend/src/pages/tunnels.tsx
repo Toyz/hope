@@ -59,6 +59,7 @@ const innerPort = (p: string): string => {
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
   td.host .sub { color: var(--hi); font-weight: 600; }
+  td.host .rootlbl { color: var(--dim); font-style: italic; }
   /* domain sub-header groups routes; subdomain rows sit indented under it */
   tr.dgroup td { padding: 9px 14px; border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 45%, var(--panel)); }
@@ -544,7 +545,7 @@ export class TunnelsPage extends LoomElement {
                   rows.push(
                     <tr>
                       <td class="host">
-                        <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain ? <span class="sub">{sub || "@"}</span> : <span class="sub">@</span>}</a>
+                        <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <span class="sub">{sub}</span> : <span class="rootlbl">root</span>}</a>
                         {t.path ? <span class="svc"> {t.path}</span> : null}
                       </td>
                       <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
