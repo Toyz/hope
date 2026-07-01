@@ -55,6 +55,9 @@ const innerPort = (p: string): string => {
   .seclbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin: 0 0 12px; }
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
+  td.host .sub { color: var(--hi); font-weight: 600; }
+  td.host .dom { color: var(--dim); font-weight: 400; }
+  td.host .rootat { color: var(--dim); }
   td.origin .svc { color: var(--dim); }
   .cblock .rtbl { border: 0; border-top: 1px solid var(--line2); }
   .cblock .rtbl thead th { background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
@@ -429,6 +432,15 @@ export class TunnelsPage extends LoomElement {
     );
   }
 
+  // Emphasize the subdomain, dim the shared domain, so same-domain routes cluster
+  // visually (www.helba.ai vs helba.ai).
+  private renderHost(host: string) {
+    const { sub, domain } = this.splitHost(host);
+    if (domain && sub) return <span><b class="sub">{sub}</b><span class="dom">.{domain}</span></span>;
+    if (domain) return <span><span class="rootat">@</span> <span class="dom">{domain}</span></span>;
+    return <span>{host}</span>;
+  }
+
   // One connector block: its card, then the routes it serves (ingress order).
   private renderConnector(c: ConnectorView) {
     const all = this.routes.filter((t) => t.connector === c.name);
@@ -473,7 +485,10 @@ export class TunnelsPage extends LoomElement {
                 const idx = all.indexOf(t);
                 return (
                   <tr>
-                    <td class="host"><a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{t.hostname}</a>{t.path ? <span class="svc"> {t.path}</span> : null}</td>
+                    <td class="host">
+                      <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{this.renderHost(t.hostname)}</a>
+                      {t.path ? <span class="svc"> {t.path}</span> : null}
+                    </td>
                     <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
                     <td class="rmeta">{t.port || "—"}</td>
                     <td class="rx">
