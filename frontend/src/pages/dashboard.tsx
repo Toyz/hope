@@ -146,7 +146,9 @@ const UNGROUPED = "(ungrouped)";
   .head .rfr .spin { animation: spin .9s linear infinite; }
 
   /* updates rows — grouped by stack, services as chips */
-  .urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto max-content 14px;
+  /* .row.urow (not bare .urow) — .row is declared later with equal specificity
+     and would otherwise win, snapping this back to the 5-column instrument grid. */
+  .row.urow { grid-template-columns: 7px max-content minmax(0, 1fr) auto max-content 14px;
     height: auto; min-height: 46px; padding-top: 9px; padding-bottom: 9px; align-items: center; }
   .urow.static { cursor: default; }
   .urow.static:hover { background: transparent; }
