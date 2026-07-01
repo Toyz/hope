@@ -66,6 +66,16 @@ interval = "6h"
 #   volumes: ["hope-data:/data"]   ->   cache_path = "/data/updates.json"
 cache_path = ""
 
+[deploy]
+# Where hope retains the authored spec of each stack you deploy through it, so a
+# stack can be reopened in the editor (add/remove services, redeploy). Keyed by
+# host + project. Empty = specs are NOT retained across a hope recreate (deploy
+# still works; you just re-import to edit). Mount a volume and point this at it to
+# keep them, e.g.:
+#   volumes: ["hope-data:/data"]   ->   state_dir = "/data/stacks"
+# These files can contain secrets (compose env values) — hope writes them 0600.
+state_dir = ""
+
 [agent]
 # Remote-host hub. Setting a token turns on the agent hub: hope-agents on remote
 # Docker hosts dial IN and tunnel their socket back, so hope manages them with no

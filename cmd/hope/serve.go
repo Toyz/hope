@@ -20,6 +20,7 @@ import (
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
+	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
@@ -163,6 +164,11 @@ func runServe(configPath string) error {
 	comp := compose.NewManager(cfg.Docker.Host, cfg.Compose.Roots)
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
 
+	// Deploy engine + spec store (write path: build/deploy/edit stacks, create
+	// networks/volumes). StateDir empty = specs aren't retained across recreate.
+	deployStore := deploy.NewStore(cfg.Deploy.StateDir)
+	deployEngine := deploy.NewEngine(hostSet, deployStore)
+
 	// Front the listener with the agent WebSocket endpoint when the hub is on,
 	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
 	// traffic passes to sov untouched.
@@ -179,6 +185,7 @@ func runServe(configPath string) error {
 	gw.Register(containers.NewContainersRouter(hostSet))
 	gw.Register(system.NewSystemRouter(hostSet))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
+	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
@@ -193,7 +200,7 @@ func runServe(configPath string) error {
 	}
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(hostSet, tokens))
+	gw.MustUse(logstream.New(hostSet, tokens, deployEngine))
 
 	// Serve the embedded SPA at "/"; /rpc/* is reserved (never shadowed).
 	sub, err := fs.Sub(hope.DistFS, "frontend/dist")
