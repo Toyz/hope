@@ -115,7 +115,7 @@ export class TunnelsPage extends LoomElement {
 
   @reactive accessor connectors: ConnectorView[] = [];
   @reactive accessor routes: TunnelView[] = [];
-  @reactive accessor stacks: StackSummary[] = [];
+  @reactive accessor stacks: (StackSummary & { host?: string })[] = [];
   @reactive accessor hosts: HostView[] = [];
   @reactive accessor zones: ZoneView[] = [];
   @reactive accessor loaded = false;
@@ -151,33 +151,34 @@ export class TunnelsPage extends LoomElement {
   private load = async () => {
     this.busy = true;
     try {
-      const [hosts, stacks, zones] = await Promise.all([
+      const [hosts, zones] = await Promise.all([
         this.rpc.call<HostView[]>("System", "hosts", []).catch(() => []),
-        this.rpc.call<StackSummary[]>("Stacks", "list", []).catch(() => []),
         this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
       ]);
       this.hosts = hosts || [];
-      this.stacks = stacks || [];
       this.zones = zones || [];
 
       const cons: ConnectorView[] = [];
       const routes: TunnelView[] = [];
+      const stacks: (StackSummary & { host?: string })[] = [];
       let disabled = false;
 
       if (this.fleetMode && this.hosts.length) {
-        // Connectors live on specific hosts — aggregate across all of them
-        // (X-Hope-Host per call) so "all hosts" shows every connector + route.
+        // Connectors + stacks live on specific hosts — aggregate across all of
+        // them (X-Hope-Host per call) so "all hosts" shows every connector, its
+        // routes, AND the right stacks/services for the add-route picker.
         const per = await Promise.all(
           this.hosts.map(async (h) => {
             try {
-              const [c, t] = await Promise.all([
+              const [c, t, s] = await Promise.all([
                 this.rpc.callOn<ConnectorView[]>(h.id, "Tunnels", "connectors", []),
                 this.rpc.callOn<TunnelView[]>(h.id, "Tunnels", "tunnels", []),
+                this.rpc.callOn<StackSummary[]>(h.id, "Stacks", "list", []).catch(() => []),
               ]);
-              return { host: h.id, cons: c || [], routes: t || [] };
+              return { host: h.id, cons: c || [], routes: t || [], stacks: s || [] };
             } catch (e: any) {
               if (/disabled/i.test(e?.message || "")) disabled = true;
-              return { host: h.id, cons: [] as ConnectorView[], routes: [] as TunnelView[] };
+              return { host: h.id, cons: [] as ConnectorView[], routes: [] as TunnelView[], stacks: [] as StackSummary[] };
             }
           }),
         );
@@ -198,16 +199,19 @@ export class TunnelsPage extends LoomElement {
             seenR.add(k);
             routes.push({ ...t, host: p.host });
           }
+          for (const s of p.stacks) stacks.push({ ...s, host: p.host });
         }
       } else {
         try {
           const hid = this.activeHostId();
-          const [c, t] = await Promise.all([
+          const [c, t, s] = await Promise.all([
             this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
             this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
+            this.rpc.call<StackSummary[]>("Stacks", "list", []).catch(() => []),
           ]);
           for (const x of c || []) cons.push({ ...x, host: hid });
           for (const x of t || []) routes.push({ ...x, host: hid });
+          for (const x of s || []) stacks.push({ ...x, host: hid });
         } catch (e: any) {
           if (/disabled/i.test(e?.message || "")) disabled = true;
           else throw e;
@@ -216,6 +220,7 @@ export class TunnelsPage extends LoomElement {
 
       this.connectors = cons;
       this.routes = routes;
+      this.stacks = stacks;
       this.disabled = disabled && cons.length === 0; // only "off" if no host has tunnels
       this.error = "";
       this.loaded = true;
@@ -349,7 +354,7 @@ export class TunnelsPage extends LoomElement {
 
   private duplicateRoute = (t: TunnelView) => {
     const c = this.connectors.find((x) => x.name === t.connector);
-    if (c) this.addRoute(c, this.routeInit(t));
+    if (c) this.addRoute(c, this.routeInit(t, this.hostOf(c)));
   };
 
   // applyOrder optimistically sets a new route order and persists the affected
@@ -449,21 +454,28 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  private stackOptions(): PromptOption[] {
+  // Stacks scoped to a host (fleet mode aggregates every host's stacks, so the
+  // add-route picker must filter to the connector's own host).
+  private stacksFor(host?: string) {
+    return host ? this.stacks.filter((s) => s.host === host) : this.stacks;
+  }
+
+  private stackOptions(host?: string): PromptOption[] {
+    const scoped = this.stacksFor(host);
     const out: PromptOption[] = [];
-    for (const s of this.stacks) {
+    for (const s of scoped) {
       if (s.project === UNGROUPED) continue;
       out.push({ value: s.project, label: s.project });
     }
-    if (this.stacks.some((s) => s.project === UNGROUPED)) out.push({ value: UNGROUPED, label: "(loose containers)" });
+    if (scoped.some((s) => s.project === UNGROUPED)) out.push({ value: UNGROUPED, label: "(loose containers)" });
     return out;
   }
 
   // Services in the chosen stack, replicas collapsed to one entry with a count.
   // Loose containers are listed individually. Value encodes the target.
-  private serviceOptions(stack: string): PromptOption[] {
+  private serviceOptions(stack: string, host?: string): PromptOption[] {
     if (!stack) return [];
-    const s = this.stacks.find((x) => x.project === stack);
+    const s = this.stacksFor(host).find((x) => x.project === stack);
     if (!s) return [];
     if (stack === UNGROUPED) {
       return s.containers.map((c) => ({ value: ["ct", c.id].join("::"), label: c.name }));
@@ -474,15 +486,15 @@ export class TunnelsPage extends LoomElement {
   }
 
   // The first detected internal port for a target value, to auto-fill the port.
-  private portForTarget(target: string): string {
+  private portForTarget(target: string, host?: string): string {
     if (!target) return "";
     const [kind, a, b] = target.split("::");
     const firstPort = (ports?: string[]) => (ports || []).map(innerPort).find(Boolean) || "";
     if (kind === "svc") {
-      const s = this.stacks.find((x) => x.project === a);
+      const s = this.stacksFor(host).find((x) => x.project === a);
       for (const c of s?.containers || []) if ((c.service || c.name) === b) { const p = firstPort(c.ports); if (p) return p; }
     } else if (kind === "ct") {
-      for (const s of this.stacks) { const c = s.containers.find((x) => x.id === a); if (c) return firstPort(c.ports); }
+      for (const s of this.stacksFor(host)) { const c = s.containers.find((x) => x.id === a); if (c) return firstPort(c.ports); }
     }
     return "";
   }
@@ -498,11 +510,12 @@ export class TunnelsPage extends LoomElement {
 
   // Resolve a route's origin back to a stack+service (or loose container) so
   // "duplicate" can prefill the target, even when the backend couldn't map it.
-  private resolveTarget(t: TunnelView): { stack: string; target: string } {
+  private resolveTarget(t: TunnelView, host?: string): { stack: string; target: string } {
     if (t.project && t.svc_name) return { stack: t.project, target: ["svc", t.project, t.svc_name].join("::") };
     const origin = t.service.replace(/^https?:\/\//, "").split(":")[0].split("/")[0];
+    const scoped = this.stacksFor(host);
     // Direct container-name match.
-    for (const s of this.stacks) {
+    for (const s of scoped) {
       const ct = s.containers.find((c) => c.name === origin);
       if (ct) {
         if (s.project === UNGROUPED) return { stack: UNGROUPED, target: ["ct", ct.id].join("::") };
@@ -510,7 +523,7 @@ export class TunnelsPage extends LoomElement {
       }
     }
     // Replica alias match: hope-<project>-<service>.
-    for (const s of this.stacks) {
+    for (const s of scoped) {
       if (s.project === UNGROUPED) continue;
       for (const svc of new Set(s.containers.map((c) => c.service || c.name))) {
         if (`hope-${s.project}-${svc}` === origin) return { stack: s.project, target: ["svc", s.project, svc].join("::") };
@@ -520,8 +533,8 @@ export class TunnelsPage extends LoomElement {
   }
 
   // Build add-route initial values from an existing route (for "duplicate").
-  private routeInit(t: TunnelView): Record<string, string> {
-    const { stack, target } = this.resolveTarget(t);
+  private routeInit(t: TunnelView, host?: string): Record<string, string> {
+    const { stack, target } = this.resolveTarget(t, host);
     const { sub, domain } = this.splitHost(t.hostname);
     return { stack, target, port: t.port || "", sub, domain, host_name: domain ? "" : t.hostname, path: t.path || "" };
   }
@@ -531,15 +544,16 @@ export class TunnelsPage extends LoomElement {
   // dialog (used by "duplicate").
   private addRoute = async (c: ConnectorView, init: Record<string, string> = {}) => {
     const haveZones = this.zones.length > 0;
+    const chost = this.hostOf(c);
     const v = await this.prompt.ask({
       title: `${init.target ? "duplicate route" : "add route"} · ${c.title || c.name}`,
       icon: "link",
       message: "hope attaches the connector to the target's network, updates the tunnel ingress, and creates the DNS record.",
       submitLabel: "Add route",
       fields: [
-        { key: "stack", label: "stack", type: "select", placeholder: "pick a stack", value: init.stack, options: this.stackOptions() },
-        { key: "target", label: "service", type: "select", placeholder: "pick a service", value: init.target, dependsOn: "stack", optionsFrom: (vals) => this.serviceOptions(vals.stack) },
-        { key: "port", label: "port", placeholder: "8080", value: init.port, dependsOn: "target", defaultFrom: (vals) => this.portForTarget(vals.target) },
+        { key: "stack", label: "stack", type: "select", placeholder: "pick a stack", value: init.stack, options: this.stackOptions(chost) },
+        { key: "target", label: "service", type: "select", placeholder: "pick a service", value: init.target, dependsOn: "stack", optionsFrom: (vals) => this.serviceOptions(vals.stack, chost) },
+        { key: "port", label: "port", placeholder: "8080", value: init.port, dependsOn: "target", defaultFrom: (vals) => this.portForTarget(vals.target, chost) },
         ...(haveZones
           ? ([
               { key: "sub", label: "subdomain (blank = root domain)", optional: true, placeholder: "blog", value: init.sub },
