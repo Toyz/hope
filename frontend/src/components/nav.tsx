@@ -6,6 +6,7 @@ import { LoomElement, component, styles, css, reactive, app } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
 
 const ITEMS: [string, string][] = [
+  ["deploy", "/deploy"],
   ["images", "/images"],
   ["networks", "/networks"],
   ["volumes", "/volumes"],

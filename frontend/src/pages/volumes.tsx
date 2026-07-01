@@ -6,6 +6,8 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
+import { PromptService } from "../prompt";
+import { ToastService } from "../toast";
 import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -47,9 +49,34 @@ export class VolumesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ToastService) accessor toast!: ToastService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
+
+  private createVol = async () => {
+    const v = await this.prompt.ask({
+      title: "create volume",
+      icon: "copy",
+      submitLabel: "Create",
+      fields: [
+        { key: "name", label: "name", placeholder: "my-data" },
+        { key: "driver", label: "driver", type: "select", value: "local", options: [{ value: "local", label: "local" }] },
+      ],
+    });
+    if (!v) return;
+    this.busy = true;
+    try {
+      await this.rpc.call("Deploy", "createVolume", [v.name.trim(), v.driver || "local"]);
+      this.toast.ok("created volume " + v.name.trim());
+      await this.load();
+    } catch (err: any) {
+      this.toast.error("create failed: " + (err?.message ?? "error"));
+    } finally {
+      this.busy = false;
+    }
+  };
 
   @reactive accessor vols: (VolumeInfo & { host?: string })[] = [];
   @reactive accessor busy = false;
@@ -194,6 +221,7 @@ export class VolumesPage extends LoomElement {
           <div class="s act"><hope-host-switch></hope-host-switch></div>
                               <hope-nav active="volumes"></hope-nav>
           <div class="grow"></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>

@@ -21,8 +21,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
+	"github.com/toyz/hope/internal/stackspec"
 )
 
 // Route paths the loom-rpc stream transport POSTs to. They live under /rpc/
@@ -37,6 +39,9 @@ const (
 	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project, pull?, force?]
 	pathPull          = "/rpc/Stream/pull"          // args: [container id, ...] (pull their images, no recreate)
 	pathPruneImages   = "/rpc/Stream/pruneImages"   // args: ["true"|"false"]  (all unused vs dangling)
+	pathApplyStack    = "/rpc/Stream/applyStack"    // args: [json StackSpec]  (build/deploy/edit a stack)
+	pathDeployCont    = "/rpc/Stream/deployContainer" // args: [json ContainerSpec] (one-off container)
+	pathDestroyStack  = "/rpc/Stream/destroyStack"  // args: [project, "true"|"false" prune]
 )
 
 // multiTail caps per-container backlog when fanning in many containers.
@@ -46,6 +51,7 @@ const multiTail = "60"
 type Plugin struct {
 	hosts  *hosts.Set
 	tokens *auth.TokenManager
+	deploy *deploy.Engine
 }
 
 // dock is the docker client for the currently-active host.
@@ -59,9 +65,10 @@ var (
 	_ gateway.RouteHandler = (*Plugin)(nil)
 )
 
-// New returns the logstream plugin (active-host aware).
-func New(hs *hosts.Set, tm *auth.TokenManager) *Plugin {
-	return &Plugin{hosts: hs, tokens: tm}
+// New returns the logstream plugin (active-host aware). eng drives the streaming
+// deploy operations (apply/deploy/destroy).
+func New(hs *hosts.Set, tm *auth.TokenManager, eng *deploy.Engine) *Plugin {
+	return &Plugin{hosts: hs, tokens: tm, deploy: eng}
 }
 
 // PluginName surfaces in /rpc/_introspect.plugins[].
@@ -74,7 +81,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages, pathApplyStack, pathDeployCont, pathDestroyStack}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -153,6 +160,43 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
 		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().PruneImagesStream(ctx, all, emit) })
+
+	case pathApplyStack:
+		if p.deploy == nil {
+			return errResp(http.StatusServiceUnavailable, "deploy is not available")
+		}
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "stack spec required")
+		}
+		var spec stackspec.StackSpec
+		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
+			return errResp(http.StatusBadRequest, "bad stack spec: "+err.Error())
+		}
+		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, emit) })
+
+	case pathDeployCont:
+		if p.deploy == nil {
+			return errResp(http.StatusServiceUnavailable, "deploy is not available")
+		}
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "container spec required")
+		}
+		var spec stackspec.ContainerSpec
+		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
+			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
+		}
+		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.DeployContainer(ctx, spec, emit) })
+
+	case pathDestroyStack:
+		if p.deploy == nil {
+			return errResp(http.StatusServiceUnavailable, "deploy is not available")
+		}
+		if len(args) == 0 {
+			return errResp(http.StatusBadRequest, "project required")
+		}
+		project := args[0]
+		prune := len(args) > 1 && args[1] == "true"
+		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")

@@ -10,8 +10,9 @@ export interface PromptOption {
 export type PromptField = {
   key: string;
   label: string;
-  type?: "text" | "select";
+  type?: "text" | "select" | "toggle";
   placeholder?: string;
+  hint?: string; // small helper line under the control (e.g. a toggle's meaning)
   value?: string;
   optional?: boolean; // required by default
   options?: PromptOption[]; // static options for type: "select"

@@ -26,6 +26,13 @@ import type { PromptOpts } from "../prompt";
     color: var(--hi); font: 13px/1 var(--mono); padding: 10px 12px; border-radius: 0; }
   .field input::placeholder { color: var(--dim); }
   .field input:focus, .field select:focus { outline: none; border-color: var(--line2); }
+  .field .hint { font: 11px/1.4 var(--mono); color: var(--dim); }
+  .tog { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .tog .sw { width: 34px; height: 18px; border: 1px solid var(--line2); background: var(--ink); position: relative; flex: none; transition: background .12s, border-color .12s; }
+  .tog .sw::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; background: var(--dim); transition: transform .12s, background .12s; }
+  .tog.on .sw { border-color: var(--upd); background: color-mix(in srgb, var(--upd) 22%, var(--ink)); }
+  .tog.on .sw::after { transform: translateX(16px); background: var(--upd); }
+  .tog .tl { font: 12.5px/1 var(--mono); color: var(--mid); }
   .acts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .err { margin-right: auto; color: var(--bad); font: 11.5px/1.4 var(--mono); }
@@ -108,9 +115,15 @@ export default class PromptModalImpl extends LoomElement {
                 <label>{f.label}</label>
                 {f.type === "select" ? (
                   <hope-select options={f.optionsFrom ? f.optionsFrom(this.values) : f.options || []} value={this.values[f.key]} placeholder={f.placeholder || "—"} onSelect={(e: any) => this.set(f.key, e.detail)}></hope-select>
+                ) : f.type === "toggle" ? (
+                  <span class={"tog" + (this.values[f.key] === "true" ? " on" : "")} onClick={() => this.set(f.key, this.values[f.key] === "true" ? "false" : "true")}>
+                    <span class="sw"></span>
+                    <span class="tl">{this.values[f.key] === "true" ? "on" : "off"}</span>
+                  </span>
                 ) : (
                   <input type="text" placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)} />
                 )}
+                {f.hint ? <span class="hint">{f.hint}</span> : null}
               </div>
             ))}
           </div>

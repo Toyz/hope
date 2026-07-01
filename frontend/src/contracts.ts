@@ -252,6 +252,16 @@ export class System {
   agents(): AgentView[] {
     return undefined!;
   }
+  agentEnroll(): AgentEnroll {
+    return undefined!;
+  }
+}
+
+// AgentEnroll is the info the "add agent" modal needs (token is a secret).
+export interface AgentEnroll {
+  enabled: boolean;
+  token: string;
+  ws_path: string;
 }
 
 @service("Tunnels")
@@ -277,6 +287,9 @@ export class Tunnels {
   moveRoute(_connector: string, _hostname: string, _path: string, _dir: string): OpResult {
     return undefined!;
   }
+  reorderRoutes(_connector: string, _order: string): OpResult {
+    return undefined!;
+  }
   zones(): ZoneView[] {
     return undefined!;
   }
@@ -285,6 +298,110 @@ export class Tunnels {
 // ZoneView is a selectable Cloudflare zone (domain).
 export interface ZoneView {
   name: string;
+}
+
+// ---- deploy: the structured stack model (mirrors internal/stackspec) ----
+
+export interface PortMap {
+  host?: string;
+  container: string;
+  protocol?: string; // tcp | udp
+  host_ip?: string;
+}
+export interface MountSpec {
+  type: string; // volume | bind
+  source: string;
+  target: string;
+  read_only?: boolean;
+}
+export interface HealthSpec {
+  test?: string[];
+  interval?: string;
+  timeout?: string;
+  retries?: number;
+  start_period?: string;
+}
+export interface TunnelRoute {
+  connector: string;
+  hostname: string;
+  port: string;
+  path?: string;
+}
+export interface ContainerSpec {
+  name?: string;
+  image: string;
+  command?: string[];
+  entrypoint?: string[];
+  env?: Record<string, string>;
+  ports?: PortMap[];
+  mounts?: MountSpec[];
+  networks?: string[];
+  restart?: string;
+  user?: string;
+  working_dir?: string;
+  privileged?: boolean;
+  cap_add?: string[];
+  extra_hosts?: string[];
+  aliases?: Record<string, string[]>; // per-network extra aliases
+  depends_on?: string[];
+  health?: HealthSpec;
+  tunnels?: TunnelRoute[];
+  labels?: Record<string, string>;
+}
+export interface NetworkSpec {
+  name: string;
+  driver?: string;
+  subnet?: string;
+  gateway?: string;
+  internal?: boolean;
+  attachable?: boolean;
+  ipv6?: boolean;
+  external?: boolean;
+  labels?: Record<string, string>;
+}
+export interface VolumeSpec {
+  name: string;
+  driver?: string;
+  options?: Record<string, string>;
+  external?: boolean;
+  labels?: Record<string, string>;
+}
+export interface StackSpec {
+  name: string;
+  services: ContainerSpec[];
+  networks?: NetworkSpec[];
+  volumes?: VolumeSpec[];
+}
+export interface DeployWarning {
+  service?: string;
+  message: string;
+}
+export interface ImportResult {
+  spec: StackSpec;
+  warnings: DeployWarning[] | null;
+}
+export interface ExportResult {
+  project: string;
+  content: string;
+}
+
+@service("Deploy")
+export class Deploy {
+  importCompose(_project: string, _compose: string, _env: string): ImportResult {
+    return undefined!;
+  }
+  editSpec(_project: string): StackSpec {
+    return undefined!;
+  }
+  exportCompose(_project: string): ExportResult {
+    return undefined!;
+  }
+  createNetwork(_name: string, _driver: string, _subnet: string, _gateway: string, _internal: boolean, _attachable: boolean, _ipv6: boolean): NetworkInfo {
+    return undefined!;
+  }
+  createVolume(_name: string, _driver: string): VolumeInfo {
+    return undefined!;
+  }
 }
 
 // ConnectorView is one cloudflared connector (container) + live tunnel status.

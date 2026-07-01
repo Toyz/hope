@@ -23,6 +23,17 @@ type Config struct {
 	Registries  []RegistryConfig  `mapstructure:"registry"`
 	Agent       AgentConfig       `mapstructure:"agent"`
 	Cloudflare  CloudflareConfig  `mapstructure:"cloudflare"`
+	Deploy      DeployConfig      `mapstructure:"deploy"`
+}
+
+// DeployConfig controls where hope retains the authored specs of stacks deployed
+// through it, so they can be reopened in the editor.
+type DeployConfig struct {
+	// StateDir is a writable directory where hope stores one JSON spec per
+	// deployed stack (keyed by host + project). Empty = specs aren't retained
+	// across a hope recreate (deploy still works). Mount it (e.g. "/data/stacks")
+	// to keep them. Files may contain secrets (env values) — written 0600.
+	StateDir string `mapstructure:"state_dir"`
 }
 
 // AgentConfig is the hub side: hope listens here for hope-agents dialing in

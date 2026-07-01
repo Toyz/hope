@@ -8,8 +8,9 @@ import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
+import { deployIntent } from "../deploy-intent";
 import { stripAnsi } from "./container";
 
 // Internal (container-side) port from a docker port string, for tunnel autofill.
@@ -102,7 +103,9 @@ function aggMark(items: ContainerSummary[]): string {
     background: var(--panel); border: 1px solid var(--line2); }
   .mitem { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 11px 14px;
     background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--mid);
-    font: 500 12px/1 var(--mono); cursor: pointer; }
+    font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
+  .mitem loom-icon { flex: none; }
+  .mitem span { white-space: nowrap; }
   .mitem loom-icon { color: var(--dim); flex-shrink: 0; }
   .mitem:last-child { border-bottom: none; }
   .mitem:hover { background: var(--raised); color: var(--hi); }
@@ -231,7 +234,7 @@ function aggMark(items: ContainerSummary[]): string {
   .kbtn { width: 30px; height: 30px; padding: 0; background: transparent; border: 1px solid transparent;
     color: var(--mid); cursor: pointer; font: 700 14px/1 var(--mono); letter-spacing: -.05em; }
   .kbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .rmore .menu { right: 0; top: calc(100% + 4px); min-width: 140px; }
+  .rmore .menu { right: 0; top: calc(100% + 4px); min-width: 184px; width: max-content; }
 
   .blk { margin-top: 22px; }
   .blk .label { display: block; font: 600 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
@@ -416,6 +419,13 @@ export class StackPage extends LoomElement {
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "stop", c.service || c.name); }}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
               <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "kill")}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "kill", c.service || c.name); }}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
+              {this.isUngrouped ? (
+                <button class="mitem danger" disabled={!!this.busy}
+                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeContainer(c.id, c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove</span></button>
+              ) : (
+                <button class="mitem danger" disabled={!!this.busy}
+                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeServiceFromStack(c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
+              )}
             </div>
           ) : null}
         </div>
@@ -447,6 +457,10 @@ export class StackPage extends LoomElement {
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "stop"); }}><loom-icon name="stop" size={13}></loom-icon><span>stop all</span></button>
               <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "kill")}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "kill"); }}><loom-icon name="x" size={13}></loom-icon><span>kill all</span></button>
+              {this.isUngrouped ? null : (
+                <button class="mitem danger" disabled={!!this.busy}
+                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeServiceFromStack(g.service); }}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
+              )}
             </div>
           ) : null}
         </div>
@@ -1033,6 +1047,194 @@ export class StackPage extends LoomElement {
     this.router.navigate("/login");
   };
 
+  // editStack opens this stack in the deploy builder. The target rides a shared
+  // module, not a query string (loom's router strips query strings on navigate).
+  private editStack = () => {
+    deployIntent.edit = this.project;
+    this.router.navigate("/deploy");
+  };
+
+  // applyStackEdit streams an applyStack over the mutated spec through the
+  // processing dialog — the one place all output (errors included) shows. `after`
+  // runs once the containers are up (e.g. to wire a tunnel route).
+  private applyStackEdit = async (title: string, busyKey: string, mutate: (spec: StackSpec) => string | null, after?: (emit: (l: string) => void) => Promise<void>) => {
+    this.busy = busyKey;
+    await this.proc.run(title, async (emit, signal) => {
+      try {
+        const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
+        const bad = mutate(spec);
+        if (bad) { emit("failed: " + bad); return false; }
+        let ok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        if (!ok) return false;
+        if (after) await after(emit);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.busy = "";
+    await this.load();
+    this.loadTunnels();
+  };
+
+  // deleteStack removes the whole stack: tears down its tunnel routes (removeTunnel
+  // deletes the DNS record only when no other route uses that host), destroys the
+  // containers, and prunes the networks/volumes hope created for it.
+  private deleteStack = async () => {
+    const ok = await this.confirm.ask({
+      title: "delete stack",
+      danger: true,
+      confirmLabel: "Delete " + this.project,
+      message: `Delete the entire "${this.project}" stack — remove every container, tear down its tunnel routes, and prune the networks/volumes hope created? This cannot be undone.`,
+    });
+    if (!ok) return;
+    this.busy = "stack:delete";
+    let success = false;
+    await this.proc.run("delete " + this.project, async (emit, signal) => {
+      try {
+        const routes = (await this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []).catch(() => [])) || [];
+        for (const r of routes.filter((r) => r.project === this.project)) {
+          emit("remove route " + r.hostname + (r.path || ""));
+          try {
+            await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [r.hostname, r.path || ""]);
+          } catch (e: any) {
+            emit("route teardown failed: " + (e?.message || "error"));
+          }
+        }
+        let dok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        success = dok;
+        return dok;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.busy = "";
+    if (success) this.router.navigate("/");
+  };
+
+  // removeContainer stops and deletes a single container — used for loose
+  // (ungrouped) containers, which aren't part of a stack spec.
+  private removeContainer = async (id: string, name: string) => {
+    const ok = await this.confirm.ask({
+      title: "remove container",
+      danger: true,
+      confirmLabel: "Remove " + name,
+      message: `Stop and remove "${name}"? This deletes the container.`,
+    });
+    if (!ok) return;
+    this.busy = "ctr:remove:" + id;
+    await this.proc.run("remove " + name, async (emit) => {
+      try {
+        emit("stop + remove " + name);
+        const res = await this.rpc.call<OpResult>("Containers", "remove", [id]);
+        if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
+        emit("removed " + name);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.busy = "";
+    await this.load();
+  };
+
+  // removeServiceFromStack drops one service and re-applies the stack, so its
+  // container(s) are removed and it won't come back on the next deploy. The other
+  // services are unchanged (the apply diff leaves them alone).
+  private removeServiceFromStack = async (service: string) => {
+    const ok = await this.confirm.ask({
+      title: "remove service",
+      danger: true,
+      confirmLabel: "Remove " + service,
+      message: `Remove "${service}" from ${this.project}? Stops and deletes its container(s) and updates the stack.`,
+    });
+    if (!ok) return;
+    await this.applyStackEdit("remove " + service, "svc:remove:" + service, (spec) => {
+      spec.services = (spec.services || []).filter((s) => s.name !== service);
+      return null;
+    });
+  };
+
+  // addServiceToStack collects a minimal service (name + image + optional ports)
+  // and re-applies the stack — a quick inline add without opening the builder.
+  // When tunnels are enabled it also offers to expose the service on a public
+  // route, wired after the container is up.
+  private addServiceToStack = async () => {
+    const tun = this.tunnelsOn && this.tunnelConnectors.length > 0;
+    const haveZones = this.tunnelZones.length > 0;
+    const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
+    const fields: PromptField[] = [
+      { key: "name", label: "service name", placeholder: "api" },
+      { key: "image", label: "image", placeholder: "nginx:alpine" },
+      { key: "ports", label: "ports (host:container, comma-separated)", optional: true, placeholder: "8080:80" },
+      { key: "restart", label: "restart", type: "select", value: "unless-stopped", options: [{ value: "", label: "no" }, { value: "unless-stopped", label: "unless-stopped" }, { value: "always", label: "always" }, { value: "on-failure", label: "on-failure" }] },
+      ...(tun
+        ? ([
+            { key: "expose", label: "expose via tunnel", type: "toggle", optional: true, hint: "add a public Cloudflare route to this service" },
+            { key: "t_connector", label: "connector", type: "select", optional: true, value: def?.id ?? "", options: this.tunnelConnectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
+            ...(haveZones
+              ? ([
+                  { key: "t_sub", label: "subdomain (blank = root domain)", optional: true, placeholder: "api" },
+                  { key: "t_domain", label: "domain", type: "select", optional: true, placeholder: "pick a domain", options: this.tunnelZones.map((z) => ({ value: z.name, label: z.name })) },
+                ] as PromptField[])
+              : ([{ key: "t_host", label: "hostname", optional: true, placeholder: "app.example.com" }] as PromptField[])),
+            { key: "t_port", label: "container port to route", optional: true, placeholder: "8080" },
+            { key: "t_path", label: "path (optional)", optional: true, placeholder: "/api" },
+          ] as PromptField[])
+        : []),
+    ];
+    const v = await this.prompt.ask({ title: "add service", icon: "box", submitLabel: "Add", message: "Add a service to this stack. For env, volumes and more, use edit.", fields });
+    if (!v) return;
+    const name = v.name.trim();
+    const image = v.image.trim();
+    if (!name || !image) { this.showToast("name and image are required", "bad"); return; }
+    const svc: ContainerSpec = { name, image };
+    if (v.restart) svc.restart = v.restart;
+    const ports: PortMap[] = v.ports.split(",").map((p) => p.trim()).filter(Boolean).map((p) => {
+      const [a, b] = p.split(":");
+      return b ? { host: a, container: b } : { container: a };
+    });
+    if (ports.length) svc.ports = ports;
+
+    // Optional tunnel route, wired after the container is up.
+    let route: { host: string; port: string; connector: string; path: string } | null = null;
+    if (tun && v.expose === "true") {
+      const host = (haveZones ? (v.t_sub.trim() ? `${v.t_sub.trim()}.${v.t_domain}` : v.t_domain) : v.t_host).trim().toLowerCase();
+      const port = (v.t_port || "").trim() || ports[0]?.container || "";
+      if (host && port && v.t_connector) route = { host, port, connector: v.t_connector, path: (v.t_path || "").trim() };
+      else this.showToast("tunnel needs a connector, hostname and port — skipped", "warn");
+    }
+
+    await this.applyStackEdit(
+      "add " + name,
+      "svc:add",
+      (spec) => {
+        if ((spec.services || []).some((s) => s.name === name)) return `service "${name}" already exists`;
+        spec.services = [...(spec.services || []), svc];
+        return null;
+      },
+      route
+        ? async (emit) => {
+            emit("route " + route!.host + " -> " + name);
+            const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [route!.host, route!.port, route!.connector, this.project, name, "", route!.path]);
+            if (res && res.ok === false) emit("route failed: " + (res.error || "error"));
+            else emit("route live -> https://" + route!.host);
+          }
+        : undefined
+    );
+  };
+
   update() {
     const s = this.stack;
     const grp = s ? this.groups(s) : [];
@@ -1049,6 +1251,12 @@ export class StackPage extends LoomElement {
           <div class="s"><span class="crumb">{this.project}</span></div>
                     <hope-nav></hope-nav>
           <div class="grow"></div>
+          {this.isUngrouped ? null : (
+            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={!!this.busy} title="add a service to this stack" onClick={() => this.addServiceToStack()}><loom-icon name="plus" size={12}></loom-icon> service</button></div>
+          )}
+          {this.isUngrouped ? null : (
+            <div class="s act"><button title="edit this stack in the builder" onClick={() => this.editStack()}>edit</button></div>
+          )}
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 
@@ -1080,6 +1288,7 @@ export class StackPage extends LoomElement {
                               <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                               <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
                               {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                              {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
                             </div>
                           ) : null}
                         </div>
