@@ -3,15 +3,17 @@
 // explorer and lets API-key clients self-generate typed clients — but the
 // control-plane services and the internal plugin catalog are pure recon with no
 // value to a caller, so they're stripped from the published schema.
+//
+// It hooks IntrospectContributor (not ResponseInterceptor): the report is built
+// once and shared by the /rpc/_introspect endpoint AND the explorer's internal
+// IntrospectBody call, so mutating it here covers both.
 package introspectfilter
 
 import (
-	"encoding/json"
+	"context"
 
 	"github.com/Toyz/sov/gateway"
 )
-
-const introspectPath = "/rpc/_introspect"
 
 // hiddenServices are routers kept out of the published schema: auth/login is a
 // session flow (an API key can't use it) and the meme endpoint is a gag.
@@ -20,54 +22,29 @@ var hiddenServices = map[string]bool{
 	"Meme": true,
 }
 
-// Plugin implements gateway.ResponseInterceptor.
+// Plugin implements gateway.IntrospectContributor.
 type Plugin struct{}
 
 var (
-	_ gateway.Plugin              = (*Plugin)(nil)
-	_ gateway.ResponseInterceptor = (*Plugin)(nil)
+	_ gateway.Plugin                = (*Plugin)(nil)
+	_ gateway.IntrospectContributor = (*Plugin)(nil)
 )
 
 // New returns the introspect-filter plugin.
 func New() *Plugin { return &Plugin{} }
 
-// PluginName surfaces in the (now-stripped) plugin catalog.
+// PluginName is stripped from the catalog along with the rest (see below).
 func (p *Plugin) PluginName() string { return "hope-introspectfilter" }
 
-// InterceptResponse removes the hidden services and the internal plugin catalog
-// from the introspect JSON, leaving services + types intact. No-op elsewhere.
-func (p *Plugin) InterceptResponse(req *gateway.Request, resp *gateway.Response) error {
-	if req == nil || resp == nil || req.Path != introspectPath || resp.Status != 200 || len(resp.Body) == 0 {
+// ContributeIntrospect removes the hidden services and the internal plugin
+// catalog from the report before it's serialized (endpoint + explorer).
+func (p *Plugin) ContributeIntrospect(_ context.Context, report *gateway.IntrospectReport, _ string, _ []string) error {
+	if report == nil {
 		return nil
 	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(resp.Body, &m); err != nil {
-		return nil // not the shape we expected — leave it untouched
+	for name := range hiddenServices {
+		delete(report.Services, name)
 	}
-	changed := false
-	if _, ok := m["plugins"]; ok {
-		delete(m, "plugins") // internal wiring — recon only
-		changed = true
-	}
-	if raw, ok := m["services"]; ok {
-		var svcs map[string]json.RawMessage
-		if json.Unmarshal(raw, &svcs) == nil {
-			for name := range hiddenServices {
-				if _, has := svcs[name]; has {
-					delete(svcs, name)
-					changed = true
-				}
-			}
-			if b, err := json.Marshal(svcs); err == nil {
-				m["services"] = b
-			}
-		}
-	}
-	if !changed {
-		return nil
-	}
-	if b, err := json.Marshal(m); err == nil {
-		resp.Body = b
-	}
+	report.Plugins = nil // internal wiring — recon only
 	return nil
 }
