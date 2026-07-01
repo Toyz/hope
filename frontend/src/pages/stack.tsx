@@ -161,10 +161,11 @@ function aggMark(items: ContainerSummary[]): string {
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
-  .tchip { display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px/1 var(--mono); cursor: pointer;
+  .tchip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; font: 600 10.5px/1 var(--mono); cursor: pointer;
     color: var(--ok); background: transparent; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 7px; white-space: nowrap; flex-shrink: 0; }
-  .tchip loom-icon { color: var(--ok); }
-  .tchip b { color: var(--mid); font-weight: 600; }
+  .tchip loom-icon { color: var(--ok); flex: none; }
+  .tchip .thost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .tchip b { color: var(--mid); font-weight: 600; flex: none; }
   .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
   /* clean detail modal (mirrors the images/networks view) for public routes */
   .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
@@ -189,8 +190,9 @@ function aggMark(items: ContainerSummary[]): string {
   .rroute:last-child { border-bottom: 0; }
   .rroute:hover { background: var(--raised); }
   .rroute .grow { flex: 1; }
-  .rhost { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
-  .rhost loom-icon { color: var(--ok); }
+  .rhost { display: inline-flex; align-items: center; gap: 7px; flex: 1; min-width: 0; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); }
+  .rhost loom-icon { color: var(--ok); flex: none; }
+  .rhost .rtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .rhost b { font-weight: 600; }
   .rhost .dim { color: var(--dim); font-weight: 400; }
   .rhost .rpath { color: var(--mid); margin-left: 2px; }
@@ -539,8 +541,8 @@ export class StackPage extends LoomElement {
     if (!routes.length) return null;
     const first = routes[0];
     return (
-      <button class="tchip" title="public routes" onClick={(e: Event) => { e.stopPropagation(); this.tunnelModalSvc = service; }}>
-        <loom-icon name="link" size={11}></loom-icon>{first.hostname}{routes.length > 1 ? <b> +{routes.length - 1}</b> : null}
+      <button class="tchip" title={routes.map((r) => r.hostname).join(", ")} onClick={(e: Event) => { e.stopPropagation(); this.tunnelModalSvc = service; }}>
+        <loom-icon name="link" size={11}></loom-icon><span class="thost">{first.hostname}</span>{routes.length > 1 ? <b>+{routes.length - 1}</b> : null}
       </button>
     );
   }
@@ -594,12 +596,10 @@ export class StackPage extends LoomElement {
               const { sub, domain } = this.splitHost(r.hostname);
               return (
                 <div class="rroute">
-                  <a class="rhost" href={`https://${r.hostname}`} target="_blank" rel="noreferrer">
+                  <a class="rhost" href={`https://${r.hostname}`} target="_blank" rel="noreferrer" title={r.hostname + (r.path || "")}>
                     <loom-icon name="link" size={12}></loom-icon>
-                    {domain && sub ? <span><b>{sub}</b><span class="dim">.{domain}</span></span> : domain ? <span class="dim">{domain}</span> : <span>{r.hostname}</span>}
-                    {r.path ? <span class="rpath">{r.path}</span> : null}
+                    <span class="rtxt">{domain && sub ? <span><b>{sub}</b><span class="dim">.{domain}</span></span> : domain ? <span class="dim">{domain}</span> : <span>{r.hostname}</span>}{r.path ? <span class="rpath">{r.path}</span> : null}</span>
                   </a>
-                  <span class="grow"></span>
                   <span class="rport">:{r.port || "?"}</span>
                   <button class="rrm" title="remove route" onClick={() => this.removeRoute(r.hostname, r.path || "")}><loom-icon name="x" size={13}></loom-icon></button>
                 </div>
