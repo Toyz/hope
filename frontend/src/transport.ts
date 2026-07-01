@@ -21,7 +21,7 @@ export class HopeTransport extends RpcTransport {
     return h;
   }
 
-  async call<T>(router: string, method: string, args: any[], signal?: AbortSignal): Promise<T> {
+  async call<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${router}/${method}`, {
       method: "POST",
       headers: this.headers(),
@@ -36,7 +36,14 @@ export class HopeTransport extends RpcTransport {
       throw new RpcError(`RPC ${router}.${method}: ${res.status}`, res.status, router, method);
     }
 
-    if (res.status === 401 && !(router === "Auth" && method === "login")) {
+    // A 401 means no/expired session. Behind Cloudflare Access the edge still
+    // attaches a valid assertion, so try the SSO exchange once and retry — an
+    // expired hope token self-heals without a visit to the login form. Auth's own
+    // methods (login/sso) don't recurse.
+    if (res.status === 401 && router !== "Auth") {
+      if (!retried && (await this.trySso())) {
+        return this.call<T>(router, method, args, signal, true);
+      }
       this.auth.clear();
       this.redirectLogin();
     }
@@ -97,6 +104,29 @@ export class HopeTransport extends RpcTransport {
     } finally {
       reader.cancel().catch(() => {});
     }
+  }
+
+  // trySso attempts the Cloudflare Access exchange (POST /rpc/Auth/sso). Returns
+  // true and stores the token when the edge assertion is valid; false otherwise
+  // (not behind Access, or the assertion didn't verify).
+  private async trySso(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/Auth/sso`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ args: [] }),
+      });
+      if (!res.ok) return false;
+      const j = (await res.json()) as { data?: { token?: string } };
+      const tok = j?.data?.token;
+      if (tok) {
+        this.auth.set(tok);
+        return true;
+      }
+    } catch {
+      /* no Access / network error */
+    }
+    return false;
   }
 
   private redirectLogin(): void {
