@@ -213,24 +213,52 @@ func (c *Client) Start(ctx context.Context, id string) error {
 
 // Stop stops a running container with the daemon's default grace period.
 func (c *Client) Stop(ctx context.Context, id string) error {
-	return c.sdk().ContainerStop(ctx, id, container.StopOptions{})
+	return c.tolerateSelf(id, c.sdk().ContainerStop(ctx, id, container.StopOptions{}))
 }
 
 // Restart restarts a container.
 func (c *Client) Restart(ctx context.Context, id string) error {
-	return c.sdk().ContainerRestart(ctx, id, container.StopOptions{})
+	return c.tolerateSelf(id, c.sdk().ContainerRestart(ctx, id, container.StopOptions{}))
 }
 
 // Kill sends SIGKILL to a container.
 func (c *Client) Kill(ctx context.Context, id string) error {
-	return c.sdk().ContainerKill(ctx, id, "SIGKILL")
+	return c.tolerateSelf(id, c.sdk().ContainerKill(ctx, id, "SIGKILL"))
 }
 
 // Remove stops (graceful) then removes a container. Force covers the case where
 // it's already stopped or won't stop in time.
 func (c *Client) Remove(ctx context.Context, id string) error {
 	_ = c.sdk().ContainerStop(ctx, id, container.StopOptions{})
-	return c.sdk().ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+	return c.tolerateSelf(id, c.sdk().ContainerRemove(ctx, id, container.RemoveOptions{Force: true}))
+}
+
+// tolerateSelf swallows a connection-drop error when the op targeted hope's own
+// container (e.g. an agent restarting itself over its own tunnel): the request
+// reached the daemon and executed — that's WHY the connection dropped — so it's a
+// success, not a failure. The agent reconnects if its restart policy brings it
+// back. Non-self errors, and self errors that aren't a dropped connection, pass
+// through unchanged.
+func (c *Client) tolerateSelf(id string, err error) error {
+	if err == nil || !c.isSelf(id) || !isConnDropped(err) {
+		return err
+	}
+	return nil
+}
+
+// isConnDropped reports whether err looks like the transport dropped mid-request
+// (EOF / reset / closed pipe) rather than a daemon-reported failure.
+func isConnDropped(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	for _, m := range []string{"eof", "connection reset", "broken pipe", "use of closed", "connection closed", "server closed", "unexpected eof"} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // Exists reports whether a container id/name resolves — used by the
