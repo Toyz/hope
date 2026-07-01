@@ -48,7 +48,7 @@ const innerPort = (p: string): string => {
   .ccard .crows { display: flex; }
   .ccard .cm { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-right: 1px solid var(--line); }
   .ccard .cm:last-child { border-right: 0; }
-  .ccard .ck { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .ccard .cmk { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
   .ccard .cv { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
   .ccard .cfoot { padding: 10px 16px; border-top: 1px solid var(--line); font: 11.5px/1.5 var(--mono); color: var(--dim); word-break: break-all; }
   .seclbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin: 0 0 12px; }
@@ -367,9 +367,9 @@ export class TunnelsPage extends LoomElement {
                       <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={14}></loom-icon></button>
                     </div>
                     <div class="crows">
-                      <div class="cm"><span class="ck">routes</span><span class="cv">{c.routes}</span></div>
-                      <div class="cm"><span class="ck">edge conns</span><span class="cv">{c.connections}</span></div>
-                      <div class="cm"><span class="ck">tunnel</span><span class="cv" style="font-size:12px">{short(c.tunnel_id)}</span></div>
+                      <div class="cm"><span class="cmk">routes</span><span class="cv">{c.routes}</span></div>
+                      <div class="cm"><span class="cmk">edge conns</span><span class="cv">{c.connections}</span></div>
+                      <div class="cm"><span class="cmk">tunnel</span><span class="cv" style="font-size:12px">{short(c.tunnel_id)}</span></div>
                     </div>
                     <div class="cfoot">{c.project ? `stack ${c.project} · ` : ""}{(c.networks || []).join(", ") || "no user networks yet"}</div>
                   </div>
