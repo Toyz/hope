@@ -69,6 +69,10 @@ const innerPort = (p: string): string => {
   td.host { padding-left: 30px; }
   td.host .svc { color: var(--dim); }
   td.origin .svc { color: var(--dim); }
+  td.origin .tlink { display: inline-flex; align-items: center; gap: 3px; color: var(--hi); cursor: pointer; }
+  td.origin .tlink loom-icon { color: var(--dim); }
+  td.origin .tlink:hover { text-decoration: underline; }
+  td.origin .tlink:hover loom-icon { color: var(--hi); }
   .cblock .rtbl { border: 0; border-top: 1px solid var(--line2); }
   .cblock .rtbl thead th { background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   colgroup col.c-port { width: 90px; }
@@ -225,6 +229,23 @@ export class TunnelsPage extends LoomElement {
       }
     });
     await this.load();
+  };
+
+  // Jump to the stack (or container) a route targets.
+  private openTarget = (t: TunnelView) => {
+    if (t.project) {
+      this.router.navigate(`/stack/${encodeURIComponent(t.project)}`);
+      return;
+    }
+    if (t.container) {
+      for (const s of this.stacks) {
+        const c = s.containers.find((x) => x.name === t.container);
+        if (c) {
+          this.router.navigate(`/container/${encodeURIComponent(c.id)}`);
+          return;
+        }
+      }
+    }
   };
 
   private duplicateRoute = (t: TunnelView) => {
@@ -564,7 +585,7 @@ export class TunnelsPage extends LoomElement {
                         <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <span class="sub">{sub}</span> : <span class="rootlbl">root</span>}</a>
                         {t.path ? <span class="svc"> {t.path}</span> : null}
                       </td>
-                      <td class="origin">{t.project ? <span>{t.project} / {t.svc_name}</span> : <span class="svc">{t.container || t.service}</span>}</td>
+                      <td class="origin">{t.project ? <span class="tlink" onClick={() => this.openTarget(t)}>{t.project} / {t.svc_name}<loom-icon name="chevron-right" size={11}></loom-icon></span> : t.container ? <span class="tlink" onClick={() => this.openTarget(t)}>{t.container}<loom-icon name="chevron-right" size={11}></loom-icon></span> : <span class="svc">{t.service}</span>}</td>
                       <td class="rmeta">{t.port || "—"}</td>
                       <td class="rx">
                         {all.length > 1 ? (
