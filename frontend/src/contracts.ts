@@ -262,6 +262,18 @@ export class Tunnels {
   tunnels(): TunnelView[] {
     return undefined!;
   }
+  createConnector(_name: string): ConnectorView {
+    return undefined!;
+  }
+  removeConnector(_id: string, _deleteTunnel: boolean): OpResult {
+    return undefined!;
+  }
+  addTunnel(_hostname: string, _port: string, _connector: string, _project: string, _service: string, _container: string): OpResult {
+    return undefined!;
+  }
+  removeTunnel(_hostname: string): OpResult {
+    return undefined!;
+  }
 }
 
 // ConnectorView is one cloudflared connector (container) + live tunnel status.
