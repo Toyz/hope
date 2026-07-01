@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,8 +71,10 @@ func TestTunnel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read handshake: %v", err)
 	}
-	if want := fmt.Sprintf("%s secret host-1\n", protoVersion); line != want {
-		t.Fatalf("handshake = %q, want %q", line, want)
+	// The handshake carries build info + self-id after the stable prefix
+	// (version, go/platform, container id) — assert the prefix, not the whole line.
+	if want := fmt.Sprintf("%s secret host-1", protoVersion); !strings.HasPrefix(line, want) {
+		t.Fatalf("handshake = %q, want prefix %q", line, want)
 	}
 	if _, err := conn.Write([]byte("OK\n")); err != nil {
 		t.Fatal(err)

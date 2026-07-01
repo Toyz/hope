@@ -166,6 +166,9 @@ export class Containers {
   inspect(_id: string): unknown {
     return undefined!;
   }
+  spec(_id: string): ContainerSpec {
+    return undefined!;
+  }
   start(_id: string): OpResult {
     return undefined!;
   }

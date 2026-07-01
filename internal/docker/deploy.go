@@ -242,67 +242,13 @@ func (c *Client) ProjectSpec(ctx context.Context, project string) (*stackspec.St
 		}
 		seenSvc[svc] = true
 
-		cs := stackspec.ContainerSpec{Name: svc}
-		if info.Config != nil {
-			cs.Image = info.Config.Image
-			cs.Entrypoint = []string(info.Config.Entrypoint)
-			cs.Command = []string(info.Config.Cmd)
-			cs.Env = envMap(info.Config.Env)
-			cs.User = info.Config.User
-			cs.WorkingDir = info.Config.WorkingDir
-			cs.Labels = filterLabels(info.Config.Labels)
-			cs.Health = healthSpec(info.Config.Healthcheck)
+		cs := specFromInspect(info, svc)
+		for _, n := range cs.Networks {
+			netSet[n] = true
 		}
-		if info.HostConfig != nil {
-			cs.Restart = string(info.HostConfig.RestartPolicy.Name)
-			cs.Privileged = info.HostConfig.Privileged
-			cs.CapAdd = []string(info.HostConfig.CapAdd)
-			cs.ExtraHosts = info.HostConfig.ExtraHosts
-			cs.Ports = portSpecs(info.HostConfig.PortBindings)
-		}
-		for _, m := range info.Mounts {
-			ms := stackspec.MountSpec{Target: m.Destination, ReadOnly: !m.RW, Type: string(m.Type)}
-			if m.Type == "volume" {
-				ms.Source = m.Name
-			} else {
-				ms.Source = m.Source
-			}
-			if ms.Target != "" {
-				cs.Mounts = append(cs.Mounts, ms)
-				if m.Type == "volume" && m.Name != "" {
-					volSet[m.Name] = true
-				}
-			}
-		}
-		if info.NetworkSettings != nil {
-			var nets []string
-			aliases := map[string][]string{}
-			// Auto-generated aliases docker adds itself — not user aliases.
-			auto := map[string]bool{svc: true, strings.TrimPrefix(info.Name, "/"): true}
-			if len(info.ID) >= 12 {
-				auto[info.ID[:12]] = true
-			}
-			for n, ep := range info.NetworkSettings.Networks {
-				if n == "bridge" || n == "host" || n == "none" {
-					continue
-				}
-				nets = append(nets, n)
-				netSet[n] = true
-				var custom []string
-				for _, a := range ep.Aliases {
-					if !auto[a] {
-						custom = append(custom, a)
-					}
-				}
-				if len(custom) > 0 {
-					sort.Strings(custom)
-					aliases[n] = custom
-				}
-			}
-			sort.Strings(nets)
-			cs.Networks = nets
-			if len(aliases) > 0 {
-				cs.Aliases = aliases
+		for _, m := range cs.Mounts {
+			if m.Type == "volume" && m.Source != "" {
+				volSet[m.Source] = true
 			}
 		}
 		spec.Services = append(spec.Services, cs)
@@ -315,6 +261,124 @@ func (c *Client) ProjectSpec(ctx context.Context, project string) (*stackspec.St
 	}
 	sort.Slice(spec.Services, func(i, j int) bool { return spec.Services[i].Name < spec.Services[j].Name })
 	return spec, nil
+}
+
+// ContainerSpecOf reconstructs a single container's editable spec from its live
+// inspect — the seed for the "edit container" form. name is the compose service
+// when set, else the container name.
+func (c *Client) ContainerSpecOf(ctx context.Context, id string) (*stackspec.ContainerSpec, error) {
+	info, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s: %w", id, err)
+	}
+	name := strings.TrimPrefix(info.Name, "/")
+	if info.Config != nil && info.Config.Labels[labelService] != "" {
+		name = info.Config.Labels[labelService]
+	}
+	cs := specFromInspect(info, name)
+	return &cs, nil
+}
+
+// specFromInspect maps a container inspect to a portable ContainerSpec (no live
+// IPs/MACs, hope/compose labels filtered out). svc becomes the spec name.
+func specFromInspect(info container.InspectResponse, svc string) stackspec.ContainerSpec {
+	cs := stackspec.ContainerSpec{Name: svc}
+	if info.Config != nil {
+		cs.Image = info.Config.Image
+		cs.Entrypoint = []string(info.Config.Entrypoint)
+		cs.Command = []string(info.Config.Cmd)
+		cs.Env = envMap(info.Config.Env)
+		cs.User = info.Config.User
+		cs.WorkingDir = info.Config.WorkingDir
+		cs.Labels = filterLabels(info.Config.Labels)
+		cs.Health = healthSpec(info.Config.Healthcheck)
+	}
+	if info.HostConfig != nil {
+		cs.Restart = string(info.HostConfig.RestartPolicy.Name)
+		cs.Privileged = info.HostConfig.Privileged
+		cs.CapAdd = []string(info.HostConfig.CapAdd)
+		cs.ExtraHosts = info.HostConfig.ExtraHosts
+		cs.Ports = portSpecs(info.HostConfig.PortBindings)
+	}
+	for _, m := range info.Mounts {
+		ms := stackspec.MountSpec{Target: m.Destination, ReadOnly: !m.RW, Type: string(m.Type)}
+		if m.Type == "volume" {
+			ms.Source = m.Name
+		} else {
+			ms.Source = m.Source
+		}
+		if ms.Target != "" {
+			cs.Mounts = append(cs.Mounts, ms)
+		}
+	}
+	if info.NetworkSettings != nil {
+		var nets []string
+		aliases := map[string][]string{}
+		auto := map[string]bool{svc: true, strings.TrimPrefix(info.Name, "/"): true}
+		if len(info.ID) >= 12 {
+			auto[info.ID[:12]] = true
+		}
+		for n, ep := range info.NetworkSettings.Networks {
+			if n == "bridge" || n == "host" || n == "none" {
+				continue
+			}
+			nets = append(nets, n)
+			var custom []string
+			for _, a := range ep.Aliases {
+				if !auto[a] {
+					custom = append(custom, a)
+				}
+			}
+			if len(custom) > 0 {
+				sort.Strings(custom)
+				aliases[n] = custom
+			}
+		}
+		sort.Strings(nets)
+		cs.Networks = nets
+		if len(aliases) > 0 {
+			cs.Aliases = aliases
+		}
+	}
+	return cs
+}
+
+// RecreateFromSpec rebuilds a container in place under its current name with the
+// edited spec — the API-only "edit container settings". The container's internal
+// compose/hope labels are preserved (so it stays grouped/managed); the user
+// labels come from the spec. Networks in the spec are taken as-is (the edit form
+// seeds them from the live container).
+func (c *Client) RecreateFromSpec(ctx context.Context, id string, spec stackspec.ContainerSpec, pull bool, emit func(string)) error {
+	if emit == nil {
+		emit = func(string) {}
+	}
+	info, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", id, err)
+	}
+	name := strings.TrimPrefix(info.Name, "/")
+	// Preserve internal labels (compose grouping, hope-managed) under the edit.
+	merged := map[string]string{}
+	if info.Config != nil {
+		for k, v := range info.Config.Labels {
+			if strings.HasPrefix(k, "com.docker.compose.") || strings.HasPrefix(k, "ink.hope.") {
+				merged[k] = v
+			}
+		}
+	}
+	for k, v := range spec.Labels {
+		merged[k] = v
+	}
+	spec.Labels = merged
+
+	emit("stop + remove " + name)
+	if err := c.Remove(ctx, id); err != nil {
+		return fmt.Errorf("remove %s: %w", name, err)
+	}
+	if _, err := c.CreateContainer(ctx, name, spec, pull, emit); err != nil {
+		return fmt.Errorf("recreate %s: %w", name, err)
+	}
+	return nil
 }
 
 // ── mapping helpers ─────────────────────────────────────────────────────────

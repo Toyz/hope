@@ -118,6 +118,7 @@ export class HopeServiceForm extends LoomElement {
   @reactive accessor workingDir = "";
   @reactive accessor capAdd = "";
   @reactive accessor privileged = false;
+  @reactive accessor labels: EnvRow[] = [];
   @reactive accessor advOpen = false;
 
   @mount
@@ -148,6 +149,7 @@ export class HopeServiceForm extends LoomElement {
     this.workingDir = s.working_dir || "";
     this.capAdd = (s.cap_add || []).join(", ");
     this.privileged = !!s.privileged;
+    this.labels = Object.entries(s.labels || {}).map(([k, v]) => ({ k, v }));
   }
 
   /** getSpec assembles the current fields into a ContainerSpec. */
@@ -191,6 +193,9 @@ export class HopeServiceForm extends LoomElement {
     if (this.privileged) spec.privileged = true;
     const caps = this.capAdd.split(",").map((c) => c.trim()).filter(Boolean);
     if (caps.length) spec.cap_add = caps;
+    const labels: Record<string, string> = {};
+    for (const l of this.labels) if (l.k.trim()) labels[l.k.trim()] = l.v;
+    if (Object.keys(labels).length) spec.labels = labels;
     const tunnels: TunnelRoute[] = [];
     for (const t of this.tuns) {
       const host = this.tunHost(t);
@@ -393,6 +398,19 @@ export class HopeServiceForm extends LoomElement {
               <div class="f"><label>working dir</label><input type="text" placeholder="/app" value={this.workingDir} onInput={(e: any) => (this.workingDir = e.target.value)} /></div>
               <div class="f"><label>cap_add</label><input type="text" placeholder="NET_ADMIN, SYS_TIME" value={this.capAdd} onInput={(e: any) => (this.capAdd = e.target.value)} /></div>
               <div class="f"><label>privileged</label><span class={"tog" + (this.privileged ? " on" : "")} onClick={() => (this.privileged = !this.privileged)}><span class="sw"></span><span class="tl">{this.privileged ? "on" : "off"}</span></span></div>
+            </div>
+            <div class="sec">
+              <div class="lab"><span>labels</span></div>
+              <div class="rows">
+                {this.labels.map((l, i) => (
+                  <div class="row">
+                    <input type="text" placeholder="key" value={l.k} onInput={(e: any) => (this.labels = this.up(this.labels, i, { k: e.target.value }))} />
+                    <input type="text" placeholder="value" value={l.v} onInput={(e: any) => (this.labels = this.up(this.labels, i, { v: e.target.value }))} />
+                    <button class="rm" onClick={() => (this.labels = this.del(this.labels, i))}><loom-icon name="x" size={14}></loom-icon></button>
+                  </div>
+                ))}
+              </div>
+              <button class="add" onClick={() => (this.labels = [...this.labels, { k: "", v: "" }])}><loom-icon name="plus" size={12}></loom-icon> label</button>
             </div>
           </div>
         ) : null}

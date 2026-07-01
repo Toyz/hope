@@ -9,8 +9,9 @@ import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView } from "../contracts";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo } from "../contracts";
 import { theme, markClass } from "../styles";
+import "../components/service-form";
 
 // Internal (container-side) port from a docker port string, for tunnel autofill.
 const cInnerPort = (p: string): string => {
@@ -262,6 +263,29 @@ const MAX_LINES = 600;
   .pmuted { color: var(--dim); }
   .pempty { padding: 32px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 
+  .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: start center; padding: 40px 20px;
+    overflow: auto; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
+  @keyframes efade { from { opacity: 0; } to { opacity: 1; } }
+  .ebox { width: 760px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);
+    animation: epop .14s cubic-bezier(.2, .8, .3, 1) both; }
+  @keyframes epop { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+  .ebox .ehd { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+    font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
+  .ebox .ehd .grow { flex: 1; }
+  .ebox .ex { background: transparent; border: 0; color: var(--dim); cursor: pointer; display: flex; padding: 2px; }
+  .ebox .ex:hover { color: var(--hi); }
+  .ebox .ebd { padding: 18px 20px; }
+  .ebox .enote { margin: 0 0 16px; font: 12px/1.6 var(--sans); color: var(--dim); }
+  .ebox .eload { padding: 30px; text-align: center; color: var(--dim); font: 12.5px/1 var(--mono); }
+  .ebox .eft { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); position: sticky; bottom: 0; }
+  .ebox .ebtn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mid);
+    background: transparent; border: 1px solid var(--line); padding: 11px 16px; cursor: pointer; }
+  .ebox .ebtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .ebox .ebtn.go { color: #06080d; background: var(--upd); border-color: var(--upd); }
+  .ebox .ebtn.go:hover { background: color-mix(in srgb, var(--upd) 88%, #fff); }
+  .ebox .ebtn:disabled { opacity: .5; cursor: default; }
+
   @media (max-width: 720px) { main { padding: 20px 16px 48px; } }
 `)
 export class ContainerPage extends LoomElement {
@@ -315,6 +339,11 @@ export class ContainerPage extends LoomElement {
   private ctrl = new AbortController();
 
   @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
+  @reactive accessor editOpen = false;
+  @reactive accessor editSpec: ContainerSpec | null = null;
+  @reactive accessor editSeed = 0;
+  @reactive accessor editNets: string[] = [];
+  @reactive accessor editVols: string[] = [];
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
   get fleetBack() {
@@ -690,6 +719,44 @@ export class ContainerPage extends LoomElement {
     this.tab = t;
   };
 
+  // ── edit container settings (recreate with a new spec) ──
+  private openEdit = async () => {
+    this.editOpen = true;
+    this.editSpec = null;
+    try {
+      const [spec, nets, vols] = await Promise.all([
+        this.rpc.call<ContainerSpec>("Containers", "spec", [this.id]),
+        this.rpc.call<NetworkInfo[]>("System", "networks", []).catch(() => []),
+        this.rpc.call<VolumeInfo[]>("System", "volumes", []).catch(() => []),
+      ]);
+      this.editNets = (nets || []).map((n) => n.name).filter((n) => n !== "host" && n !== "none");
+      this.editVols = (vols || []).map((v) => v.name);
+      this.editSpec = spec;
+      this.editSeed++;
+    } catch (e: any) {
+      this.editOpen = false;
+    }
+  };
+
+  private saveEdit = async () => {
+    const form = this.shadowRoot?.querySelector(".editmodal hope-service-form") as any;
+    if (!form) return;
+    const spec: ContainerSpec = form.getSpec();
+    if (!spec.image) return;
+    this.editOpen = false;
+    let ok = false;
+    await this.proc.run("edit " + this.service(), async (emit, signal) => {
+      let sok = true;
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "editContainer", [this.id, JSON.stringify(spec)], signal)) {
+        if (f.type === "log" && f.data) emit(f.data);
+        else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+      }
+      ok = sok;
+      return sok;
+    });
+    if (ok) this.enter(this.id); // reload the (recreated) container
+  };
+
   private logout = () => {
     this.auth.clear();
     this.router.navigate("/login");
@@ -920,6 +987,7 @@ export class ContainerPage extends LoomElement {
           ) : null}
                     <hope-nav></hope-nav>
           <div class="grow"></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" title="edit this container's settings" onClick={this.openEdit}><loom-icon name="redeploy" size={13}></loom-icon> edit</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 
@@ -1084,6 +1152,30 @@ export class ContainerPage extends LoomElement {
         </main>
         {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.healthOpen ? this.renderHealthModal() : null}
+        {this.editOpen ? (
+          <div class="editmodal" onClick={() => (this.editOpen = false)}>
+            <div class="ebox" onClick={(e: Event) => e.stopPropagation()}>
+              <div class="ehd">
+                <loom-icon name="redeploy" size={16} color="var(--upd)"></loom-icon>
+                <span>edit {this.service()}</span>
+                <span class="grow"></span>
+                <button class="ex" onClick={() => (this.editOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+              </div>
+              <div class="ebd">
+                <p class="enote">Saving recreates the container with these settings (brief downtime). It keeps its name and stack grouping.</p>
+                {this.editSpec ? (
+                  <hope-service-form initial={this.editSpec} seed={this.editSeed} networks={this.editNets} volumes={this.editVols} connectors={[]} showName={true}></hope-service-form>
+                ) : (
+                  <div class="eload">loading…</div>
+                )}
+              </div>
+              <div class="eft">
+                <button class="ebtn" onClick={() => (this.editOpen = false)}>Cancel</button>
+                <button class="ebtn go" disabled={!this.editSpec} onClick={this.saveEdit}>Save &amp; recreate</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }

@@ -42,6 +42,7 @@ const (
 	pathApplyStack    = "/rpc/Stream/applyStack"    // args: [json StackSpec]  (build/deploy/edit a stack)
 	pathDeployCont    = "/rpc/Stream/deployContainer" // args: [json ContainerSpec] (one-off container)
 	pathDestroyStack  = "/rpc/Stream/destroyStack"  // args: [project, "true"|"false" prune]
+	pathEditContainer = "/rpc/Stream/editContainer" // args: [container id, json ContainerSpec]
 )
 
 // multiTail caps per-container backlog when fanning in many containers.
@@ -81,7 +82,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages, pathApplyStack, pathDeployCont, pathDestroyStack}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages, pathApplyStack, pathDeployCont, pathDestroyStack, pathEditContainer}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -197,6 +198,20 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		project := args[0]
 		prune := len(args) > 1 && args[1] == "true"
 		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
+
+	case pathEditContainer:
+		if len(args) < 2 {
+			return errResp(http.StatusBadRequest, "container id and spec required")
+		}
+		id := args[0]
+		if !p.dock().Exists(ctx, id) {
+			return errResp(http.StatusNotFound, "container not found")
+		}
+		var spec stackspec.ContainerSpec
+		if err := json.Unmarshal([]byte(args[1]), &spec); err != nil {
+			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
+		}
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RecreateFromSpec(ctx, id, spec, true, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")

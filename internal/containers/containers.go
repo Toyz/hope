@@ -9,6 +9,7 @@ import (
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
+	"github.com/toyz/hope/internal/stackspec"
 )
 
 // pullTimeout caps a single-container image pull.
@@ -47,6 +48,19 @@ func (r *ContainersRouter) Inspect(ctx *rpc.Context, p *IDParams) (any, error) {
 		return nil, rpc.NotFound("%v", err)
 	}
 	return info, nil
+}
+
+// Spec reconstructs a container's editable settings (image, ports, env, mounts,
+// networks, labels…) from its live inspect — the seed for the edit form.
+func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.ContainerSpec, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	spec, err := r.dock().ContainerSpecOf(ctx, p.ID)
+	if err != nil {
+		return nil, rpc.NotFound("%v", err)
+	}
+	return spec, nil
 }
 
 // Start starts a stopped container.
