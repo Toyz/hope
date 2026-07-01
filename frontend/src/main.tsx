@@ -24,6 +24,7 @@ import "./pages/login";
 import "./pages/dashboard";
 import "./pages/stack";
 import "./pages/container";
+import "./pages/deploy";
 import "./pages/images";
 import "./pages/networks";
 import "./pages/volumes";

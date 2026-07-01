@@ -101,6 +101,30 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		emit("volume " + actual + " — created")
 	}
 
+	// Default network: like `docker compose`, any service that declares no
+	// networks joins a shared "<project>_default" bridge so services resolve each
+	// other by name. Create it once if needed.
+	defaultNet := project + "_default"
+	needDefault := false
+	for _, svc := range spec.Services {
+		if len(svc.Networks) == 0 {
+			needDefault = true
+			break
+		}
+	}
+	if needDefault {
+		exists, err := dock.NetworkExists(ctx, defaultNet)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := dock.CreateNetwork(ctx, stackspec.NetworkSpec{Name: defaultNet, Labels: withProject(nil, project)}); err != nil {
+				return err
+			}
+			emit("network " + defaultNet + " — created (default)")
+		}
+	}
+
 	// 2) Diff services against the live stack.
 	live := map[string]stackspec.ContainerSpec{}
 	if cur, err := dock.ProjectSpec(ctx, project); err == nil {
@@ -116,6 +140,9 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		}
 		desired[svc.Name] = true
 		resolved := e.resolveService(svc, project, netName, volName)
+		if len(resolved.Networks) == 0 {
+			resolved.Networks = []string{defaultNet}
+		}
 
 		if cur, ok := live[svc.Name]; ok {
 			if stackspec.Hash(resolved) == stackspec.Hash(cur) {
@@ -214,15 +241,25 @@ func (e *Engine) resolveService(svc stackspec.ContainerSpec, project string, net
 	out := svc
 	if len(svc.Networks) > 0 {
 		nets := make([]string, 0, len(svc.Networks))
-		for _, n := range svc.Networks {
+		remap := func(n string) string {
 			if a, ok := netName[n]; ok {
-				nets = append(nets, a)
-			} else {
-				nets = append(nets, n) // reference to a pre-existing network
+				return a
 			}
+			return n // reference to a pre-existing network
+		}
+		for _, n := range svc.Networks {
+			nets = append(nets, remap(n))
 		}
 		sort.Strings(nets)
 		out.Networks = nets
+		// Re-key aliases from the declared short names to the actual network names.
+		if len(svc.Aliases) > 0 {
+			al := make(map[string][]string, len(svc.Aliases))
+			for n, a := range svc.Aliases {
+				al[remap(n)] = a
+			}
+			out.Aliases = al
+		}
 	}
 	if len(svc.Mounts) > 0 {
 		mounts := make([]stackspec.MountSpec, len(svc.Mounts))

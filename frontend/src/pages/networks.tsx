@@ -6,6 +6,8 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
+import { PromptService } from "../prompt";
+import { ToastService } from "../toast";
 import type { NetworkInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -30,6 +32,8 @@ export class NetworksPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ToastService) accessor toast!: ToastService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -80,6 +84,34 @@ export class NetworksPage extends LoomElement {
   get fleetMode() {
     return localStorage.getItem("hope.fleet") === "1";
   }
+
+  private createNet = async () => {
+    const v = await this.prompt.ask({
+      title: "create network",
+      icon: "link",
+      submitLabel: "Create",
+      fields: [
+        { key: "name", label: "name", placeholder: "my-net" },
+        { key: "driver", label: "driver", type: "select", value: "bridge", options: [{ value: "bridge", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }] },
+        { key: "subnet", label: "subnet (optional)", optional: true, placeholder: "172.28.0.0/16" },
+        { key: "gateway", label: "gateway (optional)", optional: true, placeholder: "172.28.0.1" },
+        { key: "internal", label: "internal (no outbound)", type: "toggle", optional: true },
+        { key: "attachable", label: "attachable", type: "toggle", optional: true },
+        { key: "ipv6", label: "enable IPv6", type: "toggle", optional: true },
+      ],
+    });
+    if (!v) return;
+    this.busy = true;
+    try {
+      await this.rpc.call("Deploy", "createNetwork", [v.name.trim(), v.driver || "bridge", v.subnet.trim(), v.gateway.trim(), v.internal === "true", v.attachable === "true", v.ipv6 === "true"]);
+      this.toast.ok("created network " + v.name.trim());
+      await this.load();
+    } catch (err: any) {
+      this.toast.error("create failed: " + (err?.message ?? "error"));
+    } finally {
+      this.busy = false;
+    }
+  };
 
   @mount
   onMount() {
@@ -165,6 +197,7 @@ export class NetworksPage extends LoomElement {
           <div class="s act"><hope-host-switch></hope-host-switch></div>
                               <hope-nav active="networks"></hope-nav>
           <div class="grow"></div>
+          <div class="s act"><button disabled={this.busy} onClick={this.createNet}>+ create</button></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>

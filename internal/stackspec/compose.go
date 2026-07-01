@@ -163,7 +163,7 @@ func (s composeService) toSpec(name string) (ContainerSpec, []Warning) {
 			warn("could not parse a volumes entry — skipped")
 		}
 	}
-	cs.Networks = parseServiceNetworks(s.Networks)
+	cs.Networks, cs.Aliases = parseServiceNetworks(s.Networks)
 	cs.DependsOn = parseDependsOn(s.DependsOn)
 	if s.Healthcheck != nil {
 		cs.Health = &HealthSpec{
@@ -237,7 +237,20 @@ func ToCompose(spec *StackSpec) (string, error) {
 			m["volumes"] = vols
 		}
 		if len(s.Networks) > 0 {
-			m["networks"] = s.Networks
+			if len(s.Aliases) > 0 {
+				// map form so aliases round-trip: net: {aliases: [...]}
+				nm := map[string]any{}
+				for _, net := range s.Networks {
+					if al := s.Aliases[net]; len(al) > 0 {
+						nm[net] = map[string]any{"aliases": al}
+					} else {
+						nm[net] = nil
+					}
+				}
+				m["networks"] = nm
+			} else {
+				m["networks"] = s.Networks
+			}
 		}
 		if s.Restart != "" {
 			m["restart"] = s.Restart
@@ -547,23 +560,34 @@ func parseMountString(v string) (MountSpec, bool) {
 	return m, true
 }
 
-func parseServiceNetworks(n yaml.Node) []string {
+// parseServiceNetworks returns the network names a service attaches to and, for
+// the map form (`net: {aliases: [...]}`), the per-network aliases.
+func parseServiceNetworks(n yaml.Node) ([]string, map[string][]string) {
 	switch n.Kind {
 	case yaml.SequenceNode:
 		var list []string
 		_ = n.Decode(&list)
-		return list
+		return list, nil
 	case yaml.MappingNode:
-		var m map[string]yaml.Node
+		var m map[string]struct {
+			Aliases []string `yaml:"aliases"`
+		}
 		_ = n.Decode(&m)
 		out := make([]string, 0, len(m))
-		for k := range m {
+		aliases := map[string][]string{}
+		for k, v := range m {
 			out = append(out, k)
+			if len(v.Aliases) > 0 {
+				aliases[k] = v.Aliases
+			}
 		}
 		sort.Strings(out)
-		return out
+		if len(aliases) == 0 {
+			aliases = nil
+		}
+		return out, aliases
 	}
-	return nil
+	return nil, nil
 }
 
 func parseDependsOn(n yaml.Node) []string {

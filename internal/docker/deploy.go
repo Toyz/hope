@@ -71,17 +71,13 @@ func (c *Client) CreateContainer(ctx context.Context, name string, spec stackspe
 		ExtraHosts:    spec.ExtraHosts,
 	}
 
-	// Primary network (with the service alias for in-stack DNS); the rest are
-	// connected after create, mirroring Recreate.
+	// Primary network (with the service alias + any custom aliases for in-stack
+	// DNS); the rest are connected after create, mirroring Recreate.
 	nets := append([]string(nil), spec.Networks...)
 	sort.Strings(nets)
-	var aliases []string
-	if spec.Name != "" {
-		aliases = []string{spec.Name}
-	}
 	netCfg := &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{}}
 	if len(nets) > 0 {
-		netCfg.EndpointsConfig[nets[0]] = &network.EndpointSettings{Aliases: aliases}
+		netCfg.EndpointsConfig[nets[0]] = &network.EndpointSettings{Aliases: endpointAliases(spec, nets[0])}
 	}
 
 	created, err := c.sdk().ContainerCreate(ctx, cfg, host, netCfg, nil, name)
@@ -89,7 +85,7 @@ func (c *Client) CreateContainer(ctx context.Context, name string, spec stackspe
 		return "", fmt.Errorf("create %s: %w", name, err)
 	}
 	for _, n := range nets[1:] {
-		if err := c.sdk().NetworkConnect(ctx, n, created.ID, &network.EndpointSettings{Aliases: aliases}); err != nil {
+		if err := c.sdk().NetworkConnect(ctx, n, created.ID, &network.EndpointSettings{Aliases: endpointAliases(spec, n)}); err != nil {
 			return "", fmt.Errorf("connect %s to %s: %w", name, n, err)
 		}
 	}
@@ -280,15 +276,34 @@ func (c *Client) ProjectSpec(ctx context.Context, project string) (*stackspec.St
 		}
 		if info.NetworkSettings != nil {
 			var nets []string
-			for n := range info.NetworkSettings.Networks {
+			aliases := map[string][]string{}
+			// Auto-generated aliases docker adds itself — not user aliases.
+			auto := map[string]bool{svc: true, strings.TrimPrefix(info.Name, "/"): true}
+			if len(info.ID) >= 12 {
+				auto[info.ID[:12]] = true
+			}
+			for n, ep := range info.NetworkSettings.Networks {
 				if n == "bridge" || n == "host" || n == "none" {
 					continue
 				}
 				nets = append(nets, n)
 				netSet[n] = true
+				var custom []string
+				for _, a := range ep.Aliases {
+					if !auto[a] {
+						custom = append(custom, a)
+					}
+				}
+				if len(custom) > 0 {
+					sort.Strings(custom)
+					aliases[n] = custom
+				}
 			}
 			sort.Strings(nets)
 			cs.Networks = nets
+			if len(aliases) > 0 {
+				cs.Aliases = aliases
+			}
 		}
 		spec.Services = append(spec.Services, cs)
 	}
@@ -303,6 +318,27 @@ func (c *Client) ProjectSpec(ctx context.Context, project string) (*stackspec.St
 }
 
 // ── mapping helpers ─────────────────────────────────────────────────────────
+
+// endpointAliases is the alias list for a service on a network: the service name
+// (so in-stack DNS resolves the service) plus any custom aliases from the spec.
+func endpointAliases(spec stackspec.ContainerSpec, net string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(a string) {
+		if a != "" && !seen[a] {
+			seen[a] = true
+			out = append(out, a)
+		}
+	}
+	add(spec.Name)
+	for _, a := range spec.Aliases[net] {
+		add(a)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 func envSlice(m map[string]string) []string {
 	if len(m) == 0 {

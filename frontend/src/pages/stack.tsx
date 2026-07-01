@@ -1049,6 +1049,9 @@ export class StackPage extends LoomElement {
           <div class="s"><span class="crumb">{this.project}</span></div>
                     <hope-nav></hope-nav>
           <div class="grow"></div>
+          {this.isUngrouped ? null : (
+            <div class="s act"><button title="edit this stack in the builder" onClick={() => this.router.navigate("/deploy?edit=" + encodeURIComponent(this.project))}>edit</button></div>
+          )}
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 

@@ -14,9 +14,9 @@ export interface SelectOption {
 @styles(css`
   ${theme}
   :host { display: block; position: relative; }
-  .trigger { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  .trigger { display: flex; align-items: center; gap: 8px; width: 100%; height: 38px; box-sizing: border-box;
     background: var(--ink); border: 1px solid var(--line); color: var(--hi);
-    font: 13px/1 var(--mono); padding: 10px 12px; cursor: pointer; text-align: left; }
+    font: 13px/1 var(--mono); padding: 0 12px; cursor: pointer; text-align: left; }
   .trigger:hover { border-color: var(--line2); }
   .trigger.open { border-color: var(--line2); }
   .trigger .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

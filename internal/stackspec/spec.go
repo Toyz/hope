@@ -71,7 +71,11 @@ type ContainerSpec struct {
 	Privileged bool              `json:"privileged,omitempty"`
 	CapAdd     []string          `json:"cap_add,omitempty"`
 	ExtraHosts []string          `json:"extra_hosts,omitempty"`
-	DependsOn  []string          `json:"depends_on,omitempty"`
+	// Aliases are extra network aliases per network (network name -> aliases), so
+	// a service is reachable under additional DNS names on that network. The
+	// service name is always an alias; these are on top.
+	Aliases    map[string][]string `json:"aliases,omitempty"`
+	DependsOn  []string            `json:"depends_on,omitempty"`
 	Health     *HealthSpec       `json:"health,omitempty"`
 	Tunnels    []TunnelRoute     `json:"tunnels,omitempty"`
 	Labels     map[string]string `json:"labels,omitempty"`
@@ -131,6 +135,13 @@ func Hash(s ContainerSpec) string {
 	c.DependsOn = sortedCopy(c.DependsOn)
 	c.Ports = sortedPorts(c.Ports)
 	c.Mounts = sortedMounts(c.Mounts)
+	if len(c.Aliases) > 0 {
+		al := make(map[string][]string, len(c.Aliases))
+		for k, v := range c.Aliases {
+			al[k] = sortedCopy(v)
+		}
+		c.Aliases = al
+	}
 	b, _ := json.Marshal(c)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:8])
