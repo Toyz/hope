@@ -183,7 +183,7 @@ func runServe(configPath string) error {
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
-	gw.Register(system.NewSystemRouter(hostSet))
+	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip

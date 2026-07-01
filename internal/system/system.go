@@ -14,12 +14,37 @@ import (
 
 // SystemRouter surfaces daemon-level diagnostics for the active host.
 type SystemRouter struct {
-	hosts *hosts.Set
+	hosts       *hosts.Set
+	agentToken  string // shared enrollment secret (empty = hub disabled)
+	agentWSPath string
 }
 
-// NewSystemRouter wires the router to the host set (active-host aware).
-func NewSystemRouter(hs *hosts.Set) *SystemRouter {
-	return &SystemRouter{hosts: hs}
+// NewSystemRouter wires the router to the host set (active-host aware). The agent
+// token + ws path power the "add an agent" enrollment helper.
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string) *SystemRouter {
+	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath}
+}
+
+// AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run
+// command. Token is a secret — returned only to an authenticated operator and
+// never logged.
+type AgentEnrollInfo struct {
+	Enabled bool   `json:"enabled"` // the hub is on ([agent] token set)
+	Token   string `json:"token"`
+	WSPath  string `json:"ws_path"`
+}
+
+// AgentEnroll returns the shared token + ws path so the UI can render a complete
+// enrollment command (the connect host is derived client-side from the URL).
+func (r *SystemRouter) AgentEnroll(ctx *rpc.Context) (*AgentEnrollInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	path := r.agentWSPath
+	if path == "" {
+		path = "/agent/connect"
+	}
+	return &AgentEnrollInfo{Enabled: r.agentToken != "", Token: r.agentToken, WSPath: path}, nil
 }
 
 // dock is the docker client for the currently-active host.

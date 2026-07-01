@@ -197,7 +197,7 @@ export class NetworksPage extends LoomElement {
           <div class="s act"><hope-host-switch></hope-host-switch></div>
                               <hope-nav active="networks"></hope-nav>
           <div class="grow"></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.createNet}>+ create</button></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>
           <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>

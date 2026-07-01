@@ -140,14 +140,13 @@ export class DeployPage extends LoomElement {
   @mount
   async onMount() {
     if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
-    await Promise.all([this.loadHost(), this.loadConnectors(), this.loadResources()]);
     const editProject = deployIntent.edit || new URLSearchParams(location.search).get("edit");
     deployIntent.edit = null;
-    if (editProject) {
-      await this.loadEdit(editProject);
-    } else if (this.rows.length === 0) {
-      this.rows = [{ key: this.keyc++, initial: { image: "" } }];
-    }
+    // Render the builder immediately with one empty row (new deploy) so it doesn't
+    // pop in after the async host/resource loads resolve.
+    if (!editProject && this.rows.length === 0) this.rows = [{ key: this.keyc++, initial: { image: "" } }];
+    await Promise.all([this.loadHost(), this.loadConnectors(), this.loadResources()]);
+    if (editProject) await this.loadEdit(editProject);
   }
 
   private async loadHost() {

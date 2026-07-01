@@ -3,6 +3,7 @@
 // Host-aware: in "all hosts" mode the deploy/add dialogs ask which host to target;
 // otherwise they use the actively-selected host.
 import { LoomElement, component, styles, css, reactive, mount, interval, app } from "@toyz/loom";
+import { draggable, dropzone } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -68,6 +69,9 @@ const innerPort = (p: string): string => {
   tr.dgroup + tr td, tr.dgroup ~ tr td.host { }
   td.host { padding-left: 30px; }
   td.host .svc { color: var(--dim); }
+  tr.route { cursor: grab; }
+  tr.route:active { cursor: grabbing; }
+  tr.route.drop-over td { box-shadow: inset 0 2px 0 var(--upd); }
   td.origin .svc { color: var(--dim); }
   td.origin .tlink { display: inline-flex; align-items: center; gap: 3px; color: var(--hi); cursor: pointer; }
   td.origin .tlink loom-icon { color: var(--dim); }
@@ -260,24 +264,57 @@ export class TunnelsPage extends LoomElement {
     if (c) this.addRoute(c, this.routeInit(t));
   };
 
-  private moveRoute = async (t: TunnelView, dir: "up" | "down") => {
-    const cid = this.connectors.find((c) => c.name === t.connector)?.id;
+  // applyOrder optimistically sets a new route order and persists the affected
+  // connector's ingress in one call. Shared by the up/down buttons and drag-drop.
+  private applyOrder = async (connector: string, arr: TunnelView[]) => {
+    const cid = this.connectors.find((c) => c.name === connector)?.id;
     if (!cid) return;
-    // Optimistic swap so the UI moves instantly; reconcile on failure.
-    const arr = [...this.routes];
-    const i = arr.indexOf(t);
-    const j = dir === "up" ? i - 1 : i + 1;
-    if (i < 0 || j < 0 || j >= arr.length || arr[j].connector !== t.connector) return;
-    [arr[i], arr[j]] = [arr[j], arr[i]];
     this.routes = arr;
     this.suppressUntil = Date.now() + 6000; // don't let the auto-reload snap it back
+    const order = arr.filter((t) => t.connector === connector).map((t) => ({ hostname: t.hostname, path: t.path || "" }));
     try {
-      await this.rpc.call<OpResult>("Tunnels", "moveRoute", [cid, t.hostname, t.path || "", dir]);
+      await this.rpc.call<OpResult>("Tunnels", "reorderRoutes", [cid, JSON.stringify(order)]);
     } catch (err: any) {
       this.error = err?.message ?? "reorder failed";
       this.suppressUntil = 0;
       await this.load(); // resync the true order
     }
+  };
+
+  private moveRoute = async (t: TunnelView, dir: "up" | "down") => {
+    const arr = [...this.routes];
+    const i = arr.indexOf(t);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= arr.length || arr[j].connector !== t.connector) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    await this.applyOrder(t.connector, arr);
+  };
+
+  // rid identifies a route row for drag-and-drop (hostname + path, url-encoded so
+  // it survives a data attribute).
+  private ridOf(t: TunnelView) { return encodeURIComponent(t.hostname) + "|" + encodeURIComponent(t.path || ""); }
+
+  // Native HTML5 drag, wired via loom's @draggable/@dropzone with row delegation.
+  @draggable({ selector: "tr.route" })
+  private dragRoute(el: HTMLElement) { return el.dataset.rid || ""; }
+
+  @dropzone({ selector: "tr.route", overClass: "drop-over" })
+  private dropRoute(data: string, _ev: DragEvent, el: HTMLElement) {
+    this.reorderByDrag(data, el.dataset.rid || "");
+  }
+
+  // reorderByDrag moves the dragged route to just before the drop target within
+  // the SAME connector (Cloudflare matches ingress per-connector), then persists
+  // the connector's new order in one call. Optimistic, like moveRoute.
+  private reorderByDrag = async (fromRid: string, toRid: string) => {
+    if (!fromRid || !toRid || fromRid === toRid) return;
+    const arr = [...this.routes];
+    const from = arr.find((t) => this.ridOf(t) === fromRid);
+    const to = arr.find((t) => this.ridOf(t) === toRid);
+    if (!from || !to || from.connector !== to.connector) return; // only within a connector
+    arr.splice(arr.indexOf(from), 1);
+    arr.splice(arr.indexOf(to), 0, from);
+    await this.applyOrder(from.connector, arr);
   };
 
   private updateConnector = async (c: ConnectorView) => {
@@ -600,7 +637,7 @@ export class TunnelsPage extends LoomElement {
                   }
                   const idx = all.indexOf(t);
                   rows.push(
-                    <tr>
+                    <tr class="route" data-rid={this.ridOf(t)} data-cid={t.connector}>
                       <td class="host">
                         <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <span class="sub">{sub}</span> : <span class="rootlbl">root</span>}</a>
                         {t.path ? <span class="svc"> {t.path}</span> : null}

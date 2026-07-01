@@ -252,6 +252,16 @@ export class System {
   agents(): AgentView[] {
     return undefined!;
   }
+  agentEnroll(): AgentEnroll {
+    return undefined!;
+  }
+}
+
+// AgentEnroll is the info the "add agent" modal needs (token is a secret).
+export interface AgentEnroll {
+  enabled: boolean;
+  token: string;
+  ws_path: string;
 }
 
 @service("Tunnels")
@@ -275,6 +285,9 @@ export class Tunnels {
     return undefined!;
   }
   moveRoute(_connector: string, _hostname: string, _path: string, _dir: string): OpResult {
+    return undefined!;
+  }
+  reorderRoutes(_connector: string, _order: string): OpResult {
     return undefined!;
   }
   zones(): ZoneView[] {

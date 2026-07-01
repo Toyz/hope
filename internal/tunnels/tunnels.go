@@ -5,6 +5,7 @@
 package tunnels
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"sort"
@@ -402,6 +403,67 @@ func (r *TunnelsRouter) MoveRoute(ctx *rpc.Context, p *MoveRouteParams) (*OpResu
 	}
 	list[idx], list[swap] = list[swap], list[idx]
 	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, list); err != nil {
+		return nil, rpc.Internal("update tunnel config: %v", err)
+	}
+	return &OpResult{OK: true}, nil
+}
+
+// ReorderRoutesParams sets a connector's full ingress order in one write (for
+// drag-and-drop). Order is a JSON array of {hostname, path} in the desired order.
+type ReorderRoutesParams struct {
+	Connector string `sov:"connector,0,required" json:"connector"`
+	Order     string `sov:"order,1,required" json:"order"`
+}
+
+// ReorderRoutes rewrites a connector's ingress rules to match the client-supplied
+// order in a single PutTunnelConfig — no per-swap Cloudflare churn. Rules not
+// named in the order are appended (safety), and the catch-all is re-added by
+// PutTunnelConfig, so nothing is dropped.
+func (r *TunnelsRouter) ReorderRoutes(ctx *rpc.Context, p *ReorderRoutesParams) (*OpResult, error) {
+	if err := r.enabled(ctx); err != nil {
+		return nil, err
+	}
+	con, ok := r.findConnector(ctx, p.Connector)
+	if !ok {
+		return nil, rpc.NotFound("connector not found")
+	}
+	var order []struct {
+		Hostname string `json:"hostname"`
+		Path     string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(p.Order), &order); err != nil {
+		return nil, rpc.BadRequest("bad order: %v", err)
+	}
+	rules, err := r.cf.TunnelConfig(ctx, con.TunnelID)
+	if err != nil {
+		return nil, rpc.Internal("read tunnel config: %v", err)
+	}
+	byKey := map[string]cloudflare.IngressRule{}
+	for _, rule := range rules {
+		if rule.Hostname != "" {
+			byKey[rule.Hostname+"\x00"+rule.Path] = rule
+		}
+	}
+	out := make([]cloudflare.IngressRule, 0, len(byKey))
+	seen := map[string]bool{}
+	for _, o := range order {
+		k := strings.ToLower(strings.TrimSpace(o.Hostname)) + "\x00" + normalizePath(o.Path)
+		if rule, ok := byKey[k]; ok && !seen[k] {
+			out = append(out, rule)
+			seen[k] = true
+		}
+	}
+	for _, rule := range rules { // append any not named in the order
+		if rule.Hostname == "" {
+			continue
+		}
+		k := rule.Hostname + "\x00" + rule.Path
+		if !seen[k] {
+			out = append(out, rule)
+			seen[k] = true
+		}
+	}
+	if err := r.cf.PutTunnelConfig(ctx, con.TunnelID, out); err != nil {
 		return nil, rpc.Internal("update tunnel config: %v", err)
 	}
 	return &OpResult{OK: true}, nil

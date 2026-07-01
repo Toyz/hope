@@ -419,7 +419,10 @@ export class StackPage extends LoomElement {
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "stop", c.service || c.name); }}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
               <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "kill")}
                 onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "kill", c.service || c.name); }}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
-              {this.isUngrouped ? null : (
+              {this.isUngrouped ? (
+                <button class="mitem danger" disabled={!!this.busy}
+                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeContainer(c.id, c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove</span></button>
+              ) : (
                 <button class="mitem danger" disabled={!!this.busy}
                   onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeServiceFromStack(c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
               )}
@@ -1079,6 +1082,73 @@ export class StackPage extends LoomElement {
     this.loadTunnels();
   };
 
+  // deleteStack removes the whole stack: tears down its tunnel routes (removeTunnel
+  // deletes the DNS record only when no other route uses that host), destroys the
+  // containers, and prunes the networks/volumes hope created for it.
+  private deleteStack = async () => {
+    const ok = await this.confirm.ask({
+      title: "delete stack",
+      danger: true,
+      confirmLabel: "Delete " + this.project,
+      message: `Delete the entire "${this.project}" stack — remove every container, tear down its tunnel routes, and prune the networks/volumes hope created? This cannot be undone.`,
+    });
+    if (!ok) return;
+    this.busy = "stack:delete";
+    let success = false;
+    await this.proc.run("delete " + this.project, async (emit, signal) => {
+      try {
+        const routes = (await this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []).catch(() => [])) || [];
+        for (const r of routes.filter((r) => r.project === this.project)) {
+          emit("remove route " + r.hostname + (r.path || ""));
+          try {
+            await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [r.hostname, r.path || ""]);
+          } catch (e: any) {
+            emit("route teardown failed: " + (e?.message || "error"));
+          }
+        }
+        let dok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        success = dok;
+        return dok;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.busy = "";
+    if (success) this.router.navigate("/");
+  };
+
+  // removeContainer stops and deletes a single container — used for loose
+  // (ungrouped) containers, which aren't part of a stack spec.
+  private removeContainer = async (id: string, name: string) => {
+    const ok = await this.confirm.ask({
+      title: "remove container",
+      danger: true,
+      confirmLabel: "Remove " + name,
+      message: `Stop and remove "${name}"? This deletes the container.`,
+    });
+    if (!ok) return;
+    this.busy = "ctr:remove:" + id;
+    await this.proc.run("remove " + name, async (emit) => {
+      try {
+        emit("stop + remove " + name);
+        const res = await this.rpc.call<OpResult>("Containers", "remove", [id]);
+        if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
+        emit("removed " + name);
+        return true;
+      } catch (e: any) {
+        emit("failed: " + (e?.message || "error"));
+        return false;
+      }
+    });
+    this.busy = "";
+    await this.load();
+  };
+
   // removeServiceFromStack drops one service and re-applies the stack, so its
   // container(s) are removed and it won't come back on the next deploy. The other
   // services are unchanged (the apply diff leaves them alone).
@@ -1182,7 +1252,7 @@ export class StackPage extends LoomElement {
                     <hope-nav></hope-nav>
           <div class="grow"></div>
           {this.isUngrouped ? null : (
-            <div class="s act"><button disabled={!!this.busy} title="add a service to this stack" onClick={() => this.addServiceToStack()}>+ service</button></div>
+            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={!!this.busy} title="add a service to this stack" onClick={() => this.addServiceToStack()}><loom-icon name="plus" size={12}></loom-icon> service</button></div>
           )}
           {this.isUngrouped ? null : (
             <div class="s act"><button title="edit this stack in the builder" onClick={() => this.editStack()}>edit</button></div>
@@ -1218,6 +1288,7 @@ export class StackPage extends LoomElement {
                               <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                               <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
                               {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                              {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
                             </div>
                           ) : null}
                         </div>
