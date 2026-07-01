@@ -26,7 +26,7 @@ func NewContainersRouter(hs *hosts.Set) *ContainersRouter {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *ContainersRouter) dock() *docker.Client { return r.hosts.Active() }
+func (r *ContainersRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
 
 // IDParams targets a container by id or name.
 type IDParams struct {
@@ -43,7 +43,7 @@ func (r *ContainersRouter) Inspect(ctx *rpc.Context, p *IDParams) (any, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	info, err := r.dock().Inspect(ctx, p.ID)
+	info, err := r.dock(ctx).Inspect(ctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
 	}
@@ -56,7 +56,7 @@ func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.Conta
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	spec, err := r.dock().ContainerSpecOf(ctx, p.ID)
+	spec, err := r.dock(ctx).ContainerSpecOf(ctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
 	}
@@ -65,28 +65,28 @@ func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.Conta
 
 // Start starts a stopped container.
 func (r *ContainersRouter) Start(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock().Start)
+	return r.act(ctx, p, r.dock(ctx).Start)
 }
 
 // Stop stops a running container.
 func (r *ContainersRouter) Stop(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock().Stop)
+	return r.act(ctx, p, r.dock(ctx).Stop)
 }
 
 // Restart restarts a container.
 func (r *ContainersRouter) Restart(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock().Restart)
+	return r.act(ctx, p, r.dock(ctx).Restart)
 }
 
 // Kill sends SIGKILL to a container.
 func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock().Kill)
+	return r.act(ctx, p, r.dock(ctx).Kill)
 }
 
 // Remove stops and deletes a container (for loose/ungrouped containers compose
 // can't manage).
 func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock().Remove)
+	return r.act(ctx, p, r.dock(ctx).Remove)
 }
 
 // Pull pulls the latest image for this one container (not the whole stack).
@@ -99,14 +99,14 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, erro
 	}
 	cctx, cancel := context.WithTimeout(ctx, pullTimeout)
 	defer cancel()
-	img, err := r.dock().ContainerImage(cctx, p.ID)
+	img, err := r.dock(ctx).ContainerImage(cctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
 	}
-	if err := r.dock().PullImage(cctx, img); err != nil {
+	if err := r.dock(ctx).PullImage(cctx, img); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	r.dock().RefreshImageStatus(cctx, img) // keep the update cache fresh
+	r.dock(ctx).RefreshImageStatus(cctx, img) // keep the update cache fresh
 	return &CtrResult{OK: true}, nil
 }
 
@@ -121,17 +121,17 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, 
 	}
 	cctx, cancel := context.WithTimeout(ctx, pullTimeout)
 	defer cancel()
-	img, err := r.dock().ContainerImage(cctx, p.ID)
+	img, err := r.dock(ctx).ContainerImage(cctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
 	}
-	if err := r.dock().PullImage(cctx, img); err != nil {
+	if err := r.dock(ctx).PullImage(cctx, img); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	if err := r.dock().RecreateManaged(cctx, p.ID); err != nil {
+	if err := r.dock(ctx).RecreateManaged(cctx, p.ID); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	r.dock().RefreshImageStatus(cctx, img) // image is now current — refresh the cache
+	r.dock(ctx).RefreshImageStatus(cctx, img) // image is now current — refresh the cache
 	return &CtrResult{OK: true}, nil
 }
 

@@ -28,6 +28,7 @@ import (
 	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/accessauth"
 	"github.com/toyz/hope/internal/plugins/logger"
+	"github.com/toyz/hope/internal/plugins/hosttarget"
 	"github.com/toyz/hope/internal/plugins/introspectfilter"
 	"github.com/toyz/hope/internal/plugins/logstream"
 	"github.com/toyz/hope/internal/socketproxy"
@@ -202,6 +203,11 @@ func runServe(configPath string) error {
 		gw.MustUse(accessauth.New(tokens, verifier))
 		lg.Info("cloudflare access SSO enabled", "team", cfg.Auth.AccessTeam)
 	}
+
+	// Per-request host targeting: capture the X-Hope-Host header onto the context
+	// so a headless API call can run against a specific host without touching the
+	// globally-active one.
+	gw.MustUse(hosttarget.New())
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
 	gw.MustUse(logstream.New(hostSet, tokens, deployEngine))

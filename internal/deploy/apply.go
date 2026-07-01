@@ -21,7 +21,7 @@ type Engine struct {
 // NewEngine wires the deploy engine to the host set + spec store.
 func NewEngine(hs *hosts.Set, store *Store) *Engine { return &Engine{hosts: hs, store: store} }
 
-func (e *Engine) dock() *docker.Client { return e.hosts.Active() }
+func (e *Engine) dock(ctx context.Context) *docker.Client { return e.hosts.ActiveFor(ctx) }
 func (e *Engine) hostID() string       { return e.hosts.ActiveID() }
 
 // Store exposes the spec store for the router's read paths.
@@ -44,7 +44,7 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 	if project == "" {
 		return fmt.Errorf("stack name is required")
 	}
-	dock := e.dock()
+	dock := e.dock(ctx)
 
 	// 1) Networks + volumes. Map declared short names -> actual docker names
 	//    (compose-style "<project>_<name>"; external keeps its name).
@@ -204,7 +204,7 @@ func (e *Engine) DeployContainer(ctx context.Context, spec stackspec.ContainerSp
 	if name != "" {
 		spec.Name = "" // no service alias for a bare container
 	}
-	if _, err := e.dock().CreateContainer(ctx, name, spec, true, emit); err != nil {
+	if _, err := e.dock(ctx).CreateContainer(ctx, name, spec, true, emit); err != nil {
 		return err
 	}
 	return nil
@@ -216,7 +216,7 @@ func (e *Engine) Destroy(ctx context.Context, project string, prune bool, emit f
 	if emit == nil {
 		emit = func(string) {}
 	}
-	dock := e.dock()
+	dock := e.dock(ctx)
 	ids, err := dock.ProjectContainerIDs(ctx, project)
 	if err != nil {
 		return err
@@ -289,12 +289,12 @@ func (e *Engine) resolveService(svc stackspec.ContainerSpec, project string, net
 
 // removeService removes every container of a service in a project.
 func (e *Engine) removeService(ctx context.Context, project, service string, emit func(string)) error {
-	refs, err := e.dock().ProjectContainers(ctx, project, service)
+	refs, err := e.dock(ctx).ProjectContainers(ctx, project, service)
 	if err != nil {
 		return err
 	}
 	for _, ref := range refs {
-		if err := e.dock().Remove(ctx, ref.ID); err != nil {
+		if err := e.dock(ctx).Remove(ctx, ref.ID); err != nil {
 			return fmt.Errorf("remove %s: %w", ref.Name, err)
 		}
 	}

@@ -6,6 +6,7 @@
 package hosts
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -16,6 +17,31 @@ import (
 
 // LocalID is the reserved id for the local Docker socket.
 const LocalID = "local"
+
+// TargetHeader is the per-request host override for headless API callers: set
+// X-Hope-Host to a host id (e.g. "local" or an agent id) to run that one call
+// against it, without touching the globally-active host. Absent = active host.
+const TargetHeader = "X-Hope-Host"
+
+type targetKey struct{}
+
+// WithTarget returns a context carrying a per-request host target. Stored as a
+// context value so it flows to derived contexts (timeouts) and is readable from
+// both *rpc.Context and the plain context.Context used by streams/the engine.
+func WithTarget(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, targetKey{}, id)
+}
+
+// TargetFrom returns the per-request host target, or "" when none was set.
+func TargetFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if id, ok := ctx.Value(targetKey{}).(string); ok {
+		return id
+	}
+	return ""
+}
 
 // Set is the live collection of hosts with a single active selection.
 type Set struct {
@@ -76,6 +102,26 @@ func (s *Set) resolve() (string, *docker.Client) {
 
 // Active returns the docker client for the resolved active host.
 func (s *Set) Active() *docker.Client { _, c := s.resolve(); return c }
+
+// ActiveFor returns the docker client for a request: a per-request X-Hope-Host
+// target (headless API) when present and reachable, else the globally-active
+// host. An unknown/disconnected target falls back to the active host so a call
+// never silently runs nowhere.
+func (s *Set) ActiveFor(ctx context.Context) *docker.Client {
+	id := TargetFrom(ctx)
+	if id == "" {
+		return s.Active()
+	}
+	if id == LocalID {
+		return s.local
+	}
+	if s.reg != nil {
+		if c := s.reg.Get(id); c != nil {
+			return c
+		}
+	}
+	return s.Active()
+}
 
 // ActiveID returns the resolved active host id (what the UI should highlight).
 func (s *Set) ActiveID() string { id, _ := s.resolve(); return id }

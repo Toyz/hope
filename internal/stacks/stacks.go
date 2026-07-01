@@ -34,7 +34,7 @@ func NewStacksRouter(hs *hosts.Set, c *compose.Manager) *StacksRouter {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *StacksRouter) dock() *docker.Client { return r.hosts.Active() }
+func (r *StacksRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
 
 // ProjectParams targets a single compose project by name.
 type ProjectParams struct {
@@ -59,22 +59,22 @@ func (r *StacksRouter) List(ctx *rpc.Context) ([]docker.StackSummary, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	return r.dock().Stacks(ctx)
+	return r.dock(ctx).Stacks(ctx)
 }
 
 // Start starts every container in the project.
 func (r *StacksRouter) Start(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
-	return r.eachContainer(ctx, p, "start", r.dock().Start)
+	return r.eachContainer(ctx, p, "start", r.dock(ctx).Start)
 }
 
 // Stop stops every container in the project.
 func (r *StacksRouter) Stop(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
-	return r.eachContainer(ctx, p, "stop", r.dock().Stop)
+	return r.eachContainer(ctx, p, "stop", r.dock(ctx).Stop)
 }
 
 // Restart restarts every container in the project.
 func (r *StacksRouter) Restart(ctx *rpc.Context, p *ProjectParams) (*StackResult, error) {
-	return r.eachContainer(ctx, p, "restart", r.dock().Restart)
+	return r.eachContainer(ctx, p, "restart", r.dock(ctx).Restart)
 }
 
 // Pull pulls the latest image for each distinct image in the project.
@@ -86,7 +86,7 @@ func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*StackResult, e
 	defer cancel()
 	res, err := r.pull(cctx, p.Project)
 	if err == nil {
-		r.dock().RefreshProjectStatus(cctx, p.Project) // keep update cache fresh
+		r.dock(ctx).RefreshProjectStatus(cctx, p.Project) // keep update cache fresh
 	}
 	return res, err
 }
@@ -109,19 +109,19 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*StackResul
 			return &StackResult{OK: false, Output: log.String(), Error: res.Error}, nil
 		}
 	}
-	ids, err := r.dock().ProjectContainerIDs(cctx, p.Project)
+	ids, err := r.dock(ctx).ProjectContainerIDs(cctx, p.Project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	n := 0
 	for _, id := range ids {
-		if err := r.dock().RecreateManaged(cctx, id); err != nil {
+		if err := r.dock(ctx).RecreateManaged(cctx, id); err != nil {
 			return &StackResult{OK: false, Output: log.String(), Error: fmt.Sprintf("recreate failed: %v", err)}, nil
 		}
 		n++
 	}
 	fmt.Fprintf(&log, "recreated %d container(s)\n", n)
-	r.dock().RefreshProjectStatus(cctx, p.Project) // images are current — refresh the cache
+	r.dock(ctx).RefreshProjectStatus(cctx, p.Project) // images are current — refresh the cache
 	return &StackResult{OK: true, Output: log.String()}, nil
 }
 
@@ -133,7 +133,7 @@ func (r *StacksRouter) Stats(ctx *rpc.Context, p *ProjectParams) ([]docker.Conta
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	stats, err := r.dock().ProjectStats(cctx, p.Project)
+	stats, err := r.dock(ctx).ProjectStats(cctx, p.Project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -148,7 +148,7 @@ func (r *StacksRouter) Updates(ctx *rpc.Context, p *ProjectParams) ([]docker.Ima
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	updates, err := r.dock().ProjectUpdates(cctx, p.Project)
+	updates, err := r.dock(ctx).ProjectUpdates(cctx, p.Project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -180,7 +180,7 @@ func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb st
 	cctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 
-	ids, err := r.dock().ProjectContainerIDs(cctx, p.Project)
+	ids, err := r.dock(ctx).ProjectContainerIDs(cctx, p.Project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -193,14 +193,14 @@ func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb st
 }
 
 func (r *StacksRouter) pull(ctx context.Context, project string) (*StackResult, error) {
-	imgs, err := r.dock().ImagesForProject(ctx, project)
+	imgs, err := r.dock(ctx).ImagesForProject(ctx, project)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	var log strings.Builder
 	for _, img := range imgs {
 		fmt.Fprintf(&log, "pull %s\n", img)
-		if err := r.dock().PullImage(ctx, img); err != nil {
+		if err := r.dock(ctx).PullImage(ctx, img); err != nil {
 			return &StackResult{OK: false, Output: log.String(), Error: err.Error()}, nil
 		}
 	}
@@ -220,7 +220,7 @@ func (r *StacksRouter) gate(ctx *rpc.Context, p *ProjectParams) error {
 
 // resolve builds a compose.StackRef from a project's container labels.
 func (r *StacksRouter) resolve(ctx context.Context, project string) (compose.StackRef, error) {
-	all, err := r.dock().Stacks(ctx)
+	all, err := r.dock(ctx).Stacks(ctx)
 	if err != nil {
 		return compose.StackRef{}, rpc.Internal("%v", err)
 	}

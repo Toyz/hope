@@ -5,6 +5,7 @@
 package tunnels
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/url"
@@ -36,7 +37,7 @@ func NewTunnelsRouter(hs *hosts.Set, cf *cloudflare.Client) *TunnelsRouter {
 	return &TunnelsRouter{hosts: hs, cf: cf}
 }
 
-func (r *TunnelsRouter) dock() *docker.Client { return r.hosts.Active() }
+func (r *TunnelsRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
 
 // enabled gates every method: without a Cloudflare client the domain is off.
 func (r *TunnelsRouter) enabled(ctx *rpc.Context) error {
@@ -74,7 +75,7 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
-	cons, err := r.dock().Connectors(ctx)
+	cons, err := r.dock(ctx).Connectors(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -84,7 +85,7 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 		out[i] = ConnectorView{
 			ID: c.ContainerID, Name: c.Name, Title: c.Title, TunnelID: c.TunnelID,
 			Default: c.Default, Running: c.Running, Project: c.Project, Networks: c.Networks,
-			UpdateReady: r.dock().CachedStatus(c.Image) == "outdated",
+			UpdateReady: r.dock(ctx).CachedStatus(c.Image) == "outdated",
 		}
 		wg.Add(1)
 		go func(i int, tunnelID string) {
@@ -134,11 +135,11 @@ func (r *TunnelsRouter) Tunnels(ctx *rpc.Context) ([]TunnelView, error) {
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
-	cons, err := r.dock().Connectors(ctx)
+	cons, err := r.dock(ctx).Connectors(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	idx, err := r.dock().OriginIndex(ctx)
+	idx, err := r.dock(ctx).OriginIndex(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -212,9 +213,9 @@ func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorPara
 		return nil, rpc.Internal("create tunnel: %v", err)
 	}
 	// First connector on this host becomes the default/shared one.
-	existing, _ := r.dock().Connectors(ctx)
+	existing, _ := r.dock(ctx).Connectors(ctx)
 	isDefault := !hasDefault(existing)
-	cid, err := r.dock().DeployConnector(ctx, p.Name, id, token, isDefault)
+	cid, err := r.dock(ctx).DeployConnector(ctx, p.Name, id, token, isDefault)
 	if err != nil {
 		// Best-effort rollback so we don't leave an orphan tunnel.
 		_ = r.cf.DeleteTunnel(ctx, id)
@@ -239,7 +240,7 @@ func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorPara
 	if !ok {
 		return nil, rpc.NotFound("connector not found")
 	}
-	if err := r.dock().Remove(ctx, con.ContainerID); err != nil {
+	if err := r.dock(ctx).Remove(ctx, con.ContainerID); err != nil {
 		return nil, rpc.Internal("remove connector: %v", err)
 	}
 	if p.DeleteTunnel && con.TunnelID != "" {
@@ -293,7 +294,7 @@ func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*RouteR
 	// Ensure the connector can reach the origin (additive; a per-stack connector
 	// already on the network is a no-op).
 	if netName != "" {
-		if err := r.dock().AttachNetwork(ctx, con.ContainerID, netName, nil); err != nil {
+		if err := r.dock(ctx).AttachNetwork(ctx, con.ContainerID, netName, nil); err != nil {
 			return nil, rpc.Internal("attach connector to %s: %v", netName, err)
 		}
 	}
@@ -327,7 +328,7 @@ func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*
 	}
 	host := strings.ToLower(strings.TrimSpace(p.Hostname))
 	path := normalizePath(p.Path)
-	cons, err := r.dock().Connectors(ctx)
+	cons, err := r.dock(ctx).Connectors(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -474,11 +475,11 @@ func (r *TunnelsRouter) ReorderRoutes(ctx *rpc.Context, p *ReorderRoutesParams) 
 func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p *AddTunnelParams) (origin, netName string, reattached bool, err error) {
 	// Loose container target.
 	if p.Container != "" {
-		nets, e := r.dock().ContainerNetworks(ctx, p.Container)
+		nets, e := r.dock(ctx).ContainerNetworks(ctx, p.Container)
 		if e != nil {
 			return "", "", false, e
 		}
-		idx, _ := r.dock().OriginIndex(ctx)
+		idx, _ := r.dock(ctx).OriginIndex(ctx)
 		var name string
 		for _, ref := range idx {
 			if ref.ContainerID == p.Container || strings.HasPrefix(ref.ContainerID, p.Container) {
@@ -490,11 +491,11 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 			return "", "", false, errNoContainer
 		}
 		if len(nets) == 0 {
-			net, e := r.dock().EnsureTunnelsNetwork(ctx)
+			net, e := r.dock(ctx).EnsureTunnelsNetwork(ctx)
 			if e != nil {
 				return "", "", false, e
 			}
-			if e := r.dock().AttachNetwork(ctx, p.Container, net, nil); e != nil {
+			if e := r.dock(ctx).AttachNetwork(ctx, p.Container, net, nil); e != nil {
 				return "", "", false, e
 			}
 			netName = net
@@ -507,7 +508,7 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 	if p.Project == "" || p.Service == "" {
 		return "", "", false, errNoTarget
 	}
-	stacks, e := r.dock().Stacks(ctx)
+	stacks, e := r.dock(ctx).Stacks(ctx)
 	if e != nil {
 		return "", "", false, e
 	}
@@ -525,7 +526,7 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 	if len(members) == 0 {
 		return "", "", false, errNoTarget
 	}
-	nets, e := r.dock().ContainerNetworks(ctx, members[0].ID)
+	nets, e := r.dock(ctx).ContainerNetworks(ctx, members[0].ID)
 	if e != nil || len(nets) == 0 {
 		return "", "", false, errNoNetwork
 	}
@@ -537,8 +538,8 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 	// per-replica reattach), then round-robin on that alias.
 	alias := "hope-" + p.Project + "-" + p.Service
 	for _, m := range members {
-		_ = r.dock().DetachNetwork(ctx, m.ID, netName)
-		if e := r.dock().AttachNetwork(ctx, m.ID, netName, []string{alias}); e != nil {
+		_ = r.dock(ctx).DetachNetwork(ctx, m.ID, netName)
+		if e := r.dock(ctx).AttachNetwork(ctx, m.ID, netName, []string{alias}); e != nil {
 			return "", "", false, e
 		}
 	}
@@ -591,7 +592,7 @@ func (r *TunnelsRouter) deleteDNS(ctx *rpc.Context, host string) error {
 
 // findConnector looks up a connector by container id (full or prefix).
 func (r *TunnelsRouter) findConnector(ctx *rpc.Context, id string) (docker.Connector, bool) {
-	cons, err := r.dock().Connectors(ctx)
+	cons, err := r.dock(ctx).Connectors(ctx)
 	if err != nil {
 		return docker.Connector{}, false
 	}

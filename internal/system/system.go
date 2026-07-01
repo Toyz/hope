@@ -64,7 +64,7 @@ func (r *SystemRouter) AgentEnroll(ctx *rpc.Context) (*AgentEnrollInfo, error) {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *SystemRouter) dock() *docker.Client { return r.hosts.Active() }
+func (r *SystemRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
 
 // Hosts lists every selectable host (local + connected agents) with the active
 // one flagged, for the host switcher.
@@ -174,7 +174,7 @@ func (r *SystemRouter) Info(ctx *rpc.Context) (any, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	info, err := r.dock().Info(ctx)
+	info, err := r.dock(ctx).Info(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -207,12 +207,12 @@ func (r *SystemRouter) RefreshUpdates(ctx *rpc.Context) (*UpdatesResult, error) 
 	}
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	r.dock().RefreshUpdates(cctx)
+	r.dock(ctx).RefreshUpdates(cctx)
 	return r.collectUpdates(cctx)
 }
 
 func (r *SystemRouter) collectUpdates(ctx context.Context) (*UpdatesResult, error) {
-	updates, at, err := r.dock().AllUpdates(ctx)
+	updates, at, err := r.dock(ctx).AllUpdates(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -273,7 +273,7 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	imgs, err := r.dock().Images(cctx)
+	imgs, err := r.dock(ctx).Images(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -418,7 +418,7 @@ func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) 
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	nets, err := r.dock().Networks(cctx)
+	nets, err := r.dock(ctx).Networks(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -433,7 +433,7 @@ func (r *SystemRouter) Volumes(ctx *rpc.Context) ([]docker.VolumeInfo, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	vols, err := r.dock().Volumes(cctx)
+	vols, err := r.dock(ctx).Volumes(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -452,7 +452,7 @@ func (r *SystemRouter) RemoveNetwork(ctx *rpc.Context, p *IDParam) (any, error) 
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := r.dock().RemoveNetwork(cctx, p.ID); err != nil {
+	if err := r.dock(ctx).RemoveNetwork(cctx, p.ID); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
 	return map[string]bool{"ok": true}, nil
@@ -465,7 +465,7 @@ func (r *SystemRouter) RemoveVolume(ctx *rpc.Context, p *IDParam) (any, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := r.dock().RemoveVolume(cctx, p.ID, true); err != nil {
+	if err := r.dock(ctx).RemoveVolume(cctx, p.ID, true); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
 	return map[string]bool{"ok": true}, nil
@@ -484,7 +484,7 @@ func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any,
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if err := r.dock().RemoveImage(cctx, p.ID, p.Force); err != nil {
+	if err := r.dock(ctx).RemoveImage(cctx, p.ID, p.Force); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
 	return map[string]bool{"ok": true}, nil
@@ -502,7 +502,7 @@ func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.Pr
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	res, err := r.dock().PruneImages(cctx, p.All)
+	res, err := r.dock(ctx).PruneImages(cctx, p.All)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
@@ -521,7 +521,7 @@ func (r *SystemRouter) DiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	du, at := r.dock().DiskUsageCached()
+	du, at := r.dock(ctx).DiskUsageCached()
 	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
 }
 
@@ -532,7 +532,7 @@ func (r *SystemRouter) RefreshDiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	du, at, err := r.dock().RefreshDiskUsage(cctx)
+	du, at, err := r.dock(ctx).RefreshDiskUsage(cctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}

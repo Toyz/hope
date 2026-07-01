@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"strings"
 
 	"github.com/Toyz/sov/rpc"
@@ -24,7 +25,7 @@ func NewDeployRouter(hs *hosts.Set, store *Store) *DeployRouter {
 	return &DeployRouter{hosts: hs, store: store}
 }
 
-func (r *DeployRouter) dock() *docker.Client { return r.hosts.Active() }
+func (r *DeployRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
 func (r *DeployRouter) hostID() string       { return r.hosts.ActiveID() }
 
 // ── import / export / edit ──────────────────────────────────────────────────
@@ -80,7 +81,7 @@ func (r *DeployRouter) EditSpec(ctx *rpc.Context, p *ProjectParams) (*stackspec.
 	if spec, err := r.store.Load(r.hostID(), p.Project); err == nil && spec != nil {
 		return spec, nil
 	}
-	spec, err := r.dock().ProjectSpec(ctx, p.Project)
+	spec, err := r.dock(ctx).ProjectSpec(ctx, p.Project)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
 	}
@@ -103,7 +104,7 @@ func (r *DeployRouter) ExportCompose(ctx *rpc.Context, p *ProjectParams) (*Expor
 	}
 	spec, err := r.store.Load(r.hostID(), p.Project)
 	if err != nil || spec == nil {
-		spec, err = r.dock().ProjectSpec(ctx, p.Project)
+		spec, err = r.dock(ctx).ProjectSpec(ctx, p.Project)
 		if err != nil {
 			return nil, rpc.NotFound("%v", err)
 		}
@@ -140,7 +141,7 @@ func (r *DeployRouter) CreateNetwork(ctx *rpc.Context, p *CreateNetworkParams) (
 		Name: p.Name, Driver: p.Driver, Subnet: p.Subnet, Gateway: p.Gateway,
 		Internal: p.Internal, Attachable: p.Attachable, IPv6: p.IPv6,
 	}
-	if _, err := r.dock().CreateNetwork(ctx, spec); err != nil {
+	if _, err := r.dock(ctx).CreateNetwork(ctx, spec); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	return r.findNetwork(ctx, p.Name), nil
@@ -160,14 +161,14 @@ func (r *DeployRouter) CreateVolume(ctx *rpc.Context, p *CreateVolumeParams) (*d
 	if strings.TrimSpace(p.Name) == "" {
 		return nil, rpc.BadRequest("volume name is required")
 	}
-	if _, err := r.dock().CreateVolume(ctx, stackspec.VolumeSpec{Name: p.Name, Driver: p.Driver}); err != nil {
+	if _, err := r.dock(ctx).CreateVolume(ctx, stackspec.VolumeSpec{Name: p.Name, Driver: p.Driver}); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	return r.findVolume(ctx, p.Name), nil
 }
 
 func (r *DeployRouter) findNetwork(ctx *rpc.Context, name string) *docker.NetworkInfo {
-	nets, err := r.dock().Networks(ctx)
+	nets, err := r.dock(ctx).Networks(ctx)
 	if err != nil {
 		return &docker.NetworkInfo{Name: name}
 	}
@@ -180,7 +181,7 @@ func (r *DeployRouter) findNetwork(ctx *rpc.Context, name string) *docker.Networ
 }
 
 func (r *DeployRouter) findVolume(ctx *rpc.Context, name string) *docker.VolumeInfo {
-	vols, err := r.dock().Volumes(ctx)
+	vols, err := r.dock(ctx).Volumes(ctx)
 	if err != nil {
 		return &docker.VolumeInfo{Name: name}
 	}

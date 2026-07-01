@@ -56,7 +56,7 @@ type Plugin struct {
 }
 
 // dock is the docker client for the currently-active host.
-func (p *Plugin) dock() *docker.Client { return p.hosts.Active() }
+func (p *Plugin) dock(ctx context.Context) *docker.Client { return p.hosts.ActiveFor(ctx) }
 
 // Compile-time proof of the hooks this plugin binds — a signature drift here
 // is a build error, not a silent non-binding at runtime.
@@ -94,6 +94,11 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 	if _, err := p.authenticate(req); err != nil {
 		return errResp(http.StatusUnauthorized, err.Error())
 	}
+	// Honor a per-request host target (headless streaming) — the RouteHandler path
+	// doesn't run the ContextContributor, so read the header here.
+	if id := req.Header.Get(hosts.TargetHeader); id != "" {
+		ctx = hosts.WithTarget(ctx, id)
+	}
 	args, err := stringArgs(req.Body)
 	if err != nil {
 		return errResp(http.StatusBadRequest, err.Error())
@@ -105,7 +110,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		id := args[0]
-		if !p.dock().Exists(ctx, id) {
+		if !p.dock(ctx).Exists(ctx, id) {
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		if req.Path == pathLogs {
@@ -124,7 +129,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			}
 			service = args[1]
 		}
-		refs, err := p.dock().ProjectContainers(ctx, args[0], service)
+		refs, err := p.dock(ctx).ProjectContainers(ctx, args[0], service)
 		if err != nil || len(refs) == 0 {
 			return errResp(http.StatusNotFound, "no containers for that target")
 		}
@@ -134,13 +139,13 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "container id required")
 		}
-		if !p.dock().Exists(ctx, args[0]) {
+		if !p.dock(ctx).Exists(ctx, args[0]) {
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		id := args[0]
 		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployContainer(ctx, id, pull, force, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit) })
 
 	case pathRedeployStack:
 		if len(args) == 0 {
@@ -149,18 +154,18 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		project := args[0]
 		pull := !(len(args) > 1 && args[1] == "false")
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RedeployProject(ctx, project, pull, force, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RedeployProject(ctx, project, pull, force, emit) })
 
 	case pathPull:
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		ids := append([]string(nil), args...)
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().PullContainers(ctx, ids, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).PullContainers(ctx, ids, emit) })
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().PruneImagesStream(ctx, all, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).PruneImagesStream(ctx, all, emit) })
 
 	case pathApplyStack:
 		if p.deploy == nil {
@@ -204,14 +209,14 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusBadRequest, "container id and spec required")
 		}
 		id := args[0]
-		if !p.dock().Exists(ctx, id) {
+		if !p.dock(ctx).Exists(ctx, id) {
 			return errResp(http.StatusNotFound, "container not found")
 		}
 		var spec stackspec.ContainerSpec
 		if err := json.Unmarshal([]byte(args[1]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock().RecreateFromSpec(ctx, id, spec, true, emit) })
+		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
@@ -265,7 +270,7 @@ type logFrame struct {
 }
 
 func (p *Plugin) streamLogs(ctx context.Context, id string) *gateway.Response {
-	reader, err := p.dock().SDK().ContainerLogs(ctx, id, container.LogsOptions{
+	reader, err := p.dock(ctx).SDK().ContainerLogs(ctx, id, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -290,7 +295,7 @@ func (p *Plugin) streamLogs(ctx context.Context, id string) *gateway.Response {
 }
 
 func (p *Plugin) streamStats(ctx context.Context, id string) *gateway.Response {
-	stats, err := p.dock().SDK().ContainerStats(ctx, id, true)
+	stats, err := p.dock(ctx).SDK().ContainerStats(ctx, id, true)
 	if err != nil {
 		return errResp(http.StatusInternalServerError, err.Error())
 	}
@@ -330,7 +335,7 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 			wg.Add(1)
 			go func(ref docker.ContainerRef) {
 				defer wg.Done()
-				rc, err := p.dock().SDK().ContainerLogs(ctx, ref.ID, container.LogsOptions{
+				rc, err := p.dock(ctx).SDK().ContainerLogs(ctx, ref.ID, container.LogsOptions{
 					ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true, Tail: multiTail,
 				})
 				if err != nil {
