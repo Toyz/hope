@@ -88,6 +88,13 @@ const innerPort = (p: string): string => {
   .rmx:disabled { opacity: .3; cursor: not-allowed; }
   .rmx:disabled:hover { color: var(--dim); border-color: transparent; background: transparent; }
   .disabled { padding: 40px; text-align: center; color: var(--dim); font: 13px/1.7 var(--mono); }
+  /* first-load skeleton so slow Cloudflare calls don't blank-then-snap */
+  .skb { display: inline-block; height: 12px; min-width: 36px; background: var(--line); animation: skpulse 1.2s ease-in-out infinite; }
+  .skb.sv { height: 15px; width: 30px; }
+  .skb.w160 { width: 160px; height: 14px; }
+  .skb.w200 { width: 200px; }
+  .skb.w240 { width: 240px; }
+  @keyframes skpulse { 0%, 100% { opacity: .3; } 50% { opacity: .65; } }
   .chost { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
     border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; }
 `)
@@ -482,6 +489,23 @@ export class TunnelsPage extends LoomElement {
           ) : null}
 
           {this.error ? <div class="empty">{this.error}</div> : null}
+
+          {!this.disabled && !this.error && !this.loaded ? (
+            <div class="skel">
+              <div class="summary">
+                <span class="stat"><i class="k">connectors</i><i class="skb sv"></i></span>
+                <span class="stat"><i class="k">online</i><i class="skb sv"></i></span>
+                <span class="stat"><i class="k">routes</i><i class="skb sv"></i></span>
+              </div>
+              <div class="cblock">
+                <div class="chead">
+                  <span class="cdot"></span>
+                  <div class="cwho"><div class="cl1"><span class="skb w160"></span></div><div class="cl2"><span class="skb w240"></span></div></div>
+                </div>
+                <div class="noroutes"><span class="skb w200"></span></div>
+              </div>
+            </div>
+          ) : null}
 
           {!this.disabled && this.loaded ? (
             <div class="summary">
