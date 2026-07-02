@@ -43,12 +43,14 @@ export class AuthStore {
 
   // User-initiated logout. Drops the hope token; if the session came in through
   // Cloudflare Access, redirect to the edge logout so the still-valid JWT doesn't
-  // just sign us back in. Otherwise return to the login form.
+  // just sign us back in. returnTo the app root so the edge immediately re-issues
+  // a fresh Access challenge (a clean re-login) instead of parking on CF's logout
+  // page. Otherwise return to the login form.
   logout(): void {
     const wasAccess = this.viaAccess;
     this.clear();
     if (wasAccess) {
-      window.location.href = ACCESS_LOGOUT;
+      window.location.href = `${ACCESS_LOGOUT}?returnTo=${encodeURIComponent(location.origin + "/")}`;
       return;
     }
     app.get(LoomRouter).navigate("/login");
