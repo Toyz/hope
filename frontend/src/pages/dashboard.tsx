@@ -62,6 +62,15 @@ interface Ranked extends StackSummary {
   .spin { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* thin top loading bar for a refetch. It starts invisible and only fades in
+     after .2s (lbin delay), so quick background polls never flash it — a slower
+     host-switch fetch does. */
+  .loadbar { position: sticky; top: 44px; z-index: 19; height: 2px; overflow: hidden;
+    background: color-mix(in srgb, var(--upd) 18%, transparent); opacity: 0; animation: lbin 0s .2s forwards; }
+  .loadbar i { display: block; height: 100%; width: 35%; background: var(--upd); animation: lbslide 1s ease-in-out infinite; }
+  @keyframes lbin { to { opacity: 1; } }
+  @keyframes lbslide { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+
   /* cross-fleet overview ("all hosts") */
   .fleetsec { margin-bottom: 26px; }
   .fleetsec .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -261,6 +270,11 @@ export class DashboardPage extends LoomElement {
   }
   get error(): string {
     return (this.fleetMode ? this.fleetQ.error : this.stacksQ.error)?.message ?? "";
+  }
+  // Active query in flight — drives the thin top loading bar (CSS delays its
+  // appearance, so the fast 5s poll doesn't flash it; a host switch does).
+  get loading(): boolean {
+    return this.fleetMode ? this.fleetQ.loading : this.stacksQ.loading;
   }
 
   // "all hosts" is a client-side view flag (set by the host switcher).
@@ -667,6 +681,7 @@ export class DashboardPage extends LoomElement {
           </div>
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
+        {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
           {!this.loaded ? <div class="loading">loading fleet…</div> : null}
           {this.error ? <div class="err">{this.error}</div> : null}
@@ -808,6 +823,7 @@ export class DashboardPage extends LoomElement {
           <div class="s act"><button onClick={this.logout}>exit</button></div>
         </div>
 
+        {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
           {this.host ? this.hostStrip() : null}
 
