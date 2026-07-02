@@ -5,11 +5,10 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import type { LoginResult } from "../contracts";
-import { theme } from "../styles";
 
 @route("/login")
 @component("hope-login")
-@styles(theme, css`
+@styles(css`
   :host { display: grid; place-items: center; min-height: calc(100vh - 48px); background: var(--ink); overflow: hidden; }
   /* an absurd, over-engineered matrix-rain canvas behind the form. for no reason. */
   canvas.bg { position: fixed; inset: 0; z-index: 0; opacity: .8; }

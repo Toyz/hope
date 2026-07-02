@@ -1,5 +1,6 @@
-// Root shell: a routing outlet plus global theme. Pages render their own
-// topbars. The element tag <hope-app> is referenced from index.html.
+// Root shell: a routing outlet plus global theme. The outlet cascades `theme`
+// into every routed page (adoptStyles), so pages don't carry it themselves;
+// non-routed components (modals, nav, footer, select, …) keep @styles(theme).
 import { LoomElement, component, styles } from "@toyz/loom";
 import { css } from "@toyz/loom";
 import { theme } from "./styles";
@@ -12,7 +13,7 @@ export class HopeApp extends LoomElement {
   update() {
     return (
       <div>
-        <loom-outlet></loom-outlet>
+        <loom-outlet styles={[theme]}></loom-outlet>
         <hope-footer></hope-footer>
       </div>
     );

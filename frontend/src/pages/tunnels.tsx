@@ -19,14 +19,13 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView, OpFrame } from "../contracts";
 import type { PromptOption } from "../prompt";
-import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
 const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "—");
 
 @route("/tunnels")
 @component("hope-tunnels")
-@styles(theme, css`
+@styles(css`
   ${resourceStyles}
 
   /* a connector and the routes it owns are one bordered unit */

@@ -10,14 +10,13 @@ import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { System } from "../contracts";
 import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
-import { theme } from "../styles";
 import { bytes, shortId } from "../format";
 
 type Filter = "all" | "used" | "unused" | "dangling";
 
 @route("/images")
 @component("hope-images")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;

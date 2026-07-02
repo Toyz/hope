@@ -14,7 +14,6 @@ import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { System, Deploy } from "../contracts";
 import type { NetworkInfo, FleetNetworksHost } from "../contracts";
-import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
 const ago = (unix: number) => {
@@ -29,7 +28,7 @@ const ago = (unix: number) => {
 
 @route("/networks")
 @component("hope-networks")
-@styles(theme, css`
+@styles(css`
   ${resourceStyles}
 `)
 export class NetworksPage extends ResourcePage<NetworkInfo> {

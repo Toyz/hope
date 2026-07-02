@@ -5,12 +5,11 @@ import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
-import { theme } from "../styles";
 import { appBar } from "../app-bar";
 
 @route("/api-docs")
 @component("hope-api-docs")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }

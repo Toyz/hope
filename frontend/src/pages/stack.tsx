@@ -14,7 +14,7 @@ import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
-import { theme, markClass, stackSeverity } from "../styles";
+import { markClass, stackSeverity } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { innerPort } from "../format";
@@ -68,7 +68,7 @@ function aggMark(items: ContainerSummary[]): string {
 
 @route("/stack/:project")
 @component("hope-stack")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {

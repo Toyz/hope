@@ -11,7 +11,6 @@ import { HostContext } from "../host-context";
 import { appBar } from "../app-bar";
 import { System } from "../contracts";
 import type { AgentView, AgentEnroll } from "../contracts";
-import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
 const ago = (iso: string) => {
@@ -27,7 +26,7 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
 
 @route("/agents")
 @component("hope-agents")
-@styles(theme, css`
+@styles(css`
   ${resourceStyles}
 
   .agrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }

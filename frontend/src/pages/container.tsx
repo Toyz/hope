@@ -18,7 +18,7 @@ import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView } from "../contracts";
-import { theme, markClass } from "../styles";
+import { markClass } from "../styles";
 import "../components/service-form";
 
 type Tab = "logs" | "stats" | "inspect";
@@ -26,7 +26,7 @@ const MAX_LINES = 600;
 
 @route("/container/:id")
 @component("hope-container")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {

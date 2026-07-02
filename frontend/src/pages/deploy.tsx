@@ -14,7 +14,6 @@ import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import type { ContainerSpec, StackSpec, NetworkSpec, VolumeSpec, OpFrame, OpResult, ImportResult, ExportResult, NetworkInfo, VolumeInfo, ConnectorView, TunnelView, ZoneView, HostView } from "../contracts";
 import type { ConnectorOpt } from "../components/service-form";
-import { theme } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
@@ -26,7 +25,7 @@ interface ResDecl { name: string; driver: string; }
 
 @route("/deploy")
 @component("hope-deploy")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }

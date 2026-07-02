@@ -11,7 +11,6 @@ import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { System, Deploy } from "../contracts";
 import type { VolumeInfo, FleetVolumesHost } from "../contracts";
-import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 import { bytes } from "../format";
 import { appBar } from "../app-bar";
@@ -32,7 +31,7 @@ type Filter = "all" | "mounted" | "unused";
 
 @route("/volumes")
 @component("hope-volumes")
-@styles(theme, css`
+@styles(css`
   ${resourceStyles}
 `)
 export class VolumesPage extends ResourcePage<VolumeInfo> {

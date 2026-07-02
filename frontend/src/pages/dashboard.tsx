@@ -16,7 +16,7 @@ import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
 import { System, Stacks } from "../contracts";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
-import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
+import { stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -24,7 +24,7 @@ interface Ranked extends StackSummary {
 
 @route("/")
 @component("hope-dashboard")
-@styles(theme, css`
+@styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   /* ── status bar (tmux/vim airline) ── */
