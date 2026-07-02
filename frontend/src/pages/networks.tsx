@@ -129,7 +129,11 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
   };
 
   private openUser = (u: { id: string; project: string }) => {
+    // In the all-hosts view the item lives on a specific host — point the
+    // ambient target there so the stack/container page loads against it.
+    const host = this.detail?.host;
     this.detail = null;
+    if (host) this.hostCtx.activeHost = host;
     if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
     else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
   };

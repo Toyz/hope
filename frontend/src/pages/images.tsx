@@ -542,7 +542,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
               <span class="dv">
                 {i.used_by.length ? (
                   i.used_by.map((u) => (
-                    <span class="ub" onClick={() => { this.detail = null; this.router.navigate(`/container/${encodeURIComponent(u.id)}`); }}>
+                    <span class="ub" onClick={() => { if (i.host) this.hostCtx.activeHost = i.host; this.detail = null; this.router.navigate(`/container/${encodeURIComponent(u.id)}`); }}>
                       {u.project ? <span class="ubp">{u.project} / </span> : null}
                       {u.service || u.name || shortId(u.id)}
                     </span>
