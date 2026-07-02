@@ -95,7 +95,7 @@ interface Ranked extends StackSummary {
   .fleetsec .frow-empty { padding: 12px 14px; color: var(--dim); font: 500 12px/1 var(--mono); }
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
 
-  main { padding: 30px 40px 96px; max-width: 1340px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
   /* docker host strip */
   .hostbar { display: flex; flex-wrap: wrap; align-items: stretch; border: 1px solid var(--line);

@@ -92,7 +92,7 @@ const MAX_LINES = 600;
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 26px 28px 56px; max-width: 1120px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
   /* identity */
   .id { display: flex; align-items: center; gap: 13px; margin-bottom: 4px; }

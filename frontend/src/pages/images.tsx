@@ -36,7 +36,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .bar .nav .navlink:hover { color: var(--hi); }
   .bar .nav .navlink.on { color: var(--hi); }
 
-  main { padding: 24px 24px 64px; max-width: 1120px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
   .summary { display: flex; align-items: center; border: 1px solid var(--line); margin-bottom: 20px; }
   .summary .stat { display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; border-right: 1px solid var(--line); }

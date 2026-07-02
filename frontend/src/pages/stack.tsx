@@ -88,7 +88,7 @@ function aggMark(items: ContainerSummary[]): string {
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 24px 32px 64px; max-width: 1340px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
   .shead { margin-bottom: 22px; }
   .row1 { display: flex; align-items: center; gap: 16px; }
