@@ -5,12 +5,16 @@
 import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
+import { System, Stacks } from "../contracts";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
 
@@ -221,17 +225,44 @@ export class DashboardPage extends LoomElement {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor stacks: StackSummary[] = [];
-  @reactive accessor error = "";
-  @reactive accessor loaded = false;
   @reactive accessor query = "";
-  @reactive accessor updates: UpdatesResult | null = null;
-  @reactive accessor host: any = null;
-  @reactive accessor disk: DiskResult | null = null;
   @reactive accessor diskBusy = false;
   @reactive accessor updBusy = false;
-  @reactive accessor fleet: FleetHost[] | null = null; // cross-host overview ("all hosts")
   @reactive accessor fleetBusy = false;
+
+  // Data via loom-rpc @rpc queries (ApiState, SWR); getters expose .data so the
+  // render + computed getters read the same names as before.
+  @rpc(Stacks, "list", { eager: false }) accessor stacksQ!: ApiState<StackSummary[]>;
+  @rpc(System, "fleet", { eager: false }) accessor fleetQ!: ApiState<FleetHost[]>;
+  @rpc(System, "updates", { eager: false }) accessor updatesQ!: ApiState<UpdatesResult>;
+  @rpc(System, "info", { eager: false }) accessor hostQ!: ApiState<any>;
+  @rpc(System, "diskUsage", { eager: false }) accessor diskQ!: ApiState<DiskResult>;
+  // Force a server-side recrawl (distinct from the cached read), then refetch.
+  @mutate(System, "refreshUpdates") accessor forceUpd!: RpcMutator<[], UpdatesResult>;
+  @mutate(System, "refreshFleetUpdates") accessor forceFleet!: RpcMutator<[], FleetHost[]>;
+  @mutate(System, "refreshDiskUsage") accessor forceDisk!: RpcMutator<[], DiskResult>;
+
+  get stacks(): StackSummary[] {
+    return this.stacksQ.data || [];
+  }
+  get fleet(): FleetHost[] | null {
+    return this.fleetQ.data ?? null;
+  }
+  get updates(): UpdatesResult | null {
+    return this.updatesQ.data ?? null;
+  }
+  get host(): any {
+    return this.hostQ.data ?? null;
+  }
+  get disk(): DiskResult | null {
+    return this.diskQ.data ?? null;
+  }
+  get loaded(): boolean {
+    return this.fleetMode ? !!this.fleetQ.data : !!this.stacksQ.data;
+  }
+  get error(): string {
+    return (this.fleetMode ? this.fleetQ.error : this.stacksQ.error)?.message ?? "";
+  }
 
   // "all hosts" is a client-side view flag (set by the host switcher).
   get fleetMode() {
@@ -258,33 +289,20 @@ export class DashboardPage extends LoomElement {
 
   // Switch the active host to `host`, then open one of its stacks (used from the
   // fleet overview where each stack belongs to a specific host).
-  private goCross = async (host: string, project: string) => {
-    try {
-      await this.rpc.call("System", "setActiveHost", [host]);
-    } catch {
-      /* fall through — navigation still attempts the active host */
-    }
-    // Keep the fleet flag set so "back" returns to the all-hosts overview, not a
-    // single-host dashboard. The stack/container pages still operate on the host
-    // we just activated.
+  private goCross = (host: string, project: string) => {
+    // Point the ambient target at the host (transport reads it); keep the fleet
+    // flag so "back" returns to the all-hosts overview.
+    this.hostCtx.activeHost = host;
     this.router.navigate(`/stack/${encodeURIComponent(project)}`);
   };
 
-  private async loadFleet() {
-    try {
-      this.fleet = (await this.rpc.call<FleetHost[]>("System", "fleet", [])) || [];
-      this.error = "";
-      this.loaded = true;
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't reach the daemon.";
-    }
-  }
-
-  // Force an image-freshness recrawl on every host (fleet "check" button).
+  // Force an image-freshness recrawl on every host (fleet "check" button), then
+  // refetch the fleet view.
   private refreshFleet = async () => {
     this.fleetBusy = true;
     try {
-      this.fleet = (await this.rpc.call<FleetHost[]>("System", "refreshFleetUpdates", [])) || [];
+      await this.forceFleet.call();
+      this.fleetQ.refetch();
     } catch {
       /* ignore */
     } finally {
@@ -356,24 +374,17 @@ export class DashboardPage extends LoomElement {
 
   // Docker host identity + cached disk usage. Both cheap (df is cached
   // server-side, crawled hourly); fetched once on mount.
-  private async loadHost() {
-    try {
-      this.host = await this.rpc.call<any>("System", "info", []);
-    } catch {
-      /* host strip stays hidden */
-    }
-    try {
-      this.disk = await this.rpc.call<DiskResult>("System", "diskUsage", []);
-    } catch {
-      /* storage cells stay hidden */
-    }
+  private loadHost() {
+    this.hostQ.refetch();
+    this.diskQ.refetch();
   }
 
-  // Force an immediate cluster-wide image-freshness recrawl.
+  // Force an immediate cluster-wide image-freshness recrawl, then refetch.
   private refreshUpdates = async () => {
     this.updBusy = true;
     try {
-      this.updates = await this.rpc.call<UpdatesResult>("System", "refreshUpdates", []);
+      await this.forceUpd.call();
+      this.updatesQ.refetch();
     } catch {
       /* ignore */
     } finally {
@@ -384,7 +395,8 @@ export class DashboardPage extends LoomElement {
   private refreshDisk = async () => {
     this.diskBusy = true;
     try {
-      this.disk = await this.rpc.call<DiskResult>("System", "refreshDiskUsage", []);
+      await this.forceDisk.call();
+      this.diskQ.refetch();
     } catch {
       /* ignore */
     } finally {
@@ -407,21 +419,13 @@ export class DashboardPage extends LoomElement {
     if (this.auth.isAuthenticated) this.load();
   }
 
-  private async load() {
-    if (this.fleetMode) return this.loadFleet();
-    try {
-      this.stacks = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
-      this.error = "";
-      this.loaded = true;
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't reach the daemon.";
+  private load() {
+    if (this.fleetMode) {
+      this.fleetQ.refetch();
+      return;
     }
-    // Cluster-wide image freshness (cached by the backend crawler) — optional.
-    try {
-      this.updates = await this.rpc.call<UpdatesResult>("System", "updates", []);
-    } catch {
-      /* updates section just stays hidden */
-    }
+    this.stacksQ.refetch();
+    this.updatesQ.refetch(); // cluster-wide image freshness (cached crawler) — optional
   }
 
   private outdated() {
