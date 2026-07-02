@@ -23,10 +23,12 @@ import { appBar } from "../app-bar";
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
   main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
+  /* full-width page frame, but keep the docs readable in a centered column */
+  .doc { max-width: 940px; margin: 0 auto; }
 
-  .hero { display: flex; align-items: flex-end; gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 20px; }
-  .hero .t { font: 700 20px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
-  .hero .sub { flex: 1; font: 12.5px/1.5 var(--mono); color: var(--dim); }
+  .hero { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 22px; }
+  .hero .t { display: block; font: 700 30px/1 var(--mono); letter-spacing: .06em; color: var(--hi); margin-bottom: 10px; }
+  .hero .sub { display: block; max-width: 680px; font: 13px/1.6 var(--mono); color: var(--dim); }
   .hero .sub code { color: var(--mid); }
 
   .links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
@@ -123,6 +125,7 @@ export class ApiDocsPage extends LoomElement {
       <div>
         {appBar("api")}
         <main>
+          <div class="doc">
           <div class="hero">
             <span class="t">API</span>
             <span class="sub">hope's UI runs on a plain RPC surface — <code>POST /rpc/&lt;Service&gt;/&lt;method&gt;</code>. An API key unlocks that same surface for scripts, CI and agents. No new API — it's the app's own contract.</span>
@@ -168,6 +171,7 @@ export class ApiDocsPage extends LoomElement {
               <p style="margin-top:14px">Both forms of <code>args</code> for <code>Containers/inspect</code>:</p>
               {this.codeBlock("args", this.argForms)}
             </div>
+          </div>
           </div>
         </main>
       </div>
