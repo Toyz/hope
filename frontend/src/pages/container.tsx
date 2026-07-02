@@ -4,16 +4,20 @@
 import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { bytes, innerPort } from "../format";
-import { UNGROUPED } from "../const";
+import { UNGROUPED, composeProject, composeService } from "../const";
 import { HopeTransport } from "../transport";
+import { Containers, System, Tunnels, Stacks } from "../contracts";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo } from "../contracts";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView } from "../contracts";
 import { theme, markClass } from "../styles";
 import "../components/service-form";
 
@@ -295,12 +299,37 @@ export class ContainerPage extends LoomElement {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor id = "";
-  @reactive accessor info: any = null;
-  @reactive accessor tunnelRoutes: TunnelView[] = [];
-  @reactive accessor tunnelConnectors: ConnectorView[] = [];
-  @reactive accessor tunnelZones: ZoneView[] = [];
-  @reactive accessor tunnelsOn = false;
+  // Independent @rpc queries; the route id drives inspect (replica switch =
+  // id change = auto-refetch). Everything below derives from these, no load-chain.
+  @rpc(Containers, "inspect", { fn: (el: any): [string] => [el.id], eager: true }) accessor infoQ!: ApiState<any>;
+  @rpc(Stacks, "list", { eager: true }) accessor stacksQ!: ApiState<StackSummary[]>;
+  @rpc(System, "updates", { eager: true }) accessor updatesQ!: ApiState<UpdatesResult>;
+  @rpc(System, "hosts", { eager: true }) accessor hostsQ!: ApiState<HostView[]>;
+  @rpc(Tunnels, "tunnels", { eager: true }) accessor tunnelsQ!: ApiState<TunnelView[]>;
+  @rpc(Tunnels, "connectors", { eager: true }) accessor connectorsQ!: ApiState<ConnectorView[]>;
+  @rpc(Tunnels, "zones", { eager: true }) accessor zonesQ!: ApiState<ZoneView[]>;
+  @mutate(Tunnels, "addTunnel") accessor addTunnelMut!: RpcMutator<[string, string, string, string, string, string, string], OpResult>;
+  @mutate(Tunnels, "removeTunnel") accessor rmTunnelMut!: RpcMutator<[string, string], OpResult>;
+
+  get id(): string {
+    return this.routeId;
+  }
+  get info(): any {
+    return this.infoQ.data ?? null;
+  }
+  get tunnelRoutes(): TunnelView[] {
+    return this.tunnelsQ.data || [];
+  }
+  get tunnelConnectors(): ConnectorView[] {
+    return this.connectorsQ.data || [];
+  }
+  get tunnelZones(): ZoneView[] {
+    return this.zonesQ.data || [];
+  }
+  // Tunnels are on when the connectors call succeeded (Cloudflare configured).
+  get tunnelsOn(): boolean {
+    return !this.connectorsQ.error && !!this.connectorsQ.data;
+  }
   @reactive accessor healthOpen = false;
   @reactive accessor tab: Tab = "logs";
   @reactive accessor logLines: string[] = [];
@@ -320,11 +349,26 @@ export class ContainerPage extends LoomElement {
   @reactive accessor inspectMode: "pretty" | "raw" = "pretty";
   @reactive accessor inspectQuery = "";
   @reactive accessor inspectOpen: Record<string, boolean> = { State: true };
-  @reactive accessor siblings: ContainerSummary[] = [];
   @reactive accessor dropOpen = false;
   @reactive accessor cbusy = ""; // op currently running
   @reactive accessor actOpen = false; // action kebab menu
-  @reactive accessor outdated = false; // image has a newer version on the registry
+
+  // Replica set: same compose service in the same project (derived from stacks).
+  get siblings(): ContainerSummary[] {
+    const proj = this.project();
+    const svc = composeService(this.labels());
+    if (!proj || !svc) return [];
+    const st = (this.stacksQ.data || []).find((s) => s.project === proj);
+    return (st?.containers ?? []).filter((c) => c.service === svc).sort((a, b) => a.number - b.number);
+  }
+  // Is this container's image out of date (cached cluster freshness)?
+  get outdated(): boolean {
+    return (this.updatesQ.data?.updates || []).find((u) => u.id === this.id)?.status === "outdated";
+  }
+  // Which host this container lives on (crumb in multi-host setups).
+  get host(): string {
+    return (this.hostsQ.data || []).find((h) => h.active)?.id || "";
+  }
 
   // The route param, bound reactively. Watching it reloads the page on any
   // change — including container -> container (replica switches), which the
@@ -333,7 +377,6 @@ export class ContainerPage extends LoomElement {
 
   private ctrl = new AbortController();
 
-  @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
   @reactive accessor editOpen = false;
   @reactive accessor editSpec: ContainerSpec | null = null;
   @reactive accessor editSeed = 0;
@@ -347,23 +390,13 @@ export class ContainerPage extends LoomElement {
 
   @mount
   onMount() {
-    if (this.routeId) this.enter(this.routeId);
-    this.loadActiveHost();
+    this.enter(); // start the log/stat streams (data comes from the @rpc queries)
   }
 
-  // Which host this container lives on, for the crumb in multi-host setups.
-  private async loadActiveHost() {
-    try {
-      const hosts = await this.rpc.call<{ id: string; active: boolean }[]>("System", "hosts", []);
-      this.host = (hosts || []).find((h) => h.active)?.id || "";
-    } catch {
-      this.host = "";
-    }
-  }
-
+  // Replica switch (id change): infoQ auto-refetches via its fn; restart streams.
   @watch("routeId")
   private onRouteId() {
-    if (this.routeId) this.enter(this.routeId);
+    if (this.routeId) this.enter();
   }
 
   // Lock background scroll while the edit modal is open.
@@ -411,7 +444,7 @@ export class ContainerPage extends LoomElement {
     try {
       await this.rpc.call("Containers", op, [this.id]);
       t.done(`${op} ${this.service()} — done`);
-      await this.loadInfo();
+      this.infoQ.refetch();
     } catch (err: any) {
       t.error(`${op} ${this.service()} — ${err?.message ?? "failed"}`);
     } finally {
@@ -443,7 +476,7 @@ export class ContainerPage extends LoomElement {
         this.router.navigate(`/container/${encodeURIComponent(newId)}`);
         return;
       }
-      await this.loadInfo();
+      this.infoQ.refetch();
     } catch (err: any) {
       this.toast.error(`redeploy ${this.service()} — ${err?.message ?? "failed"}`);
     } finally {
@@ -454,7 +487,7 @@ export class ContainerPage extends LoomElement {
   // After a recreate, find the new container for this same project/service/replica.
   private async findRecreated(): Promise<string> {
     const proj = this.project();
-    const svc = this.labels()["com.docker.compose.service"];
+    const svc = composeService(this.labels());
     const num = this.currentNumber();
     try {
       const stacks = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
@@ -466,28 +499,23 @@ export class ContainerPage extends LoomElement {
     }
   }
 
-  private enter(id: string) {
+  // (Re)start the log/stat streams for the current container. The info/siblings/
+  // tunnels/updates data comes from the @rpc queries (inspect auto-refetches when
+  // the route id changes), so this only touches the streaming state.
+  private enter() {
     if (!this.auth.isAuthenticated) {
       this.router.navigate("/login");
       return;
     }
-    if (id === this.id && this.info) return;
-    this.id = id;
     this.ctrl.abort();
     this.ctrl = new AbortController();
     const signal = this.ctrl.signal;
-    // Swap the container's data + restart its streams. Keep the active tab and
-    // the replica list (siblings are shared across a set) so switching a pod is
-    // a smooth data swap, not a page reset.
-    this.info = null;
     this.dropOpen = false;
-    this.outdated = false;
     this.logLines = [];
     this.cpu = this.memUsed = this.memLimit = this.netRx = this.netTx = this.blkR = this.blkW = this.pids = "—";
     this.cpuBar = this.memBar = 0;
     this.hasStats = false;
     this.error = "";
-    this.loadInfo();
     this.runLogs(signal);
     this.runStats(signal);
   }
@@ -498,36 +526,6 @@ export class ContainerPage extends LoomElement {
     document.body.style.overflow = ""; // never leave scroll locked
   }
 
-  private async loadInfo() {
-    try {
-      this.info = await this.rpc.call<any>("Containers", "inspect", [this.id]);
-      await this.loadSiblings();
-      this.loadUpdateStatus();
-      this.loadTunnels();
-    } catch {
-      /* header falls back to the id */
-    }
-  }
-
-  // Best-effort tunnel data (no-op when cloudflare is off). A replicated service
-  // shares one tunnel across all replicas, so any replica shows the service's
-  // routes; a loose container matches by its own name.
-  private async loadTunnels() {
-    try {
-      const [routes, connectors, zones] = await Promise.all([
-        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
-        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
-        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
-      ]);
-      this.tunnelRoutes = routes || [];
-      this.tunnelConnectors = connectors || [];
-      this.tunnelZones = zones || [];
-      this.tunnelsOn = true;
-    } catch {
-      this.tunnelsOn = false;
-    }
-  }
-
   private ownName(): string {
     return (this.info?.Name || "").replace(/^\//, "");
   }
@@ -536,7 +534,7 @@ export class ContainerPage extends LoomElement {
   // or, for a loose container, routes targeting it by name.
   private myRoutes(): TunnelView[] {
     const proj = this.project();
-    const svc = this.labels()["com.docker.compose.service"];
+    const svc = composeService(this.labels());
     if (proj && svc) return this.tunnelRoutes.filter((t) => t.project === proj && t.svc_name === svc);
     const name = this.ownName();
     return this.tunnelRoutes.filter((t) => t.container === name);
@@ -546,8 +544,8 @@ export class ContainerPage extends LoomElement {
     const ok = await this.confirm.ask({ title: "remove route", danger: true, confirmLabel: "Remove", message: `Remove the route ${hostname}?` });
     if (!ok) return;
     try {
-      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
-      await this.loadTunnels();
+      await this.rmTunnelMut.call(hostname, path || "");
+      this.tunnelsQ.refetch();
     } catch (err: any) {
       this.toast.error(`remove — ${err?.message ?? "failed"}`);
     }
@@ -559,7 +557,7 @@ export class ContainerPage extends LoomElement {
       return;
     }
     const proj = this.project();
-    const svc = this.labels()["com.docker.compose.service"];
+    const svc = composeService(this.labels());
     const haveZones = this.tunnelZones.length > 0;
     const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
     const port = (this.info?.NetworkSettings?.Ports ? Object.keys(this.info.NetworkSettings.Ports) : []).map(innerPort).find(Boolean) || "";
@@ -579,11 +577,13 @@ export class ContainerPage extends LoomElement {
     const host = (haveZones ? (v.sub.trim() ? `${v.sub.trim()}.${v.domain}` : v.domain) : v.host_name).trim().toLowerCase();
     if (!host) return;
     // Replicated compose service -> target the service; loose -> the container.
-    const args = proj && svc ? [host, v.port.trim(), v.connector, proj, svc, "", (v.path || "").trim()] : [host, v.port.trim(), v.connector, "", "", this.id, (v.path || "").trim()];
+    const args: [string, string, string, string, string, string, string] = proj && svc
+      ? [host, v.port.trim(), v.connector, proj, svc, "", (v.path || "").trim()]
+      : [host, v.port.trim(), v.connector, "", "", this.id, (v.path || "").trim()];
     await this.proc.run(`add tunnel ${host}`, async (emit) => {
       try {
         emit("attaching connector + updating ingress + DNS…");
-        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", args);
+        const res = await this.addTunnelMut.call(...args);
         if (res && res.ok === false) {
           emit("failed: " + (res.error || "error"));
           return false;
@@ -595,35 +595,8 @@ export class ContainerPage extends LoomElement {
         return false;
       }
     });
-    this.loadTunnels();
+    this.tunnelsQ.refetch();
   };
-
-  // Find the other pods in this container's replica set (same compose service).
-  private async loadSiblings() {
-    const proj = this.project();
-    const svc = this.labels()["com.docker.compose.service"];
-    if (!proj || !svc) {
-      this.siblings = [];
-      return;
-    }
-    try {
-      const stacks = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
-      const st = stacks.find((s) => s.project === proj);
-      this.siblings = (st?.containers ?? []).filter((c) => c.service === svc).sort((a, b) => a.number - b.number);
-    } catch {
-      this.siblings = [];
-    }
-  }
-
-  // Cached cluster freshness — is this container's image out of date?
-  private async loadUpdateStatus() {
-    try {
-      const res = await this.rpc.call<UpdatesResult>("System", "updates", []);
-      this.outdated = res.updates.find((u) => u.id === this.id)?.status === "outdated";
-    } catch {
-      this.outdated = false;
-    }
-  }
 
   private openSibling(id: string) {
     this.dropOpen = false;
@@ -702,11 +675,7 @@ export class ContainerPage extends LoomElement {
   // appear without a manual refresh.
   @interval(5000)
   private pollInfo() {
-    if (!this.id || !this.info) return;
-    this.rpc
-      .call<any>("Containers", "inspect", [this.id])
-      .then((i) => (this.info = i))
-      .catch(() => {});
+    if (this.id) this.infoQ.refetch();
   }
 
   private selectTab = (t: Tab) => {
@@ -748,7 +717,7 @@ export class ContainerPage extends LoomElement {
       ok = sok;
       return sok;
     });
-    if (ok) this.enter(this.id); // reload the (recreated) container
+    if (ok) { this.infoQ.refetch(); this.enter(); } // reload the (recreated) container
   };
 
   private logout = () => this.auth.logout();
@@ -845,10 +814,10 @@ export class ContainerPage extends LoomElement {
     return this.info?.Config?.Labels ?? {};
   }
   private service() {
-    return this.labels()["com.docker.compose.service"] || (this.info?.Name || "").replace(/^\//, "") || this.id.slice(0, 12);
+    return composeService(this.labels()) || (this.info?.Name || "").replace(/^\//, "") || this.id.slice(0, 12);
   }
   private project() {
-    return this.labels()["com.docker.compose.project"] || "";
+    return composeProject(this.labels());
   }
   // Loose (no-compose) containers belong to the "(ungrouped)" pseudo-stack.
   private stackId() {
