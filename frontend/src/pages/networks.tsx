@@ -1,17 +1,9 @@
 // Networks page: every Docker network on the active host with the containers
 // attached to it (reverse mapping). Same table + detail-modal design as images.
-import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
-import { inject } from "@toyz/loom/di";
-import { route, LoomRouter } from "@toyz/loom/router";
-import { HopeTransport } from "../transport";
-import { AuthStore } from "../auth-store";
-import { HostContext } from "../host-context";
-import { HostChanged } from "../events";
+import { component, styles, css, reactive } from "@toyz/loom";
+import { route } from "@toyz/loom/router";
 import { appBar } from "../app-bar";
-import { ConfirmService } from "../confirm";
-import { PromptService } from "../prompt";
-import { ToastService } from "../toast";
-import { ProcService } from "../proc";
+import { ResourcePage } from "./resource-page";
 import type { NetworkInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -32,36 +24,12 @@ const ago = (unix: number) => {
   ${theme}
   ${resourceStyles}
 `)
-export class NetworksPage extends LoomElement {
-  @inject(HopeTransport) accessor rpc!: HopeTransport;
-  @inject(AuthStore) accessor auth!: AuthStore;
-  @inject(HostContext) accessor hostCtx!: HostContext;
-  @inject(ConfirmService) accessor confirm!: ConfirmService;
-  @inject(PromptService) accessor prompt!: PromptService;
-  @inject(ToastService) accessor toast!: ToastService;
-  @inject(ProcService) accessor proc!: ProcService;
-  private get router(): LoomRouter {
-    return app.get(LoomRouter);
-  }
-
+export class NetworksPage extends ResourcePage<NetworkInfo> {
+  // Selection keys: host|id (empty networks only).
   @reactive accessor nets: (NetworkInfo & { host?: string })[] = [];
-  @reactive accessor busy = false;
-  @reactive accessor error = "";
-  @reactive accessor query = "";
-  @reactive accessor detail: (NetworkInfo & { host?: string }) | null = null;
-  @reactive accessor selected: string[] = []; // keys: host|id (empty networks only)
 
-  private key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
-  private removable = () => this.visible().filter((n) => !n.used_by.length);
-  private toggleSel = (k: string, e: Event) => {
-    e.stopPropagation();
-    this.selected = this.selected.includes(k) ? this.selected.filter((x) => x !== k) : [...this.selected, k];
-  };
-  private selectAllVisible = () => {
-    const keys = this.removable().map((n) => this.key(n));
-    this.selected = keys.length > 0 && keys.every((k) => this.selected.includes(k)) ? this.selected.filter((k) => !keys.includes(k)) : Array.from(new Set([...this.selected, ...keys]));
-  };
-  private clearSel = () => (this.selected = []);
+  protected key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
+
   private removeSelected = async () => {
     const nets = this.nets.filter((n) => this.selected.includes(this.key(n)));
     if (!nets.length) return;
@@ -93,16 +61,6 @@ export class NetworksPage extends LoomElement {
     await this.load();
   };
 
-  get fleetMode() {
-    return this.hostCtx.fleet;
-  }
-
-  // Host/fleet switched elsewhere — re-fetch in place (no reload).
-  @on(HostChanged)
-  onHostChanged() {
-    if (this.auth.isAuthenticated) this.load();
-  }
-
   private createNet = async () => {
     const v = await this.prompt.ask({
       title: "create network",
@@ -131,16 +89,7 @@ export class NetworksPage extends LoomElement {
     }
   };
 
-  @mount
-  onMount() {
-    if (!this.auth.isAuthenticated) {
-      this.router.navigate("/login");
-      return;
-    }
-    this.load();
-  }
-
-  private load = async () => {
+  protected load = async () => {
     if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
@@ -213,7 +162,7 @@ export class NetworksPage extends LoomElement {
     await this.load();
   };
 
-  private visible() {
+  protected visible() {
     const q = this.query.trim().toLowerCase();
     return q ? this.nets.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : this.nets;
   }

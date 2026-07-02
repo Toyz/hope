@@ -1,16 +1,8 @@
 // Volumes page: every Docker volume on the active host with the containers
 // mounting it (reverse mapping). Same table + detail-modal design as images.
-import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
-import { inject } from "@toyz/loom/di";
-import { route, LoomRouter } from "@toyz/loom/router";
-import { HopeTransport } from "../transport";
-import { AuthStore } from "../auth-store";
-import { HostContext } from "../host-context";
-import { HostChanged } from "../events";
-import { ConfirmService } from "../confirm";
-import { PromptService } from "../prompt";
-import { ToastService } from "../toast";
-import { ProcService } from "../proc";
+import { component, styles, css, reactive } from "@toyz/loom";
+import { route } from "@toyz/loom/router";
+import { ResourcePage } from "./resource-page";
 import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -37,18 +29,7 @@ type Filter = "all" | "mounted" | "unused";
   ${theme}
   ${resourceStyles}
 `)
-export class VolumesPage extends LoomElement {
-  @inject(HopeTransport) accessor rpc!: HopeTransport;
-  @inject(AuthStore) accessor auth!: AuthStore;
-  @inject(HostContext) accessor hostCtx!: HostContext;
-  @inject(ConfirmService) accessor confirm!: ConfirmService;
-  @inject(PromptService) accessor prompt!: PromptService;
-  @inject(ToastService) accessor toast!: ToastService;
-  @inject(ProcService) accessor proc!: ProcService;
-  private get router(): LoomRouter {
-    return app.get(LoomRouter);
-  }
-
+export class VolumesPage extends ResourcePage<VolumeInfo> {
   private createVol = async () => {
     const v = await this.prompt.ask({
       title: "create volume",
@@ -73,24 +54,10 @@ export class VolumesPage extends LoomElement {
   };
 
   @reactive accessor vols: (VolumeInfo & { host?: string })[] = [];
-  @reactive accessor busy = false;
-  @reactive accessor error = "";
-  @reactive accessor query = "";
   @reactive accessor filter: Filter = "all";
-  @reactive accessor detail: (VolumeInfo & { host?: string }) | null = null;
-  @reactive accessor selected: string[] = []; // volume names (unused only)
 
-  // Only unused volumes are selectable for bulk removal.
-  private removable = () => this.visible().filter((v) => !v.used_by.length);
-  private toggleSel = (name: string, e: Event) => {
-    e.stopPropagation();
-    this.selected = this.selected.includes(name) ? this.selected.filter((n) => n !== name) : [...this.selected, name];
-  };
-  private selectAllVisible = () => {
-    const names = this.removable().map((v) => v.name);
-    this.selected = names.every((n) => this.selected.includes(n)) ? [] : names;
-  };
-  private clearSel = () => (this.selected = []);
+  protected key = (v: VolumeInfo & { host?: string }) => v.name; // volume names are unique per host
+
   private removeSelected = async () => {
     const vols = this.vols.filter((v) => this.selected.includes(v.name));
     if (!vols.length) return;
@@ -126,26 +93,7 @@ export class VolumesPage extends LoomElement {
     await this.load();
   };
 
-  get fleetMode() {
-    return this.hostCtx.fleet;
-  }
-
-  // Host/fleet switched elsewhere — re-fetch in place (no reload).
-  @on(HostChanged)
-  onHostChanged() {
-    if (this.auth.isAuthenticated) this.load();
-  }
-
-  @mount
-  onMount() {
-    if (!this.auth.isAuthenticated) {
-      this.router.navigate("/login");
-      return;
-    }
-    this.load();
-  }
-
-  private load = async () => {
+  protected load = async () => {
     if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
@@ -220,7 +168,7 @@ export class VolumesPage extends LoomElement {
     await this.load();
   };
 
-  private visible() {
+  protected visible() {
     const q = this.query.trim().toLowerCase();
     return this.vols.filter((v) => {
       if (this.filter === "mounted" && !v.used_by.length) return false;
