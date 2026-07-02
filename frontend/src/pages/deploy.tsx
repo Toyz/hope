@@ -18,6 +18,7 @@ import { theme } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
+import { appBar } from "../app-bar";
 import "../components/service-form";
 
 interface Row { key: number; initial: ContainerSpec; }
@@ -198,7 +199,6 @@ export class DeployPage extends LoomElement {
     }
   }
 
-  private logout = () => this.auth.logout();
 
   private async loadConnectors() {
     try {
@@ -458,13 +458,7 @@ export class DeployPage extends LoomElement {
   update() {
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.inFleet() ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <hope-nav active="deploy"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("deploy")}
         <main>
           {this.editing ? null : (
             <div class="tabs">

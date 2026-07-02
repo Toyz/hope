@@ -7,6 +7,7 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
+import { appBar } from "../app-bar";
 import { ConfirmService } from "../confirm";
 import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
@@ -171,7 +172,6 @@ export class NetworksPage extends LoomElement {
     }
   };
 
-  private logout = () => this.auth.logout();
   private openUser = (u: { id: string; project: string }) => {
     this.detail = null;
     if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
@@ -223,15 +223,10 @@ export class NetworksPage extends LoomElement {
     const attached = this.nets.filter((n) => n.used_by.length).length;
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-                              <hope-nav active="networks"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("networks", [
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
+          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+        ])}
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}

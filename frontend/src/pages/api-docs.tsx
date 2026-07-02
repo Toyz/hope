@@ -6,6 +6,7 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { theme } from "../styles";
+import { appBar } from "../app-bar";
 
 @route("/api-docs")
 @component("hope-api-docs")
@@ -81,7 +82,6 @@ export class ApiDocsPage extends LoomElement {
     if (!this.auth.isAuthenticated) this.router.navigate("/login");
   }
 
-  private logout = () => this.auth.logout();
 
   private get keyBlock(): string {
     return `[auth]\napi_keys = ["a-long-random-string"]`;
@@ -123,12 +123,7 @@ export class ApiDocsPage extends LoomElement {
   update() {
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> fleet</span></div>
-          <hope-nav active="api"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("api", [], { hostSwitch: false })}
         <main>
           <div class="hero">
             <span class="t">API</span>

@@ -15,6 +15,7 @@ import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 import { bytes } from "../format";
+import { appBar } from "../app-bar";
 
 const agoStr = (iso: string) => {
   if (!iso) return "—";
@@ -178,7 +179,6 @@ export class VolumesPage extends LoomElement {
     }
   };
 
-  private logout = () => this.auth.logout();
   private openUser = (u: { id: string; project: string }) => {
     this.detail = null;
     if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
@@ -236,15 +236,10 @@ export class VolumesPage extends LoomElement {
     const unused = this.vols.length - mounted;
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-                              <hope-nav active="volumes"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("volumes", [
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
+          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+        ])}
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}

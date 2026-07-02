@@ -10,6 +10,7 @@ import { HostChanged } from "../events";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
+import { appBar } from "../app-bar";
 import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
 import { bytes, shortId } from "../format";
@@ -631,7 +632,6 @@ export class ImagesPage extends LoomElement {
     );
   }
 
-  private logout = () => this.auth.logout();
 
   // Cross-fleet images overview: a section per host with its counts; "manage"
   // drills into that host's full images page (filters, prune, selection).
@@ -647,14 +647,9 @@ export class ImagesPage extends LoomElement {
 
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-                              <hope-nav active="images"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("images", [
+          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+        ])}
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}

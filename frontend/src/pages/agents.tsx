@@ -6,6 +6,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { appBar } from "../app-bar";
 import type { AgentView, AgentEnroll } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -189,20 +190,14 @@ export class AgentsPage extends LoomElement {
     }
   };
 
-  private logout = () => this.auth.logout();
 
   update() {
     return (
       <div>
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.hostCtx.fleet ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-                              <hope-nav active="agents"></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openNew}><loom-icon name="plus" size={12}></loom-icon> new agent</button></div>
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+        {appBar("agents", [
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openNew}><loom-icon name="plus" size={12}></loom-icon> new agent</button></div>,
+          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+        ])}
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}

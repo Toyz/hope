@@ -12,6 +12,7 @@ import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
+import { appBar } from "../app-bar";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
@@ -629,24 +630,18 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  private logout = () => this.auth.logout();
 
   update() {
     const online = this.connectors.filter((c) => c.online).length;
     return (
       <div>
         {this.detail ? this.renderConnDetail(this.detail) : null}
-        <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-                              <hope-nav active="tunnels"></hope-nav>
-          <div class="grow"></div>
-          {!this.disabled && this.loaded ? (
+        {appBar("tunnels", [
+          !this.disabled && this.loaded ? (
             <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.deployConnector}><loom-icon name="plus" size={12}></loom-icon> connector</button></div>
-          ) : null}
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
+          ) : null,
+          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+        ])}
 
         <main>
           {this.disabled ? (
