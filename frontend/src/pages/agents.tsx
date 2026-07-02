@@ -3,10 +3,13 @@
 import { LoomElement, component, styles, css, reactive, mount, interval, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
-import { HopeTransport } from "../transport";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { appBar } from "../app-bar";
+import { System } from "../contracts";
 import type { AgentView, AgentEnroll } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -101,21 +104,33 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .abox .btn:hover { background: color-mix(in srgb, var(--upd) 88%, #fff); }
 `)
 export class AgentsPage extends LoomElement {
-  @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(HostContext) accessor hostCtx!: HostContext;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
 
-  @reactive accessor agents: AgentView[] = [];
-  @reactive accessor loaded = false;
-  @reactive accessor error = "";
-  @reactive accessor busy = false;
+  // Agents are hub-global (not host-scoped), so no fleet/HostChanged wiring.
+  @rpc(System, "agents", { eager: false }) accessor agentsQ!: ApiState<AgentView[]>;
+  @mutate(System, "agentEnroll") accessor enrollMut!: RpcMutator<[], AgentEnroll>;
+
   @reactive accessor copied = "";
   @reactive accessor modalOpen = false;
   @reactive accessor enroll: AgentEnroll | null = null;
   @reactive accessor hostId = "my-host";
+
+  get agents(): AgentView[] {
+    return this.agentsQ.data || [];
+  }
+  get loaded(): boolean {
+    return !!this.agentsQ.data;
+  }
+  get busy(): boolean {
+    return this.agentsQ.loading;
+  }
+  get error(): string {
+    return this.agentsQ.error?.message ?? "";
+  }
 
   // The agent dials this hub over hope's own port (through Cloudflare if fronted),
   // so the endpoint is derived from wherever the UI is being served.
@@ -159,7 +174,7 @@ export class AgentsPage extends LoomElement {
   private openNew = async () => {
     this.modalOpen = true;
     try {
-      this.enroll = await this.rpc.call<AgentEnroll>("System", "agentEnroll", []);
+      this.enroll = await this.enrollMut.call();
     } catch { this.enroll = null; }
   };
 
@@ -177,18 +192,7 @@ export class AgentsPage extends LoomElement {
     if (this.auth.isAuthenticated) this.load();
   }
 
-  private load = async () => {
-    this.busy = true;
-    try {
-      this.agents = (await this.rpc.call<AgentView[]>("System", "agents", [])) || [];
-      this.error = "";
-      this.loaded = true;
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list agents.";
-    } finally {
-      this.busy = false;
-    }
-  };
+  private load = () => this.agentsQ.refetch();
 
 
   update() {
