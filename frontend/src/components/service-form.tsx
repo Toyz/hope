@@ -8,7 +8,7 @@
 // via getSpec(). That avoids a per-keystroke round-trip through the parent.
 import { LoomElement, component, styles, css, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
-import type { ContainerSpec, TunnelRoute, PortMap, MountSpec } from "../contracts";
+import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option } from "../contracts";
 
 interface PortRow { host: string; container: string; proto: string; }
 interface EnvRow { k: string; v: string; }
@@ -16,7 +16,7 @@ interface VolRow { source: string; target: string; ro: boolean; }
 interface NetRow { name: string; aliases: string[]; }
 interface TunRow { connector: string; sub: string; domain: string; hostname: string; port: string; path: string; }
 
-export interface ConnectorOpt { value: string; label: string; }
+export type ConnectorOpt = Option;
 
 @component("hope-service-form")
 @styles(css`

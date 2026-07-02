@@ -23,12 +23,15 @@ import (
 )
 
 // Compose labels Docker stamps on every container started via `docker compose`.
+// The shared keys live in labels.go (exported for other packages); these are the
+// terse in-package aliases plus the two docker-only keys.
 const (
-	labelProject     = "com.docker.compose.project"
-	labelService     = "com.docker.compose.service"
+	labelProject     = LabelProject
+	labelService     = LabelService
+	labelNumber      = LabelNumber
+	labelManaged     = LabelManaged
 	labelWorkingDir  = "com.docker.compose.project.working_dir"
 	labelConfigFiles = "com.docker.compose.project.config_files"
-	labelNumber      = "com.docker.compose.container-number"
 )
 
 // podman-compose fallbacks: podman's compose implementation groups under its own

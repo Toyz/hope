@@ -22,10 +22,6 @@ import (
 // resources.go. Higher-level orchestration (diff-apply of a whole stack) lives
 // in internal/deploy; this file just turns one spec into one Docker object.
 
-// labelManaged marks a container/network/volume hope created via a deploy, so
-// the UI and teardown can tell hope-owned objects from externally-created ones.
-const labelManaged = "ink.hope.managed"
-
 // CreateContainer creates and starts a container from spec under the given
 // docker name. spec.Labels, spec.Networks and spec.Image are taken as final
 // (the deploy engine resolves compose labels, network name prefixes, etc.
@@ -124,7 +120,7 @@ func (c *Client) CreateNetwork(ctx context.Context, spec stackspec.NetworkSpec) 
 		Internal:   spec.Internal,
 		Attachable: spec.Attachable,
 		EnableIPv6: &spec.IPv6,
-		Labels:     withManaged(spec.Labels),
+		Labels:     WithManaged(spec.Labels),
 	}
 	if spec.Subnet != "" || spec.Gateway != "" {
 		opts.IPAM = &network.IPAM{Config: []network.IPAMConfig{{Subnet: spec.Subnet, Gateway: spec.Gateway}}}
@@ -161,7 +157,7 @@ func (c *Client) CreateVolume(ctx context.Context, spec stackspec.VolumeSpec) (s
 		Name:       spec.Name,
 		Driver:     driver,
 		DriverOpts: spec.Options,
-		Labels:     withManaged(spec.Labels),
+		Labels:     WithManaged(spec.Labels),
 	})
 	if err != nil {
 		return "", fmt.Errorf("create volume %s: %w", spec.Name, err)
@@ -570,13 +566,6 @@ func filterLabels(in map[string]string) map[string]string {
 	if len(out) == 0 {
 		return nil
 	}
-	return out
-}
-
-// withManaged tags labels with ink.hope.managed=1 (creating the map if needed).
-func withManaged(in map[string]string) map[string]string {
-	out := map[string]string{labelManaged: "1"}
-	maps.Copy(out, in)
 	return out
 }
 

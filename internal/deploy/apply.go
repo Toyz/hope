@@ -201,7 +201,7 @@ func (e *Engine) DeployContainer(ctx context.Context, spec stackspec.ContainerSp
 		return fmt.Errorf("image is required")
 	}
 	name := sanitizeName(spec.Name)
-	spec.Labels = withManaged(spec.Labels)
+	spec.Labels = docker.WithManaged(spec.Labels)
 	if name != "" {
 		spec.Name = "" // no service alias for a bare container
 	}
@@ -303,33 +303,21 @@ func (e *Engine) removeService(ctx context.Context, project, service string, emi
 }
 
 // ── label helpers ───────────────────────────────────────────────────────────
-
-const (
-	labelProject = "com.docker.compose.project"
-	labelService = "com.docker.compose.service"
-	labelNumber  = "com.docker.compose.container-number"
-	labelManaged = "ink.hope.managed"
-)
+// Compose/hope label keys are the exported source of truth in internal/docker.
 
 func composeLabels(user map[string]string, project, service string) map[string]string {
 	out := map[string]string{
-		labelProject: project,
-		labelService: service,
-		labelNumber:  "1",
-		labelManaged: "1",
+		docker.LabelProject: project,
+		docker.LabelService: service,
+		docker.LabelNumber:  "1",
+		docker.LabelManaged: "1",
 	}
 	maps.Copy(out, user)
 	return out
 }
 
-func withManaged(user map[string]string) map[string]string {
-	out := map[string]string{labelManaged: "1"}
-	maps.Copy(out, user)
-	return out
-}
-
 func withProject(user map[string]string, project string) map[string]string {
-	out := map[string]string{labelProject: project, labelManaged: "1"}
+	out := map[string]string{docker.LabelProject: project, docker.LabelManaged: "1"}
 	maps.Copy(out, user)
 	return out
 }

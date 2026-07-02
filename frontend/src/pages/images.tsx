@@ -11,6 +11,7 @@ import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
+import { bytes, shortId } from "../format";
 
 type Filter = "all" | "used" | "unused" | "dangling";
 
@@ -790,17 +791,6 @@ export class ImagesPage extends LoomElement {
       </div>
     );
   }
-}
-
-function shortId(id: string): string {
-  return id.replace(/^sha256:/, "").slice(0, 12);
-}
-
-function bytes(b: number): string {
-  if (!b || b <= 0) return "0";
-  const gb = b / 1073741824;
-  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 2) + " GB";
-  return (b / 1048576).toFixed(0) + " MB";
 }
 
 function age(unix: number): string {

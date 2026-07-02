@@ -6,6 +6,13 @@ import { service } from "@toyz/loom-rpc";
 
 // ---- shared shapes (match internal/docker JSON tags) ----
 
+// A generic value/label pick, shared by the prompt fields, <hope-select>, and
+// the deploy connector picker (all were separate identical interfaces).
+export interface Option {
+  value: string;
+  label: string;
+}
+
 export interface ContainerSummary {
   id: string;
   name: string;

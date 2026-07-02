@@ -12,13 +12,10 @@ import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, Co
 import { theme, markClass, stackSeverity } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
+import { innerPort } from "../format";
+import { UNGROUPED } from "../const";
 import { stripAnsi } from "./container";
 
-// Internal (container-side) port from a docker port string, for tunnel autofill.
-const innerPort = (p: string): string => {
-  const arrow = p.indexOf("->");
-  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
-};
 
 // One fixed action order for every row (single, replica, group) so columns line
 // up. Actions that don't apply to a container's state are disabled, not
@@ -349,7 +346,7 @@ export class StackPage extends LoomElement {
   // The "(ungrouped)" project isn't a real compose stack — it's free-floating
   // containers, so compose-level actions (redeploy/pull/compose file) don't apply.
   get isUngrouped() {
-    return this.project === "(ungrouped)";
+    return this.project === UNGROUPED;
   }
   private logsCtrl: AbortController | null = null;
   private opCtrl?: AbortController;

@@ -14,19 +14,7 @@ import { ProcService } from "../proc";
 import type { VolumeInfo } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
-
-const bytes = (n: number) => {
-  if (n < 0) return "—";
-  if (!n) return "0 B";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < u.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
-};
+import { bytes } from "../format";
 
 const agoStr = (iso: string) => {
   if (!iso) return "—";

@@ -6,10 +6,8 @@ import { LoomElement, component, styles, css, reactive, on } from "@toyz/loom";
 import { query } from "@toyz/loom/element";
 import { theme } from "../styles";
 
-export interface SelectOption {
-  value: string;
-  label: string;
-}
+import type { Option } from "../contracts";
+export type SelectOption = Option;
 
 @component("hope-select")
 @styles(css`

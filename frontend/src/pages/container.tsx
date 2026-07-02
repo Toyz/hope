@@ -6,6 +6,8 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { bytes, innerPort } from "../format";
+import { UNGROUPED } from "../const";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
@@ -13,12 +15,6 @@ import { PromptService, type PromptField } from "../prompt";
 import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo } from "../contracts";
 import { theme, markClass } from "../styles";
 import "../components/service-form";
-
-// Internal (container-side) port from a docker port string, for tunnel autofill.
-const cInnerPort = (p: string): string => {
-  const arrow = p.indexOf("->");
-  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
-};
 
 type Tab = "logs" | "stats" | "inspect";
 const MAX_LINES = 600;
@@ -579,7 +575,7 @@ export class ContainerPage extends LoomElement {
     const svc = this.labels()["com.docker.compose.service"];
     const haveZones = this.tunnelZones.length > 0;
     const def = this.tunnelConnectors.find((c) => c.default) || this.tunnelConnectors[0];
-    const port = (this.info?.NetworkSettings?.Ports ? Object.keys(this.info.NetworkSettings.Ports) : []).map(cInnerPort).find(Boolean) || "";
+    const port = (this.info?.NetworkSettings?.Ports ? Object.keys(this.info.NetworkSettings.Ports) : []).map(innerPort).find(Boolean) || "";
     const fields: PromptField[] = [
       { key: "connector", label: "connector", type: "select", value: def.id, options: this.tunnelConnectors.map((c) => ({ value: c.id, label: (c.title || c.name) + (c.default ? " (shared)" : "") })) },
       { key: "port", label: "port", placeholder: "8080", value: port },
@@ -869,7 +865,7 @@ export class ContainerPage extends LoomElement {
   }
   // Loose (no-compose) containers belong to the "(ungrouped)" pseudo-stack.
   private stackId() {
-    return this.project() || "(ungrouped)";
+    return this.project() || UNGROUPED;
   }
   private state(): string {
     return this.info?.State?.Status ?? "";
@@ -1191,17 +1187,6 @@ export class ContainerPage extends LoomElement {
 
 function mb(b: number): string {
   return (b / 1024 / 1024).toFixed(0) + " MB";
-}
-
-function bytes(n: number): string {
-  if (n < 1024) return n + " B";
-  const u = ["KB", "MB", "GB", "TB"];
-  let i = -1;
-  do {
-    n /= 1024;
-    i++;
-  } while (n >= 1024 && i < u.length - 1);
-  return n.toFixed(1) + " " + u[i];
 }
 
 function uptime(startedAt?: string): string {

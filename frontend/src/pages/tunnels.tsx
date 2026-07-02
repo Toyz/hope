@@ -10,6 +10,8 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
+import { UNGROUPED } from "../const";
+import { innerPort } from "../format";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
@@ -20,14 +22,6 @@ import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
 const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "—");
-const UNGROUPED = "(ungrouped)";
-
-// Internal (container-side) port from a docker port string
-// ("127.0.0.1:8080->8080/tcp" -> "8080", "9000/tcp" -> "9000").
-const innerPort = (p: string): string => {
-  const arrow = p.indexOf("->");
-  return (arrow >= 0 ? p.slice(arrow + 2) : p).split("/")[0].trim();
-};
 
 @route("/tunnels")
 @component("hope-tunnels")

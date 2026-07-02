@@ -2,10 +2,8 @@
 // sibling of ConfirmService. A page collects one or more fields with
 // `await prompt.ask({...})`; it resolves the field values, or null on cancel.
 // Reusable: add fields to the `fields` array, no new component needed.
-export interface PromptOption {
-  value: string;
-  label: string;
-}
+import type { Option } from "./contracts";
+export type PromptOption = Option;
 
 export type PromptField = {
   key: string;

@@ -9,6 +9,7 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
+import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
@@ -16,8 +17,6 @@ import { theme, stackSeverity, severityRank, markClass, type Severity } from "..
 interface Ranked extends StackSummary {
   sev: Severity;
 }
-
-const UNGROUPED = "(ungrouped)";
 
 @route("/")
 @component("hope-dashboard")
