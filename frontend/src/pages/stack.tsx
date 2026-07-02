@@ -3,13 +3,17 @@
 import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { HopeTransport } from "../transport";
+import { Stacks, System, Tunnels } from "../contracts";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap } from "../contracts";
+import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
@@ -305,13 +309,40 @@ export class StackPage extends LoomElement {
   }
 
   @reactive accessor project = "";
-  @reactive accessor stack: StackSummary | null = null;
-  @reactive accessor tunnelRoutes: TunnelView[] = [];
-  @reactive accessor tunnelConnectors: ConnectorView[] = [];
-  @reactive accessor tunnelZones: ZoneView[] = [];
-  @reactive accessor tunnelsOn = false;
-  @reactive accessor error = "";
   @reactive accessor busy = "";
+
+  // Independent @rpc queries; stack + tunnel data derive from these (SWR keeps
+  // the view steady through the 5s poll — no flicker).
+  @rpc(Stacks, "list", { eager: false }) accessor stacksQ!: ApiState<StackSummary[]>;
+  @rpc(System, "hosts", { eager: false }) accessor hostsQ!: ApiState<HostView[]>;
+  @rpc(Tunnels, "tunnels", { eager: false }) accessor tunnelsQ!: ApiState<TunnelView[]>;
+  @rpc(Tunnels, "connectors", { eager: false }) accessor connectorsQ!: ApiState<ConnectorView[]>;
+  @rpc(Tunnels, "zones", { eager: false }) accessor zonesQ!: ApiState<ZoneView[]>;
+  @mutate(Tunnels, "addTunnel") accessor addTunnelMut!: RpcMutator<[string, string, string, string, string, string, string], OpResult>;
+  @mutate(Tunnels, "removeTunnel") accessor rmTunnelMut!: RpcMutator<[string, string], OpResult>;
+
+  get stack(): StackSummary | null {
+    return (this.stacksQ.data || []).find((s) => s.project === this.project) ?? null;
+  }
+  get error(): string {
+    if (this.stacksQ.error) return this.stacksQ.error.message;
+    return this.stacksQ.data && !this.stack ? `Stack "${this.project}" not found.` : "";
+  }
+  get tunnelRoutes(): TunnelView[] {
+    return this.tunnelsQ.data || [];
+  }
+  get tunnelConnectors(): ConnectorView[] {
+    return this.connectorsQ.data || [];
+  }
+  get tunnelZones(): ZoneView[] {
+    return this.zonesQ.data || [];
+  }
+  get tunnelsOn(): boolean {
+    return !this.connectorsQ.error && !!this.connectorsQ.data;
+  }
+  get host(): string {
+    return (this.hostsQ.data || []).find((h) => h.active)?.id || "";
+  }
   @reactive accessor opLog = "";
   @reactive accessor composeText = "";
   @reactive accessor expanded: Record<string, boolean> = {};
@@ -320,7 +351,6 @@ export class StackPage extends LoomElement {
   @reactive accessor wrap = false;
   @reactive accessor stats: Record<string, ContainerStat> = {};
   @reactive accessor statsBusy = false;
-  @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
   @reactive accessor updates: Record<string, ImageUpdate> = {};
   @reactive accessor updatesBusy = false;
   @reactive accessor menuOpen = false;
@@ -351,22 +381,11 @@ export class StackPage extends LoomElement {
   @mount
   onMount() {
     if (this.routeProject) this.enter(this.routeProject);
-    this.loadActiveHost();
   }
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
   get fleetBack() {
     return this.hostCtx.fleet;
-  }
-
-  // Which host this stack lives on, so the crumb shows it in multi-host setups.
-  private async loadActiveHost() {
-    try {
-      const hosts = await this.rpc.call<{ id: string; active: boolean }[]>("System", "hosts", []);
-      this.host = (hosts || []).find((h) => h.active)?.id || "";
-    } catch {
-      this.host = "";
-    }
   }
 
   // Any document click outside the open menus (their triggers stopPropagation)
@@ -472,13 +491,9 @@ export class StackPage extends LoomElement {
     if (this.stack) this.refreshList();
   }
 
-  private async refreshList() {
-    try {
-      const all = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
-      this.stack = all.find((s) => s.project === this.project) ?? this.stack;
-    } catch {
-      /* keep last good state */
-    }
+  // Refetch the stack list (cheap); the `stack` getter re-derives.
+  private refreshList() {
+    this.stacksQ.refetch();
   }
 
   private enter(project: string) {
@@ -488,7 +503,6 @@ export class StackPage extends LoomElement {
     }
     if (project === this.project) return; // already on this stack (mount + watch both fire)
     this.project = project;
-    this.stack = null;
     this.stats = {};
     this.updates = {};
     this.closeLogs();
@@ -498,37 +512,23 @@ export class StackPage extends LoomElement {
     this.load();
   }
 
-  private async load() {
-    try {
-      const all = await this.rpc.call<StackSummary[]>("Stacks", "list", []);
-      this.stack = all.find((s) => s.project === this.project) ?? null;
-      this.error = this.stack ? "" : `Stack "${this.project}" not found.`;
-      if (this.stack) {
-        this.snapshot(); // auto-fill the CPU/MEM columns
-        this.loadUpdates(); // surface cached image-freshness chips immediately
-        this.loadTunnels(); // public-route chips (if cloudflare is on)
-      }
-    } catch (err: any) {
-      this.error = err?.message ?? "Failed to load.";
-    }
+  private load() {
+    // Stack + tunnel data come from the @rpc queries; snapshot/updates are
+    // per-stack side fetches (stats + cached image-freshness chips).
+    this.stacksQ.refetch();
+    this.hostsQ.refetch();
+    this.tunnelsQ.refetch();
+    this.connectorsQ.refetch();
+    this.zonesQ.refetch();
+    this.snapshot();
+    this.loadUpdates();
   }
 
-  // Best-effort tunnel data so service rows can show their public hostname +
-  // offer "add tunnel". Silently no-ops when the cloudflare integration is off.
-  private async loadTunnels() {
-    try {
-      const [routes, connectors, zones] = await Promise.all([
-        this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []),
-        this.rpc.call<ConnectorView[]>("Tunnels", "connectors", []),
-        this.rpc.call<ZoneView[]>("Tunnels", "zones", []).catch(() => []),
-      ]);
-      this.tunnelRoutes = routes || [];
-      this.tunnelConnectors = connectors || [];
-      this.tunnelZones = zones || [];
-      this.tunnelsOn = true;
-    } catch {
-      this.tunnelsOn = false; // disabled or unreachable — hide tunnel UI
-    }
+  // Refetch just the tunnel data (after adding/removing a route).
+  private loadTunnels() {
+    this.tunnelsQ.refetch();
+    this.connectorsQ.refetch();
+    this.zonesQ.refetch();
   }
 
   // Routes whose origin resolves to this stack's service.
@@ -552,7 +552,7 @@ export class StackPage extends LoomElement {
     const ok = await this.confirm.ask({ title: "remove route", danger: true, confirmLabel: "Remove", message: `Remove the route ${hostname}?` });
     if (!ok) return;
     try {
-      await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
+      await this.rmTunnelMut.call(hostname, path || "");
       await this.loadTunnels();
     } catch (err: any) {
       this.toast.error(err?.message ?? "remove failed");
@@ -645,7 +645,7 @@ export class StackPage extends LoomElement {
     await this.proc.run(`add tunnel ${host}`, async (emit) => {
       try {
         emit("attaching connector + updating ingress + DNS…");
-        const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [host, v.port.trim(), v.connector, this.project, service, "", (v.path || "").trim()]);
+        const res = await this.addTunnelMut.call(host, v.port.trim(), v.connector, this.project, service, "", (v.path || "").trim());
         if (res && res.ok === false) {
           emit("failed: " + (res.error || "error"));
           return false;
@@ -1084,7 +1084,7 @@ export class StackPage extends LoomElement {
         for (const r of routes.filter((r) => r.project === this.project)) {
           emit("remove route " + r.hostname + (r.path || ""));
           try {
-            await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [r.hostname, r.path || ""]);
+            await this.rmTunnelMut.call(r.hostname, r.path || "");
           } catch (e: any) {
             emit("route teardown failed: " + (e?.message || "error"));
           }
@@ -1210,7 +1210,7 @@ export class StackPage extends LoomElement {
       route
         ? async (emit) => {
             emit("route " + route!.host + " -> " + name);
-            const res = await this.rpc.call<OpResult>("Tunnels", "addTunnel", [route!.host, route!.port, route!.connector, this.project, name, "", route!.path]);
+            const res = await this.addTunnelMut.call(route!.host, route!.port, route!.connector, this.project, name, "", route!.path);
             if (res && res.ok === false) emit("route failed: " + (res.error || "error"));
             else emit("route live -> https://" + route!.host);
           }
