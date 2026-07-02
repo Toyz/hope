@@ -5,6 +5,7 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
 import type { AgentView, AgentEnroll } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
@@ -101,6 +102,7 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
 export class AgentsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -196,7 +198,7 @@ export class AgentsPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {localStorage.getItem("hope.fleet") === "1" ? "all hosts" : "fleet"}</span></div>
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.hostCtx.fleet ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
                               <hope-nav active="agents"></hope-nav>
           <div class="grow"></div>

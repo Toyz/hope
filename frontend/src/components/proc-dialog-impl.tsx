@@ -2,6 +2,7 @@
 // by the <hope-proc> stub (see proc-dialog.tsx) the first time a long op runs.
 // loom queues run() calls made before this chunk lands and replays them here.
 import { LoomElement, styles, css, reactive } from "@toyz/loom";
+import { query } from "@toyz/loom/element";
 import { theme } from "../styles";
 import type { ProcFn } from "./proc-dialog";
 
@@ -28,6 +29,7 @@ export default class ProcDialogImpl extends LoomElement {
   @reactive accessor lines: string[] = [];
   @reactive accessor done = false;
   @reactive accessor ok = true;
+  @query(".log") accessor logEl!: HTMLElement | null;
   private ctrl?: AbortController;
 
   // Run a streamed operation, showing its progress. Resolves when fn finishes
@@ -42,7 +44,7 @@ export default class ProcDialogImpl extends LoomElement {
     const emit = (line: string) => {
       this.lines = [...this.lines, line];
       requestAnimationFrame(() => {
-        const el = this.shadowRoot?.querySelector(".log") as HTMLElement | null;
+        const el = this.logEl;
         if (el) el.scrollTop = el.scrollHeight;
       });
     };

@@ -10,6 +10,8 @@ import { ConfirmService } from "./confirm";
 import { ProcService } from "./proc";
 import { PromptService } from "./prompt";
 import { ToastService } from "./toast";
+import { HostContext } from "./host-context";
+import { DeployIntent } from "./deploy-intent";
 
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
@@ -38,6 +40,8 @@ app.use(ConfirmService);
 app.use(ProcService);
 app.use(PromptService);
 app.use(ToastService);
+app.use(HostContext);
+app.use(DeployIntent);
 
 // Register the transport under both its concrete class (so components inject a
 // typed HopeTransport, incl. streamWithSignal) and the abstract RpcTransport

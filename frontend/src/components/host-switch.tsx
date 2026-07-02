@@ -1,10 +1,13 @@
 // <hope-host-switch> — the active-host picker for the status bar. Lists the
 // local daemon plus every connected agent and flips which one the whole UI
-// operates on. Switching is global server state, so after SetActiveHost we
-// reload so every view re-fetches against the new host.
-import { LoomElement, component, styles, css, reactive, mount, unmount } from "@toyz/loom";
+// operates on. Switching is global server state; after SetActiveHost (or a fleet
+// toggle) we emit HostChanged on the bus so every mounted view re-fetches in
+// place — no full-page reload, SPA state preserved.
+import { LoomElement, component, styles, css, reactive, mount, on } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import type { HostView } from "../contracts";
 import { theme } from "../styles";
 
@@ -51,6 +54,7 @@ import { theme } from "../styles";
 `)
 export class HostSwitch extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
+  @inject(HostContext) accessor hostCtx!: HostContext;
 
   @reactive accessor hosts: HostView[] = [];
   @reactive accessor open = false;
@@ -74,45 +78,48 @@ export class HostSwitch extends LoomElement {
     this.open = !this.open;
   };
 
-  // Close when clicking elsewhere.
-  onClickAway = () => {
+  // Close when clicking elsewhere (the toggle + menu stopPropagation so their own
+  // clicks don't reach here). Auto-unbinds on disconnect.
+  @on(document, "click")
+  onClickAway() {
     this.open = false;
-  };
-
-  @mount
-  bindAway() {
-    document.addEventListener("click", this.onClickAway);
-  }
-
-  @unmount
-  unbindAway() {
-    document.removeEventListener("click", this.onClickAway);
   }
 
   // "all" is a dashboard VIEW (cross-fleet overview), not a server-active host —
-  // it's tracked client-side so it doesn't disturb which host the other pages
-  // operate on.
+  // it's tracked client-side (HostContext) so it doesn't disturb which host the
+  // other pages operate on.
   get fleetOn() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
+  }
+
+  // Signal the switch so every mounted view re-fetches; refresh our own host list
+  // so the active-host label updates without a page reload.
+  private async announce(id: string | null) {
+    try {
+      this.hosts = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
+    } catch {
+      /* keep the stale list; the emitted event still triggers re-fetches */
+    }
+    this.emit(new HostChanged(id, this.hostCtx.fleet));
   }
 
   async pick(id: string) {
     this.open = false;
     if (id === "all") {
-      localStorage.setItem("hope.fleet", "1");
-      location.reload(); // each system page renders its own all-hosts view
+      this.hostCtx.setFleet(true);
+      await this.announce(this.active?.id ?? null); // each page renders its all-hosts view
       return;
     }
     const wasFleet = this.fleetOn;
-    localStorage.removeItem("hope.fleet");
-    // Leaving the all-hosts view always reloads, even if the server-active host
-    // is unchanged — otherwise picking "local" from "all" appears to do nothing.
+    this.hostCtx.setFleet(false);
+    // Leaving the all-hosts view always re-announces, even if the server-active
+    // host is unchanged — otherwise picking "local" from "all" appears to do nothing.
     if (!wasFleet && this.active && id === this.active.id) return;
     this.busy = true;
     try {
       await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
-      location.reload(); // global switch: re-fetch every view against the new host
-    } catch {
+      await this.announce(id); // global switch: every view re-fetches against the new host
+    } finally {
       this.busy = false;
     }
   }

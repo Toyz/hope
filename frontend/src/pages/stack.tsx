@@ -1,6 +1,6 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -10,7 +10,8 @@ import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
-import { deployIntent } from "../deploy-intent";
+import { DeployIntent } from "../deploy-intent";
+import { HostContext } from "../host-context";
 import { stripAnsi } from "./container";
 
 // Internal (container-side) port from a docker port string, for tunnel autofill.
@@ -305,6 +306,8 @@ export class StackPage extends LoomElement {
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
   @inject(PromptService) accessor prompt!: PromptService;
+  @inject(DeployIntent) accessor intent!: DeployIntent;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -366,13 +369,12 @@ export class StackPage extends LoomElement {
   @mount
   onMount() {
     if (this.routeProject) this.enter(this.routeProject);
-    addEventListener("click", this.closeMenu);
     this.loadActiveHost();
   }
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
   get fleetBack() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
   }
 
   // Which host this stack lives on, so the crumb shows it in multi-host setups.
@@ -385,10 +387,13 @@ export class StackPage extends LoomElement {
     }
   }
 
-  private closeMenu = () => {
+  // Any document click outside the open menus (their triggers stopPropagation)
+  // closes them. Auto-unbinds on disconnect.
+  @on(document, "click")
+  private closeMenu() {
     this.menuOpen = false;
     this.openRow = "";
-  };
+  }
 
   // Common actions stay visible as icons; only kill hides in the kebab menu.
   private rowActions(c: ContainerSummary) {
@@ -934,7 +939,6 @@ export class StackPage extends LoomElement {
     this.logsCtrl?.abort();
     this.opCtrl?.abort();
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    removeEventListener("click", this.closeMenu);
   }
 
   private openLogs = (method: "logs" | "stackLogs" | "serviceLogs", args: string[], title: string, e?: Event) => {
@@ -1050,7 +1054,7 @@ export class StackPage extends LoomElement {
   // editStack opens this stack in the deploy builder. The target rides a shared
   // module, not a query string (loom's router strips query strings on navigate).
   private editStack = () => {
-    deployIntent.edit = this.project;
+    this.intent.edit = this.project;
     this.router.navigate("/deploy");
   };
 

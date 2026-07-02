@@ -3,7 +3,7 @@
 // rows, declare networks + volumes, optionally expose ports via a Cloudflare
 // tunnel). The same page is the stack editor: /deploy?edit=<project> seeds the
 // builder from the stack's stored spec (or reconstructs it from live containers).
-import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -15,7 +15,9 @@ import { ToastService } from "../toast";
 import type { ContainerSpec, StackSpec, NetworkSpec, VolumeSpec, OpFrame, OpResult, ImportResult, ExportResult, NetworkInfo, VolumeInfo, ConnectorView, TunnelView, ZoneView, HostView } from "../contracts";
 import type { ConnectorOpt } from "../components/service-form";
 import { theme } from "../styles";
-import { deployIntent } from "../deploy-intent";
+import { DeployIntent } from "../deploy-intent";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import "../components/service-form";
 
 interface Row { key: number; initial: ContainerSpec; }
@@ -112,6 +114,8 @@ export class DeployPage extends LoomElement {
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ToastService) accessor toast!: ToastService;
+  @inject(DeployIntent) accessor intent!: DeployIntent;
+  @inject(HostContext) accessor hostCtx!: HostContext;
 
   @reactive accessor tab: "container" | "stack" = "stack";
   @reactive accessor project = "";
@@ -140,8 +144,7 @@ export class DeployPage extends LoomElement {
   @mount
   async onMount() {
     if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
-    const editProject = deployIntent.edit || new URLSearchParams(location.search).get("edit");
-    deployIntent.edit = null;
+    const editProject = this.intent.take() || new URLSearchParams(location.search).get("edit");
     // Render the builder immediately with one empty row (new deploy) so it doesn't
     // pop in after the async host/resource loads resolve.
     if (!editProject && this.rows.length === 0) this.rows = [{ key: this.keyc++, initial: { image: "" } }];
@@ -157,7 +160,16 @@ export class DeployPage extends LoomElement {
   }
 
   private inFleet(): boolean {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
+  }
+
+  // Active host switched elsewhere — refresh the host-scoped pickers in place.
+  @on(HostChanged)
+  onHostChanged() {
+    if (!this.auth.isAuthenticated) return;
+    this.loadHost();
+    this.loadConnectors();
+    this.loadResources();
   }
 
   // In "all hosts" fleet mode there is no single active host, so a deploy must
@@ -450,7 +462,7 @@ export class DeployPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {localStorage.getItem("hope.fleet") === "1" ? "all hosts" : "fleet"}</span></div>
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.inFleet() ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
           <hope-nav active="deploy"></hope-nav>
           <div class="grow"></div>

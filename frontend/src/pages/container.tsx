@@ -1,10 +1,11 @@
 // Container detail — identity, a live overview, stat gauges, the log terminal,
 // and raw inspect. Inspect drives the header/overview; logs + stats stream over
 // NDJSON and tear down on unmount.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
@@ -292,6 +293,7 @@ const MAX_LINES = 600;
 export class ContainerPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
   @inject(PromptService) accessor prompt!: PromptService;
@@ -348,12 +350,11 @@ export class ContainerPage extends LoomElement {
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
   get fleetBack() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
   }
 
   @mount
   onMount() {
-    addEventListener("click", this.closeDrop);
     if (this.routeId) this.enter(this.routeId);
     this.loadActiveHost();
   }
@@ -379,10 +380,13 @@ export class ContainerPage extends LoomElement {
     document.body.style.overflow = this.editOpen ? "hidden" : "";
   }
 
-  private closeDrop = () => {
+  // Any document click outside the open menus (their triggers stopPropagation)
+  // closes them. Auto-unbinds on disconnect.
+  @on(document, "click")
+  private closeDrop() {
     this.dropOpen = false;
     this.actOpen = false;
-  };
+  }
 
   private containerOp = async (op: ContainerOp) => {
     // Redeploy streams its pull/recreate output into the shared processing
@@ -507,7 +511,6 @@ export class ContainerPage extends LoomElement {
   @unmount
   onUnmount() {
     this.ctrl.abort();
-    removeEventListener("click", this.closeDrop);
     clearTimeout(this.toastTimer);
     document.body.style.overflow = ""; // never leave scroll locked
   }

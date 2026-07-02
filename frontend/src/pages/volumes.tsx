@@ -1,10 +1,12 @@
 // Volumes page: every Docker volume on the active host with the containers
 // mounting it (reverse mapping). Same table + detail-modal design as images.
-import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import { ConfirmService } from "../confirm";
 import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
@@ -49,6 +51,7 @@ type Filter = "all" | "mounted" | "unused";
 export class VolumesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(ToastService) accessor toast!: ToastService;
@@ -135,7 +138,13 @@ export class VolumesPage extends LoomElement {
   };
 
   get fleetMode() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
+  }
+
+  // Host/fleet switched elsewhere — re-fetch in place (no reload).
+  @on(HostChanged)
+  onHostChanged() {
+    if (this.auth.isAuthenticated) this.load();
   }
 
   @mount
@@ -243,7 +252,7 @@ export class VolumesPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {localStorage.getItem("hope.fleet") === "1" ? "all hosts" : "fleet"}</span></div>
+          <div class="s"><span class="back" onClick={() => this.router.navigate("/")}><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetMode ? "all hosts" : "fleet"}</span></div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
                               <hope-nav active="volumes"></hope-nav>
           <div class="grow"></div>

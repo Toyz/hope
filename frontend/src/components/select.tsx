@@ -2,7 +2,8 @@
 // (mono, hairline borders, no radius) instead of the native <select>. Set the
 // `options` and `value` properties; it emits a "select" CustomEvent (detail =
 // chosen value) and reflects the choice on its own `value`.
-import { LoomElement, component, styles, css, reactive, mount, unmount } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, on } from "@toyz/loom";
+import { query } from "@toyz/loom/element";
 import { theme } from "../styles";
 
 export interface SelectOption {
@@ -42,27 +43,20 @@ export class HopeSelect extends LoomElement {
   @reactive accessor placeholder = "—";
   @reactive accessor open = false;
   @reactive accessor query = "";
-
-  @mount
-  onMount() {
-    document.addEventListener("click", this.onDoc);
-  }
-  @unmount
-  onUnmount() {
-    document.removeEventListener("click", this.onDoc);
-  }
+  @query(".msearch") accessor searchEl!: HTMLInputElement | null;
 
   // Clicks on the trigger/options stopPropagation, so any click that reaches the
-  // document is outside this dropdown — close it.
-  private onDoc = () => {
+  // document is outside this dropdown — close it. Auto-unbinds on disconnect.
+  @on(document, "click")
+  onDoc() {
     if (this.open) this.open = false;
-  };
+  }
 
   private openMenu(seed = "") {
     this.query = seed;
     this.open = true;
     // Focus the filter box (if this list is searchable) so typing continues there.
-    setTimeout(() => this.shadowRoot?.querySelector<HTMLInputElement>(".msearch")?.focus(), 0);
+    setTimeout(() => this.searchEl?.focus(), 0);
   }
 
   private toggle = (e: Event) => {

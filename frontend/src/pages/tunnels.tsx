@@ -2,12 +2,14 @@
 // serve (hostname -> stack/service). Deploy a connector, add/remove routes.
 // Host-aware: in "all hosts" mode the deploy/add dialogs ask which host to target;
 // otherwise they use the actively-selected host.
-import { LoomElement, component, styles, css, reactive, mount, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
 import { draggable, dropzone } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
@@ -133,6 +135,7 @@ const innerPort = (p: string): string => {
 export class TunnelsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
   @inject(ToastService) accessor toast!: ToastService;
@@ -155,7 +158,13 @@ export class TunnelsPage extends LoomElement {
   private suppressUntil = 0; // pause the auto-reload right after a local change
 
   get fleetMode() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
+  }
+
+  // Host/fleet switched elsewhere — re-fetch in place (no reload).
+  @on(HostChanged)
+  onHostChanged() {
+    if (this.auth.isAuthenticated) this.load();
   }
 
   // The host these connectors were listed from (Connectors runs on the active host).

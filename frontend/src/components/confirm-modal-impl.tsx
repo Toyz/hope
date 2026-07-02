@@ -2,7 +2,7 @@
 // the <hope-confirm> stub (see confirm-modal.tsx) the first time a confirm is
 // shown. Exposes show(opts): Promise<boolean>; loom's @lazy queues calls made
 // before this chunk finishes loading and replays them here.
-import { LoomElement, styles, css, reactive } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
 import { theme } from "../styles";
 import type { ConfirmOpts } from "../confirm";
 
@@ -48,24 +48,24 @@ export default class ConfirmModalImpl extends LoomElement {
   show(o: ConfirmOpts): Promise<boolean> {
     this.opts = o;
     this.open = true;
-    window.addEventListener("keydown", this.onKey);
     return new Promise<boolean>((resolve) => (this.resolver = resolve));
   }
 
   private settle(v: boolean) {
     if (!this.open) return;
     this.open = false;
-    window.removeEventListener("keydown", this.onKey);
     const r = this.resolver;
     this.resolver = null;
     r?.(v);
   }
 
-  private onKey = (e: KeyboardEvent) => {
+  // Bound once (auto-unbinds on disconnect); inert unless a dialog is open.
+  @on(window, "keydown")
+  private onKey(e: KeyboardEvent) {
     if (!this.open) return;
     if (e.key === "Escape") this.settle(false);
     if (e.key === "Enter") this.settle(true);
-  };
+  }
 
   update() {
     if (!this.open) return document.createComment("");

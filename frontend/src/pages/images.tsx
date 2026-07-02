@@ -1,10 +1,12 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
-import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
@@ -172,6 +174,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
 export class ImagesPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
   private get router(): LoomRouter {
@@ -192,7 +195,13 @@ export class ImagesPage extends LoomElement {
 
   // "all hosts" is the same client-side view flag the dashboard uses.
   get fleetMode() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
+  }
+
+  // Host/fleet switched elsewhere — re-fetch in place (no reload).
+  @on(HostChanged)
+  onHostChanged() {
+    if (this.auth.isAuthenticated) this.load();
   }
 
   @mount

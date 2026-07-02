@@ -2,11 +2,13 @@
 // synthesizes fleet state; a flat fleet ribbon shows every stack as a cell
 // (dark = nominal, lit = trouble); below, an Attention zone then a quiet Fleet
 // list of instrument rows. No glows, no per-row noise. Refreshes every 5s.
-import { LoomElement, component, styles, css, reactive, mount, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
+import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import { ProcService } from "../proc";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { theme, stackSeverity, severityRank, markClass, type Severity } from "../styles";
@@ -215,6 +217,7 @@ const UNGROUPED = "(ungrouped)";
 export class DashboardPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ProcService) accessor proc!: ProcService;
   @reactive accessor updBusyProj = "";
   private get router(): LoomRouter {
@@ -235,7 +238,7 @@ export class DashboardPage extends LoomElement {
 
   // "all hosts" is a client-side view flag (set by the host switcher).
   get fleetMode() {
-    return localStorage.getItem("hope.fleet") === "1";
+    return this.hostCtx.fleet;
   }
 
   @mount
@@ -246,6 +249,14 @@ export class DashboardPage extends LoomElement {
     }
     this.load();
     if (!this.fleetMode) this.loadHost(); // single-host strip; skipped in fleet view
+  }
+
+  // Host/fleet switched elsewhere — re-fetch in place (no reload).
+  @on(HostChanged)
+  onHostChanged() {
+    if (!this.auth.isAuthenticated) return;
+    this.load();
+    if (!this.fleetMode) this.loadHost();
   }
 
   // Switch the active host to `host`, then open one of its stacks (used from the

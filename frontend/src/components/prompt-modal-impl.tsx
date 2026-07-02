@@ -1,7 +1,7 @@
 // The real <hope-prompt> implementation (lazy chunk). show(opts) returns a
 // promise of the field values (keyed by field.key) or null on cancel. Chrome
 // matches <hope-confirm> so dialogs feel identical across the app.
-import { LoomElement, styles, css, reactive } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
 import { theme } from "../styles";
 import type { PromptOpts } from "../prompt";
 
@@ -57,24 +57,24 @@ export default class PromptModalImpl extends LoomElement {
     this.values = v;
     this.err = "";
     this.open = true;
-    window.addEventListener("keydown", this.onKey);
     return new Promise((resolve) => (this.resolver = resolve));
   }
 
   private settle(v: Record<string, string> | null) {
     if (!this.open) return;
     this.open = false;
-    window.removeEventListener("keydown", this.onKey);
     const r = this.resolver;
     this.resolver = null;
     r?.(v);
   }
 
-  private onKey = (e: KeyboardEvent) => {
+  // Bound once (auto-unbinds on disconnect); inert unless a dialog is open.
+  @on(window, "keydown")
+  private onKey(e: KeyboardEvent) {
     if (!this.open) return;
     if (e.key === "Escape") this.settle(null);
     if (e.key === "Enter") this.submit();
-  };
+  }
 
   private set(key: string, val: string) {
     const next = { ...this.values, [key]: val };
