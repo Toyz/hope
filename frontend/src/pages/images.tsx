@@ -17,8 +17,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
 
 @route("/images")
 @component("hope-images")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;

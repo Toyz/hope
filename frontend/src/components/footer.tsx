@@ -9,8 +9,7 @@ import { capabilities } from "../caps";
 const REPO = "https://github.com/toyz/hope";
 
 @component("hope-footer")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; }
   /* Fixed 48px height so pages can size to calc(100vh - 48px) and the footer
      doesn't force a scrollbar when content fits. */

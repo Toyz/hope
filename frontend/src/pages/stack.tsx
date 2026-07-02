@@ -68,8 +68,7 @@ function aggMark(items: ContainerSummary[]): string {
 
 @route("/stack/:project")
 @component("hope-stack")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {

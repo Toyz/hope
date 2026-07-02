@@ -4,7 +4,13 @@
 // Near-monochrome: a few exact grays carry the structure; green/amber/red are
 // the ONLY hues and mean exactly one thing each. Hairline rules, tabular
 // monospace, deliberate alignment — instrumentation, not a web list.
-export const theme = `
+//
+// theme is an adopted CSSStyleSheet (parsed once, shared) — pass it in the
+// @styles(...) array, e.g. @styles(theme, css`…page…`), rather than
+// interpolating it into every component's template.
+import { css } from "@toyz/loom";
+
+export const theme = css`
   :host {
     --ink: #0A0C11;
     --panel: #0E1118;

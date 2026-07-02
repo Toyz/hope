@@ -26,8 +26,7 @@ const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "â
 
 @route("/tunnels")
 @component("hope-tunnels")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   ${resourceStyles}
 
   /* a connector and the routes it owns are one bordered unit */

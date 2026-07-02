@@ -10,8 +10,7 @@ import type { Option } from "../contracts";
 export type SelectOption = Option;
 
 @component("hope-select")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; position: relative; }
   .trigger { display: flex; align-items: center; gap: 8px; width: 100%; height: 38px; box-sizing: border-box;
     background: var(--ink); border: 1px solid var(--line); color: var(--hi);

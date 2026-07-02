@@ -19,8 +19,7 @@ interface TunRow { connector: string; sub: string; domain: string; hostname: str
 export type ConnectorOpt = Option;
 
 @component("hope-service-form")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
   .f { display: flex; flex-direction: column; gap: 6px; }

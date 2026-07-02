@@ -11,8 +11,7 @@ import type { HostView } from "../contracts";
 import { theme } from "../styles";
 
 @component("hope-host-switch")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: inline-flex; position: relative; font: 600 11px/1 var(--mono); height: 100%; }
 
   .btn {

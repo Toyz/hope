@@ -27,8 +27,7 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
 
 @route("/agents")
 @component("hope-agents")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   ${resourceStyles}
 
   .agrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }

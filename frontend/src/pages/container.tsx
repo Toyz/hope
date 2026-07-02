@@ -26,8 +26,7 @@ const MAX_LINES = 600;
 
 @route("/container/:id")
 @component("hope-container")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   .bar {

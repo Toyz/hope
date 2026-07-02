@@ -5,6 +5,7 @@
 import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
 import { capabilities } from "../caps";
+import { theme } from "../styles";
 
 const ITEMS: [string, string][] = [
   ["deploy", "/deploy"],
@@ -16,7 +17,7 @@ const ITEMS: [string, string][] = [
 ];
 
 @component("hope-nav")
-@styles(css`
+@styles(theme, css`
   :host { display: flex; align-items: stretch; }
   .item { display: flex; align-items: center; padding: 0 16px; border-right: 1px solid var(--line); }
   .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }

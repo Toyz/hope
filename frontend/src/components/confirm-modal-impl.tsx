@@ -6,8 +6,7 @@ import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
 import { theme } from "../styles";
 import type { ConfirmOpts } from "../confirm";
 
-@styles(css`
-  ${theme}
+@styles(theme, css`
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
     background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   .box { width: 460px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2);

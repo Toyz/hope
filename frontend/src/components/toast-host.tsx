@@ -14,8 +14,7 @@ interface Toast {
 const LIFE = 2800;
 
 @component("hope-toast")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   .wrap { position: fixed; right: 22px; bottom: 22px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
   .toast { background: var(--raised); border: 1px solid var(--line2); color: var(--hi);
     font: 500 12.5px/1.4 var(--mono); padding: 11px 15px; max-width: 420px;

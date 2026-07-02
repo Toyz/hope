@@ -9,8 +9,7 @@ import { theme } from "../styles";
 
 @route("/login")
 @component("hope-login")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: grid; place-items: center; min-height: calc(100vh - 48px); background: var(--ink); overflow: hidden; }
   /* an absurd, over-engineered matrix-rain canvas behind the form. for no reason. */
   canvas.bg { position: fixed; inset: 0; z-index: 0; opacity: .8; }

@@ -5,8 +5,7 @@ import { css } from "@toyz/loom";
 import { theme } from "./styles";
 
 @component("hope-app")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; min-height: 100vh; background: var(--bg); }
 `)
 export class HopeApp extends LoomElement {

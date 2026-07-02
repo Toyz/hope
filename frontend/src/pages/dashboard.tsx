@@ -24,8 +24,7 @@ interface Ranked extends StackSummary {
 
 @route("/")
 @component("hope-dashboard")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
 
   /* ── status bar (tmux/vim airline) ── */

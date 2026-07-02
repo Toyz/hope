@@ -5,8 +5,7 @@ import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
 import { theme } from "../styles";
 import type { PromptOpts } from "../prompt";
 
-@styles(css`
-  ${theme}
+@styles(theme, css`
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
     background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

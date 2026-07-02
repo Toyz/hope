@@ -32,8 +32,7 @@ type Filter = "all" | "mounted" | "unused";
 
 @route("/volumes")
 @component("hope-volumes")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   ${resourceStyles}
 `)
 export class VolumesPage extends ResourcePage<VolumeInfo> {

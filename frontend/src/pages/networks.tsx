@@ -29,8 +29,7 @@ const ago = (unix: number) => {
 
 @route("/networks")
 @component("hope-networks")
-@styles(css`
-  ${theme}
+@styles(theme, css`
   ${resourceStyles}
 `)
 export class NetworksPage extends ResourcePage<NetworkInfo> {
