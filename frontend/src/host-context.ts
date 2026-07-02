@@ -1,21 +1,15 @@
-// HostContext — the single source of truth for the "all hosts" (fleet) view flag.
+// HostContext — the reactive store for which Docker host the UI targets.
 //
-// The active Docker host itself is server-side state (System.setActiveHost); this
-// service owns only the client-side fleet-view toggle, which used to be read via a
-// `localStorage.getItem("hope.fleet")` getter copy-pasted across ~10 pages. It keeps
-// the same "hope.fleet" storage key for back-compat, so existing sessions keep their
-// view. Writes go through setFleet(); the host picker emits HostChanged after mutating
-// host/fleet state so every mounted view re-fetches in place (no reload).
-const KEY = "hope.fleet";
+// Two pieces of client state, both persisted (survive reload) and reactive (a
+// component that reads them in update() re-renders when they change, no manual
+// event needed):
+//   - fleet: the "all hosts" cross-fleet view flag.
+//   - activeHost: the host id RPC should target ("" = server default / local).
+//     HopeTransport reads this and sets X-Hope-Host, so the target is ambient —
+//     callers (and @rpc queries) never thread a host argument.
+import { persist } from "@toyz/loom";
 
 export class HostContext {
-  // True when the dashboard/system pages should render their cross-fleet view.
-  get fleet(): boolean {
-    return localStorage.getItem(KEY) === "1";
-  }
-
-  setFleet(on: boolean): void {
-    if (on) localStorage.setItem(KEY, "1");
-    else localStorage.removeItem(KEY);
-  }
+  @persist("hope.fleet") accessor fleet = false;
+  @persist("hope.host") accessor activeHost = "";
 }

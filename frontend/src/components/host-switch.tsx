@@ -106,19 +106,21 @@ export class HostSwitch extends LoomElement {
   async pick(id: string) {
     this.open = false;
     if (id === "all") {
-      this.hostCtx.setFleet(true);
+      this.hostCtx.fleet = true;
       await this.announce(this.active?.id ?? null); // each page renders its all-hosts view
       return;
     }
     const wasFleet = this.fleetOn;
-    this.hostCtx.setFleet(false);
-    // Leaving the all-hosts view always re-announces, even if the server-active
-    // host is unchanged — otherwise picking "local" from "all" appears to do nothing.
+    this.hostCtx.fleet = false;
+    this.hostCtx.activeHost = id; // ambient target the transport reads on every call
+    // Leaving the all-hosts view always re-announces, even if the target host is
+    // unchanged — otherwise picking "local" from "all" appears to do nothing.
     if (!wasFleet && this.active && id === this.active.id) return;
     this.busy = true;
     try {
+      // Keep the server's active flag in sync (drives the picker's highlight).
       await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
-      await this.announce(id); // global switch: every view re-fetches against the new host
+      await this.announce(id); // every view re-fetches against the new host
     } finally {
       this.busy = false;
     }

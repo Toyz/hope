@@ -7,6 +7,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { RpcTransport, RpcError } from "@toyz/loom-rpc";
 import { AuthStore } from "./auth-store";
+import { HostContext } from "./host-context";
 
 export class HopeTransport extends RpcTransport {
   @inject(AuthStore) accessor auth!: AuthStore;
@@ -15,10 +16,19 @@ export class HopeTransport extends RpcTransport {
   // a DI token (an optional ctor param breaks loom's inject() typing).
   private readonly baseUrl = "/rpc";
 
+  // The host every call targets: an explicit override (fleet aggregation) wins,
+  // otherwise the ambient active host from the HostContext store. So @rpc queries
+  // and plain calls target the right host without ever passing one.
+  private targetHost(host?: string): string {
+    if (host) return host;
+    return app.has(HostContext) ? app.get(HostContext).activeHost : "";
+  }
+
   private headers(host?: string): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (this.auth.token) h["Authorization"] = `Bearer ${this.auth.token}`;
-    if (host) h["X-Hope-Host"] = host; // per-request host target (fleet views)
+    const target = this.targetHost(host);
+    if (target) h["X-Hope-Host"] = target; // per-request host target
     return h;
   }
 
