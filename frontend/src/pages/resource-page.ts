@@ -1,15 +1,16 @@
-// ResourcePage — shared spine for the near-identical resource list pages
-// (networks, volumes): the DI wiring, the busy/error/query/detail/selection
-// state, the selection mechanics, the fleet flag, and the mount/host-change
-// lifecycle. Subclasses supply the type-specific parts: the item list accessor,
-// load()/loadFleet(), the selection key(), visible() filtering, and render.
+// ResourcePage — shared spine for the resource list pages (networks, volumes,
+// images). Owns the selection + detail state, the selection mechanics, and the
+// lifecycle. Data itself lives in each subclass as @rpc query accessors
+// (ApiState) so refetches are SWR — the previous list stays on screen while the
+// new one loads, no blank/pop. The subclass exposes it through items()/loading()
+// and re-fetches via refresh().
 //
-// Images is deliberately NOT built on this — it diverges too far (id/sha
-// selection, prune, redeploy-&-free, multi-host prune).
+// Host/fleet targeting is ambient: HostContext (a reactive @persist store) holds
+// the active host + fleet flag; the transport reads the host, and @watch on the
+// store re-fetches when either changes — no manual event.
 import { LoomElement, reactive, mount, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
-import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { ConfirmService } from "../confirm";
@@ -20,7 +21,6 @@ import { HostChanged } from "../events";
 import type { ResourceUser } from "../contracts";
 
 export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extends LoomElement {
-  @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
@@ -28,8 +28,6 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
   @inject(ToastService) accessor toast!: ToastService;
   @inject(ProcService) accessor proc!: ProcService;
 
-  @reactive accessor busy = false;
-  @reactive accessor error = "";
   @reactive accessor query = "";
   @reactive accessor detail: (T & { host?: string }) | null = null;
   @reactive accessor selected: string[] = []; // selection keys (removable items only)
@@ -48,13 +46,13 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
       this.router.navigate("/login");
       return;
     }
-    this.load();
+    this.refresh();
   }
 
-  // Host/fleet switched elsewhere — re-fetch in place (no reload).
+  // The active host or fleet flag changed (HostContext emits) — re-fetch.
   @on(HostChanged)
-  onHostChanged() {
-    if (this.auth.isAuthenticated) this.load();
+  private onHostChanged() {
+    if (this.auth.isAuthenticated) this.refresh();
   }
 
   // Only unused items are selectable for bulk removal.
@@ -79,7 +77,9 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
   clearSel = () => (this.selected = []);
 
   // ── subclass hooks ──
-  protected abstract load(): void | Promise<void>;
+  protected abstract refresh(): void; // refetch the active @rpc query
+  protected abstract items(): (T & { host?: string })[]; // current list (query .data, normalized)
+  protected abstract loading(): boolean; // active query .loading
   protected abstract key(item: T & { host?: string }): string;
   protected abstract visible(): (T & { host?: string })[];
 }

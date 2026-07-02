@@ -7,7 +7,6 @@ import { LoomElement, component, styles, css, reactive, mount, on } from "@toyz/
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
-import { HostChanged } from "../events";
 import type { HostView } from "../contracts";
 import { theme } from "../styles";
 
@@ -92,35 +91,31 @@ export class HostSwitch extends LoomElement {
     return this.hostCtx.fleet;
   }
 
-  // Signal the switch so every mounted view re-fetches; refresh our own host list
-  // so the active-host label updates without a page reload.
-  private async announce(id: string | null) {
+  // Refresh our own host list so the active-host highlight updates in place.
+  private async refreshHosts() {
     try {
       this.hosts = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
     } catch {
-      /* keep the stale list; the emitted event still triggers re-fetches */
+      /* keep the stale list */
     }
-    this.emit(new HostChanged(id, this.hostCtx.fleet));
   }
 
   async pick(id: string) {
     this.open = false;
+    // Writing the store emits HostChanged, which every view listens for to refetch.
     if (id === "all") {
+      this.hostCtx.activeHost = ""; // no single target in the all-hosts view
       this.hostCtx.fleet = true;
-      await this.announce(this.active?.id ?? null); // each page renders its all-hosts view
+      await this.refreshHosts();
       return;
     }
-    const wasFleet = this.fleetOn;
     this.hostCtx.fleet = false;
     this.hostCtx.activeHost = id; // ambient target the transport reads on every call
-    // Leaving the all-hosts view always re-announces, even if the target host is
-    // unchanged — otherwise picking "local" from "all" appears to do nothing.
-    if (!wasFleet && this.active && id === this.active.id) return;
     this.busy = true;
     try {
       // Keep the server's active flag in sync (drives the picker's highlight).
       await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
-      await this.announce(id); // every view re-fetches against the new host
+      await this.refreshHosts();
     } finally {
       this.busy = false;
     }

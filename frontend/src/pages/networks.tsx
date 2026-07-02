@@ -1,10 +1,19 @@
-// Networks page: every Docker network on the active host with the containers
-// attached to it (reverse mapping). Same table + detail-modal design as images.
-import { component, styles, css, reactive } from "@toyz/loom";
+// Networks page: every Docker network on the active host (or the whole fleet)
+// with the containers attached to it. Data is loom-rpc @rpc queries (SWR: the
+// list stays put through a refetch, no blank/pop); create is an @mutate;
+// cross-host bulk removal uses callOn (per-item host target). Shared list
+// mechanics live in ResourcePage.
+import { component, styles, css } from "@toyz/loom";
+import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
-import type { NetworkInfo } from "../contracts";
+import { HopeTransport } from "../transport";
+import { System, Deploy } from "../contracts";
+import type { NetworkInfo, FleetNetworksHost } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 
@@ -25,13 +34,49 @@ const ago = (unix: number) => {
   ${resourceStyles}
 `)
 export class NetworksPage extends ResourcePage<NetworkInfo> {
-  // Selection keys: host|id (empty networks only).
-  @reactive accessor nets: (NetworkInfo & { host?: string })[] = [];
+  // For cross-host removal only — each item may live on a different host, which
+  // @mutate's ambient (single) host target can't express.
+  @inject(HopeTransport) accessor rpc!: HopeTransport;
 
+  @rpc(System, "networks", { eager: false }) accessor singleQ!: ApiState<NetworkInfo[]>;
+  @rpc(System, "fleetNetworks", { eager: false }) accessor fleetQ!: ApiState<FleetNetworksHost[]>;
+  @mutate(Deploy, "createNetwork")
+  accessor mkNet!: RpcMutator<[string, string, string, string, boolean, boolean, boolean], NetworkInfo>;
+
+  // Selection keys: host|id (empty networks only).
   protected key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
 
+  protected refresh() {
+    void (this.fleetMode ? this.fleetQ : this.singleQ).refetch();
+  }
+  protected loading() {
+    return this.fleetMode ? this.fleetQ.loading : this.singleQ.loading;
+  }
+  private err() {
+    return (this.fleetMode ? this.fleetQ.error : this.singleQ.error)?.message ?? "";
+  }
+
+  protected items(): (NetworkInfo & { host?: string })[] {
+    if (this.fleetMode) {
+      const out: (NetworkInfo & { host?: string })[] = [];
+      for (const h of this.fleetQ.data || []) {
+        if (!h.online) continue;
+        for (const n of h.networks || []) out.push({ ...n, used_by: n.used_by || [], host: h.id });
+      }
+      out.sort((a, b) => b.used_by.length - a.used_by.length || a.name.localeCompare(b.name));
+      return out;
+    }
+    return (this.singleQ.data || []).map((n) => ({ ...n, used_by: n.used_by || [] }));
+  }
+
+  protected visible() {
+    const q = this.query.trim().toLowerCase();
+    const list = this.items();
+    return q ? list.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : list;
+  }
+
   private removeSelected = async () => {
-    const nets = this.nets.filter((n) => this.selected.includes(this.key(n)));
+    const nets = this.items().filter((n) => this.selected.includes(this.key(n)));
     if (!nets.length) return;
     const ok = await this.confirm.ask({
       title: "remove networks",
@@ -46,8 +91,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
       for (const n of nets) {
         const label = (n.host ? n.host + " / " : "") + n.name;
         try {
-          if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
-          await this.rpc.call("System", "removeNetwork", [n.id]);
+          await this.rpc.callOn(n.host || "", "System", "removeNetwork", [n.id]);
           emit("removed " + label);
         } catch (err: any) {
           emit("skip " + label + " — " + (err?.message ?? "failed"));
@@ -58,7 +102,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
       return okv;
     });
     this.selected = [];
-    await this.load();
+    this.refresh();
   };
 
   private createNet = async () => {
@@ -77,47 +121,12 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
       ],
     });
     if (!v) return;
-    this.busy = true;
     try {
-      await this.rpc.call("Deploy", "createNetwork", [v.name.trim(), v.driver || "bridge", v.subnet.trim(), v.gateway.trim(), v.internal === "true", v.attachable === "true", v.ipv6 === "true"]);
+      await this.mkNet.call(v.name.trim(), v.driver || "bridge", v.subnet.trim(), v.gateway.trim(), v.internal === "true", v.attachable === "true", v.ipv6 === "true");
       this.toast.ok("created network " + v.name.trim());
-      await this.load();
+      this.refresh();
     } catch (err: any) {
       this.toast.error("create failed: " + (err?.message ?? "error"));
-    } finally {
-      this.busy = false;
-    }
-  };
-
-  protected load = async () => {
-    if (this.fleetMode) return this.loadFleet();
-    this.busy = true;
-    try {
-      this.nets = ((await this.rpc.call<NetworkInfo[]>("System", "networks", [])) || []).map((n) => ({ ...n, used_by: n.used_by || [] }));
-      this.error = "";
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list networks.";
-    } finally {
-      this.busy = false;
-    }
-  };
-
-  private loadFleet = async () => {
-    this.busy = true;
-    try {
-      const hosts = (await this.rpc.call<import("../contracts").FleetNetworksHost[]>("System", "fleetNetworks", [])) || [];
-      const combined: (NetworkInfo & { host?: string })[] = [];
-      for (const h of hosts) {
-        if (!h.online) continue;
-        for (const n of h.networks || []) combined.push({ ...n, used_by: n.used_by || [], host: h.id });
-      }
-      combined.sort((a, b) => b.used_by.length - a.used_by.length || a.name.localeCompare(b.name));
-      this.nets = combined;
-      this.error = "";
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list networks.";
-    } finally {
-      this.busy = false;
     }
   };
 
@@ -148,43 +157,39 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
     const label = (n.host ? n.host + " / " : "") + n.name;
     await this.proc.run(`remove ${n.name}`, async (emit) => {
       try {
-        if (n.host) await this.rpc.call("System", "setActiveHost", [n.host]);
         emit("deleting network " + label + "…");
-        await this.rpc.call("System", "removeNetwork", [n.id]);
+        await this.rpc.callOn(n.host || "", "System", "removeNetwork", [n.id]);
         emit("removed " + label);
         return true;
       } catch (err: any) {
         emit("failed: " + (err?.message ?? "error"));
-        this.error = `remove ${n.name} — ${err?.message ?? "failed"}`;
         return false;
       }
     });
-    await this.load();
+    this.refresh();
   };
 
-  protected visible() {
-    const q = this.query.trim().toLowerCase();
-    return q ? this.nets.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : this.nets;
-  }
-
   update() {
+    const items = this.items();
     const vis = this.visible();
-    const attached = this.nets.filter((n) => n.used_by.length).length;
+    const attached = items.filter((n) => n.used_by.length).length;
+    const error = this.err();
+    const busy = this.loading();
     return (
       <div>
         {appBar("networks", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
+          <div class="s act"><button disabled={busy} onClick={() => this.refresh()}>{busy ? "…" : "refresh"}</button></div>,
         ])}
 
         <main>
-          {this.error ? <div class="empty">{this.error}</div> : null}
+          {error ? <div class="empty">{error}</div> : null}
 
-          {this.nets.length > 0 ? (
+          {items.length > 0 ? (
             <div class="summary">
-              <span class="stat"><i class="k">networks</i><i class="v">{this.nets.length}</i></span>
+              <span class="stat"><i class="k">networks</i><i class="v">{items.length}</i></span>
               <span class="stat"><i class="k">attached</i><i class="v">{attached}</i></span>
-              <span class="stat"><i class="k">empty</i><i class={"v" + (this.nets.length - attached > 0 ? " warnv" : "")}>{this.nets.length - attached}</i></span>
+              <span class="stat"><i class="k">empty</i><i class={"v" + (items.length - attached > 0 ? " warnv" : "")}>{items.length - attached}</i></span>
             </div>
           ) : null}
 
@@ -193,13 +198,13 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
               <div class="grow"></div>
               <div class="selbar">
                 <span class="seln">{this.selected.length} selected</span>
-                <button class="pbtn danger" disabled={this.busy} onClick={this.removeSelected}>remove</button>
+                <button class="pbtn danger" disabled={busy} onClick={this.removeSelected}>remove</button>
                 <button class="pbtn" onClick={this.clearSel}>clear</button>
               </div>
             </div>
           ) : null}
 
-          {this.nets.length > 0 ? (
+          {items.length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
               <input type="text" placeholder="Search networks…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
@@ -237,7 +242,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
                 ))}
               </tbody>
             </table>
-          ) : this.nets.length === 0 && !this.error && !this.busy ? (
+          ) : items.length === 0 && !error && !busy ? (
             <div class="empty">No networks.</div>
           ) : null}
         </main>

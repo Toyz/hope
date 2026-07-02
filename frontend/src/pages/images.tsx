@@ -1,10 +1,15 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
 import { component, styles, css, reactive } from "@toyz/loom";
+import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
+import { rpc } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
-import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
+import { HopeTransport } from "../transport";
+import { System } from "../contracts";
+import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
 import { bytes, shortId } from "../format";
 
@@ -164,57 +169,46 @@ type Filter = "all" | "used" | "unused" | "dangling";
     padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
 `)
 export class ImagesPage extends ResourcePage<ImageInfo> {
-  @reactive accessor images: (ImageInfo & { host?: string })[] = [];
-  @reactive accessor loaded = false;
+  // Streams (prune/redeploy) + cross-host ops target hosts explicitly.
+  @inject(HopeTransport) accessor rpc!: HopeTransport;
+
+  @rpc(System, "images", { eager: false }) accessor singleQ!: ApiState<ImageInfo[]>;
+  @rpc(System, "fleetImages", { eager: false }) accessor fleetQ!: ApiState<FleetImagesHost[]>;
+
   @reactive accessor filter: Filter = "all";
 
   // Selection key — the same image id can exist on multiple hosts in the all
   // view, so key by host+id, not id alone.
   protected key = (i: ImageInfo & { host?: string }) => (i.host ? i.host + "|" : "") + i.id;
 
-  // All hosts' images flattened into one combined, host-tagged list, so the
-  // normal table + filters + search work across the whole fleet.
-  private loadFleet = async () => {
-    this.busy = true;
-    try {
-      const hosts = (await this.rpc.call<FleetImagesHost[]>("System", "fleetImages", [])) || [];
-      const combined: (ImageInfo & { host?: string })[] = [];
-      for (const h of hosts) {
-        if (!h.online) continue;
-        for (const i of h.images || []) combined.push({ ...i, tags: i.tags || [], used_by: i.used_by || [], host: h.id });
-      }
-      // Sort biggest-first so hosts interleave (otherwise it's all of host A
-      // then all of host B) and the heavy images surface for cleanup.
-      combined.sort((a, b) => b.size - a.size);
-      this.images = combined;
-      this.error = "";
-      this.loaded = true;
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list images.";
-    } finally {
-      this.busy = false;
-    }
-  };
+  protected refresh() {
+    void (this.fleetMode ? this.fleetQ : this.singleQ).refetch();
+  }
+  protected loading() {
+    return this.fleetMode ? this.fleetQ.loading : this.singleQ.loading;
+  }
+  private err() {
+    return (this.fleetMode ? this.fleetQ.error : this.singleQ.error)?.message ?? "";
+  }
 
-  protected load = async () => {
-    if (this.fleetMode) return this.loadFleet();
-    this.busy = true;
-    try {
-      const list = await this.rpc.call<ImageInfo[]>("System", "images", []);
-      // Go nil slices arrive as JSON null — normalize tags + used_by to arrays.
-      this.images = (list || []).map((i) => ({ ...i, tags: i.tags || [], used_by: i.used_by || [] }));
-      this.error = "";
-      this.loaded = true;
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list images.";
-    } finally {
-      this.busy = false;
+  // Active-host list or, in fleet mode, every host's images flattened + tagged
+  // (biggest-first so hosts interleave and heavy images surface).
+  protected items(): (ImageInfo & { host?: string })[] {
+    if (this.fleetMode) {
+      const out: (ImageInfo & { host?: string })[] = [];
+      for (const h of this.fleetQ.data || []) {
+        if (!h.online) continue;
+        for (const i of h.images || []) out.push({ ...i, tags: i.tags || [], used_by: i.used_by || [], host: h.id });
+      }
+      out.sort((a, b) => b.size - a.size);
+      return out;
     }
-  };
+    return (this.singleQ.data || []).map((i) => ({ ...i, tags: i.tags || [], used_by: i.used_by || [] }));
+  }
 
   protected visible(): (ImageInfo & { host?: string })[] {
     const q = this.query.trim().toLowerCase();
-    return this.images.filter((i) => {
+    return this.items().filter((i) => {
       if (this.filter === "used" && !i.in_use) return false;
       if (this.filter === "unused" && i.in_use) return false;
       if (this.filter === "dangling" && !i.dangling) return false;
@@ -240,17 +234,16 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     if (!ok) return;
     try {
       // In the all-hosts view the row belongs to a specific host — target it.
-      if (i.host) await this.rpc.call("System", "setActiveHost", [i.host]);
-      await this.rpc.call("System", "removeImage", [i.id, true]);
+      await this.rpc.callOn(i.host || "", "System", "removeImage", [i.id, true]);
       this.toast.ok(`removed ${label}`);
-      await this.load();
+      this.refresh();
     } catch (err: any) {
       this.toast.error(`remove ${label} — ${err?.message ?? "failed"}`);
     }
   };
 
   private prune = async (all: boolean) => {
-    const targets = this.images.filter((i) => (all ? !i.in_use : i.dangling));
+    const targets = this.items().filter((i) => (all ? !i.in_use : i.dangling));
     const est = targets.reduce((a, i) => a + i.size, 0);
     const ok = await this.confirm.ask({
       title: all ? "prune unused images" : "prune dangling images",
@@ -273,13 +266,13 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       }
       return okv;
     });
-    await this.load();
+    this.refresh();
   };
 
   // Consume a redeploy stream into the proc dialog (shared by the cleanup ops).
-  private async pipeStream(emit: (l: string) => void, signal: AbortSignal, method: string, args: string[]): Promise<boolean> {
+  private async pipeStream(emit: (l: string) => void, signal: AbortSignal, method: string, args: string[], host?: string): Promise<boolean> {
     let ok = true;
-    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
+    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal, host)) {
       if (f.type === "log" && f.data) emit("  " + f.data);
       else if (f.type === "done" && !f.ok) {
         ok = false;
@@ -294,7 +287,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
   // piping each host's output into the shared processing dialog.
   private pruneFleet = async (all: boolean) => {
     // Estimate reclaimable space per host from the combined fleet image list.
-    const targets = this.images.filter((i) => (all ? !i.in_use : i.dangling));
+    const targets = this.items().filter((i) => (all ? !i.in_use : i.dangling));
     const byHost = new Map<string, { n: number; size: number }>();
     for (const i of targets) {
       const h = (i as ImageInfo & { host?: string }).host || "local";
@@ -321,8 +314,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       for (const h of hosts) {
         emit(`> ${h.id}`);
         try {
-          await this.rpc.call("System", "setActiveHost", [h.id]);
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal)) {
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal, h.id)) {
             if (f.type === "log" && f.data) emit("  " + f.data);
             else if (f.type === "done" && !f.ok) { okv = false; emit("  failed: " + (f.error ?? "")); }
           }
@@ -334,14 +326,14 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       emit("done");
       return okv;
     });
-    await this.load();
+    this.refresh();
   };
 
   // Cross-fleet redeploy & prune: per host, redeploy containers pinning a
   // dangling image, then prune dangling — frees in-use dangling images too.
   private redeployAndPruneFleet = async () => {
     // Estimate per host from the dangling images in the combined fleet list.
-    const targets = this.images.filter((i) => i.dangling);
+    const targets = this.items().filter((i) => i.dangling);
     const byHost = new Map<string, { n: number; size: number }>();
     for (const i of targets) {
       const h = (i as ImageInfo & { host?: string }).host || "local";
@@ -367,17 +359,16 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       for (const h of hosts) {
         emit(`> ${h.id}`);
         try {
-          await this.rpc.call("System", "setActiveHost", [h.id]);
           const byId = new Map<string, any>();
-          for (const i of this.images.filter((i) => i.host === h.id && i.dangling && i.used_by.length)) {
+          for (const i of this.items().filter((i) => i.host === h.id && i.dangling && i.used_by.length)) {
             for (const u of i.used_by) byId.set(u.id, u);
           }
           for (const u of byId.values()) {
             emit("  redeploy " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
-            if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
+            if (!(await this.pipeStream(emit, signal, "redeploy", [u.id], h.id))) okv = false;
           }
           emit("  prune dangling");
-          if (!(await this.pipeStream(emit, signal, "pruneImages", ["false"]))) okv = false;
+          if (!(await this.pipeStream(emit, signal, "pruneImages", ["false"], h.id))) okv = false;
         } catch (e: any) {
           okv = false;
           emit("  " + (e?.message ?? "failed"));
@@ -386,11 +377,11 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       emit("done");
       return okv;
     });
-    await this.load();
+    this.refresh();
   };
 
   private selImages(): (ImageInfo & { host?: string })[] {
-    return this.images.filter((i) => this.selected.includes(this.key(i)));
+    return this.items().filter((i) => this.selected.includes(this.key(i)));
   }
 
   private removeSelected = async () => {
@@ -413,8 +404,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       for (const i of imgs) {
         const label = (i.host ? i.host + " / " : "") + (i.tags[0] || shortId(i.id));
         try {
-          if (i.host) await this.rpc.call("System", "setActiveHost", [i.host]);
-          await this.rpc.call("System", "removeImage", [i.id, true]);
+          await this.rpc.callOn(i.host || "", "System", "removeImage", [i.id, true]);
           emit("removed " + label);
         } catch (err: any) {
           emit("skip " + label + " — " + (err?.message ?? "failed"));
@@ -425,7 +415,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       return okv;
     });
     this.selected = [];
-    await this.load();
+    this.refresh();
   };
 
   private redeployFreeSelected = async () => {
@@ -465,18 +455,18 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       return okv;
     });
     this.selected = [];
-    await this.load();
+    this.refresh();
   };
 
   // One-shot cleanup: redeploy every container pinning a dangling image (moves
   // them onto current tags), then prune all dangling images — freeing the ones
   // that were stuck "in use".
   private redeployAndPrune = async () => {
-    const stuck = this.images.filter((i) => i.dangling && i.used_by.length);
+    const stuck = this.items().filter((i) => i.dangling && i.used_by.length);
     const byId = new Map<string, ImageInfo["used_by"][number]>();
     for (const i of stuck) for (const u of i.used_by) byId.set(u.id, u);
     const users = [...byId.values()];
-    const free = this.images.filter((i) => i.dangling).reduce((a, i) => a + i.size, 0);
+    const free = this.items().filter((i) => i.dangling).reduce((a, i) => a + i.size, 0);
     const ok = await this.confirm.ask({
       title: "redeploy & prune",
       warn: true,
@@ -499,7 +489,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       emit("done");
       return okv;
     });
-    await this.load();
+    this.refresh();
   };
 
   // Redeploy every container using this image so they move onto their current
@@ -525,7 +515,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       emit("done — the old image is now free; remove it from the list");
       return okv;
     });
-    await this.load();
+    this.refresh();
   };
 
   private renderDetail(i: ImageInfo & { host?: string }) {
@@ -581,9 +571,9 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
   // drills into that host's full images page (filters, prune, selection).
   update() {
     const vis = this.visible();
-    const total = this.images.reduce((a, i) => a + i.size, 0);
-    const danglingImgs = this.images.filter((i) => i.dangling);
-    const unusedImgs = this.images.filter((i) => !i.in_use);
+    const total = this.items().reduce((a, i) => a + i.size, 0);
+    const danglingImgs = this.items().filter((i) => i.dangling);
+    const unusedImgs = this.items().filter((i) => !i.in_use);
     const dangling = danglingImgs.length;
     const unused = unusedImgs.length;
     const danglingSize = danglingImgs.reduce((a, i) => a + i.size, 0);
@@ -592,28 +582,28 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     return (
       <div>
         {appBar("images", [
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+          <div class="s act"><button disabled={this.loading()} onClick={() => this.refresh()}>{this.loading() ? "…" : "refresh"}</button></div>,
         ])}
 
         <main>
-          {this.error ? <div class="empty">{this.error}</div> : null}
+          {this.err() ? <div class="empty">{this.err()}</div> : null}
 
-          {this.images.length > 0 ? (
+          {this.items().length > 0 ? (
             <div class="summary">
-              <span class="stat"><i class="k">images</i><i class="v">{this.images.length}</i></span>
+              <span class="stat"><i class="k">images</i><i class="v">{this.items().length}</i></span>
               <span class="stat"><i class="k">total size</i><i class="v">{bytes(total)}</i></span>
               {unused > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused}<i class="t"> · {bytes(unusedSize)}</i></i></span> : null}
               {dangling > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling}<i class="t"> · {bytes(danglingSize)}</i></i></span> : null}
             </div>
           ) : null}
 
-          {this.images.length > 0 ? (
+          {this.items().length > 0 ? (
             <div class="toolbar">
               <div class="filters">
                 {(["all", "used", "unused", "dangling"] as Filter[]).map((f) => (
                   <button class={"fchip" + (this.filter === f ? " on" : "")} onClick={() => (this.filter = f)}>
                     {f}
-                    <span class="fn">{f === "all" ? this.images.length : this.images.filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length}</span>
+                    <span class="fn">{f === "all" ? this.items().length : this.items().filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length}</span>
                   </button>
                 ))}
               </div>
@@ -628,13 +618,13 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                 </>
               ) : this.fleetMode ? (
                 <>
-                  {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</button> : null}
+                  {this.items().some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</button> : null}
                   {dangling > 0 ? <button class="pbtn" onClick={() => this.pruneFleet(false)}>prune dangling · all</button> : null}
                   {unused > 0 ? <button class="pbtn danger" onClick={() => this.pruneFleet(true)}>prune unused · all</button> : null}
                 </>
               ) : (
                 <>
-                  {this.images.some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
+                  {this.items().some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
                   {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
                   {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
                 </>
@@ -642,7 +632,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
             </div>
           ) : null}
 
-          {this.images.length > 0 ? (
+          {this.items().length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
               <input type="text" placeholder="Search image tags and ids…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
@@ -710,7 +700,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                 ))}
               </tbody>
             </table>
-          ) : this.loaded && !this.error ? (
+          ) : !this.loading() && !this.err() ? (
             <div class="empty">{this.query ? "No images match." : "No images on this daemon."}</div>
           ) : null}
         </main>

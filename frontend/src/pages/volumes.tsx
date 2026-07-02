@@ -1,9 +1,16 @@
-// Volumes page: every Docker volume on the active host with the containers
-// mounting it (reverse mapping). Same table + detail-modal design as images.
+// Volumes page: every Docker volume on the active host (or fleet) with the
+// containers mounting it. @rpc queries (SWR — no blank on refetch), @mutate
+// create, cross-host removal via callOn. Shared list mechanics in ResourcePage.
 import { component, styles, css, reactive } from "@toyz/loom";
+import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
+import { rpc, mutate } from "@toyz/loom-rpc";
+import type { RpcMutator } from "@toyz/loom-rpc";
+import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
-import type { VolumeInfo } from "../contracts";
+import { HopeTransport } from "../transport";
+import { System, Deploy } from "../contracts";
+import type { VolumeInfo, FleetVolumesHost } from "../contracts";
 import { theme } from "../styles";
 import { resourceStyles } from "./resource-styles";
 import { bytes } from "../format";
@@ -30,6 +37,40 @@ type Filter = "all" | "mounted" | "unused";
   ${resourceStyles}
 `)
 export class VolumesPage extends ResourcePage<VolumeInfo> {
+  @inject(HopeTransport) accessor rpc!: HopeTransport; // cross-host removal (per-item host)
+
+  @rpc(System, "volumes", { eager: false }) accessor singleQ!: ApiState<VolumeInfo[]>;
+  @rpc(System, "fleetVolumes", { eager: false }) accessor fleetQ!: ApiState<FleetVolumesHost[]>;
+  @mutate(Deploy, "createVolume") accessor mkVol!: RpcMutator<[string, string], VolumeInfo>;
+
+  @reactive accessor filter: Filter = "all";
+
+  protected key = (v: VolumeInfo & { host?: string }) => v.name; // unique per host
+
+  protected refresh() {
+    void (this.fleetMode ? this.fleetQ : this.singleQ).refetch();
+  }
+  protected loading() {
+    return this.fleetMode ? this.fleetQ.loading : this.singleQ.loading;
+  }
+  private err() {
+    return (this.fleetMode ? this.fleetQ.error : this.singleQ.error)?.message ?? "";
+  }
+
+  protected items(): (VolumeInfo & { host?: string })[] {
+    let out: (VolumeInfo & { host?: string })[];
+    if (this.fleetMode) {
+      out = [];
+      for (const h of this.fleetQ.data || []) {
+        if (!h.online) continue;
+        for (const v of h.volumes || []) out.push({ ...v, used_by: v.used_by || [], host: h.id });
+      }
+    } else {
+      out = (this.singleQ.data || []).map((v) => ({ ...v, used_by: v.used_by || [] }));
+    }
+    return out.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
+  }
+
   private createVol = async () => {
     const v = await this.prompt.ask({
       title: "create volume",
@@ -41,25 +82,17 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
       ],
     });
     if (!v) return;
-    this.busy = true;
     try {
-      await this.rpc.call("Deploy", "createVolume", [v.name.trim(), v.driver || "local"]);
+      await this.mkVol.call(v.name.trim(), v.driver || "local");
       this.toast.ok("created volume " + v.name.trim());
-      await this.load();
+      this.refresh();
     } catch (err: any) {
       this.toast.error("create failed: " + (err?.message ?? "error"));
-    } finally {
-      this.busy = false;
     }
   };
 
-  @reactive accessor vols: (VolumeInfo & { host?: string })[] = [];
-  @reactive accessor filter: Filter = "all";
-
-  protected key = (v: VolumeInfo & { host?: string }) => v.name; // volume names are unique per host
-
   private removeSelected = async () => {
-    const vols = this.vols.filter((v) => this.selected.includes(v.name));
+    const vols = this.items().filter((v) => this.selected.includes(v.name));
     if (!vols.length) return;
     const free = vols.reduce((a, v) => a + v.size, 0);
     const ok = await this.confirm.ask({
@@ -78,8 +111,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
       for (const v of vols) {
         const label = (v.host ? v.host + " / " : "") + v.name;
         try {
-          if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
-          await this.rpc.call("System", "removeVolume", [v.name]);
+          await this.rpc.callOn(v.host || "", "System", "removeVolume", [v.name]);
           emit("removed " + label);
         } catch (err: any) {
           emit("skip " + label + " — " + (err?.message ?? "failed"));
@@ -90,41 +122,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
       return okv;
     });
     this.selected = [];
-    await this.load();
-  };
-
-  protected load = async () => {
-    if (this.fleetMode) return this.loadFleet();
-    this.busy = true;
-    try {
-      this.vols = ((await this.rpc.call<VolumeInfo[]>("System", "volumes", [])) || [])
-        .map((v) => ({ ...v, used_by: v.used_by || [] }))
-        .sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
-      this.error = "";
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list volumes.";
-    } finally {
-      this.busy = false;
-    }
-  };
-
-  private loadFleet = async () => {
-    this.busy = true;
-    try {
-      const hosts = (await this.rpc.call<import("../contracts").FleetVolumesHost[]>("System", "fleetVolumes", [])) || [];
-      const combined: (VolumeInfo & { host?: string })[] = [];
-      for (const h of hosts) {
-        if (!h.online) continue;
-        for (const v of h.volumes || []) combined.push({ ...v, used_by: v.used_by || [], host: h.id });
-      }
-      combined.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
-      this.vols = combined;
-      this.error = "";
-    } catch (err: any) {
-      this.error = err?.message ?? "Can't list volumes.";
-    } finally {
-      this.busy = false;
-    }
+    this.refresh();
   };
 
   private openUser = (u: { id: string; project: string }) => {
@@ -154,23 +152,21 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
     const label = (v.host ? v.host + " / " : "") + v.name;
     await this.proc.run(`remove ${v.name}`, async (emit) => {
       try {
-        if (v.host) await this.rpc.call("System", "setActiveHost", [v.host]);
         emit("deleting volume " + label + "…");
-        await this.rpc.call("System", "removeVolume", [v.name]);
+        await this.rpc.callOn(v.host || "", "System", "removeVolume", [v.name]);
         emit("removed " + label);
         return true;
       } catch (err: any) {
         emit("failed: " + (err?.message ?? "error"));
-        this.error = `remove ${v.name} — ${err?.message ?? "failed"}`;
         return false;
       }
     });
-    await this.load();
+    this.refresh();
   };
 
   protected visible() {
     const q = this.query.trim().toLowerCase();
-    return this.vols.filter((v) => {
+    return this.items().filter((v) => {
       if (this.filter === "mounted" && !v.used_by.length) return false;
       if (this.filter === "unused" && v.used_by.length) return false;
       if (q && !(v.name + " " + v.driver).toLowerCase().includes(q)) return false;
@@ -179,35 +175,38 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
   }
 
   update() {
+    const items = this.items();
     const vis = this.visible();
-    const mounted = this.vols.filter((v) => v.used_by.length).length;
-    const unused = this.vols.length - mounted;
+    const mounted = items.filter((v) => v.used_by.length).length;
+    const unused = items.length - mounted;
+    const error = this.err();
+    const busy = this.loading();
     return (
       <div>
         {appBar("volumes", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
+          <div class="s act"><button disabled={busy} onClick={() => this.refresh()}>{busy ? "…" : "refresh"}</button></div>,
         ])}
 
         <main>
-          {this.error ? <div class="empty">{this.error}</div> : null}
+          {error ? <div class="empty">{error}</div> : null}
 
-          {this.vols.length > 0 ? (
+          {items.length > 0 ? (
             <div class="summary">
-              <span class="stat"><i class="k">volumes</i><i class="v">{this.vols.length}</i></span>
-              <span class="stat"><i class="k">total size</i><i class="v">{bytes(this.vols.reduce((a, v) => a + (v.size > 0 ? v.size : 0), 0))}</i></span>
+              <span class="stat"><i class="k">volumes</i><i class="v">{items.length}</i></span>
+              <span class="stat"><i class="k">total size</i><i class="v">{bytes(items.reduce((a, v) => a + (v.size > 0 ? v.size : 0), 0))}</i></span>
               <span class="stat"><i class="k">mounted</i><i class="v">{mounted}</i></span>
               <span class="stat"><i class="k">unused</i><i class={"v" + (unused > 0 ? " warnv" : "")}>{unused}</i></span>
             </div>
           ) : null}
 
-          {this.vols.length > 0 ? (
+          {items.length > 0 ? (
             <div class="toolbar">
               <div class="filters">
                 {(["all", "mounted", "unused"] as Filter[]).map((f) => (
                   <button class={"fchip" + (this.filter === f ? " on" : "")} onClick={() => (this.filter = f)}>
                     {f}
-                    <span class="fn">{f === "all" ? this.vols.length : f === "mounted" ? mounted : unused}</span>
+                    <span class="fn">{f === "all" ? items.length : f === "mounted" ? mounted : unused}</span>
                   </button>
                 ))}
               </div>
@@ -215,14 +214,14 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
               {this.selected.length > 0 ? (
                 <div class="selbar">
                   <span class="seln">{this.selected.length} selected</span>
-                  <button class="pbtn danger" disabled={this.busy} onClick={this.removeSelected}>remove</button>
+                  <button class="pbtn danger" disabled={busy} onClick={this.removeSelected}>remove</button>
                   <button class="pbtn" onClick={this.clearSel}>clear</button>
                 </div>
               ) : null}
             </div>
           ) : null}
 
-          {this.vols.length > 0 ? (
+          {items.length > 0 ? (
             <div class="search">
               <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
               <input type="text" placeholder="Search volumes…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
@@ -260,7 +259,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
                 ))}
               </tbody>
             </table>
-          ) : this.vols.length === 0 && !this.error && !this.busy ? (
+          ) : items.length === 0 && !error && !busy ? (
             <div class="empty">No volumes.</div>
           ) : null}
         </main>
