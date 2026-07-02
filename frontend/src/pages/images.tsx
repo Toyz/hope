@@ -1,16 +1,9 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
-import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
-import { inject } from "@toyz/loom/di";
-import { route, LoomRouter } from "@toyz/loom/router";
-import { HopeTransport } from "../transport";
-import { AuthStore } from "../auth-store";
-import { HostContext } from "../host-context";
-import { HostChanged } from "../events";
-import { ConfirmService } from "../confirm";
-import { ProcService } from "../proc";
-import { ToastService } from "../toast";
+import { component, styles, css, reactive } from "@toyz/loom";
+import { route } from "@toyz/loom/router";
 import { appBar } from "../app-bar";
+import { ResourcePage } from "./resource-page";
 import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
 import { bytes, shortId } from "../format";
@@ -170,46 +163,14 @@ type Filter = "all" | "used" | "unused" | "dangling";
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
     padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
 `)
-export class ImagesPage extends LoomElement {
-  @inject(HopeTransport) accessor rpc!: HopeTransport;
-  @inject(AuthStore) accessor auth!: AuthStore;
-  @inject(HostContext) accessor hostCtx!: HostContext;
-  @inject(ConfirmService) accessor confirm!: ConfirmService;
-  @inject(ProcService) accessor proc!: ProcService;
-  @inject(ToastService) accessor toast!: ToastService;
-  private get router(): LoomRouter {
-    return app.get(LoomRouter);
-  }
-
+export class ImagesPage extends ResourcePage<ImageInfo> {
   @reactive accessor images: (ImageInfo & { host?: string })[] = [];
   @reactive accessor loaded = false;
-  @reactive accessor error = "";
-  @reactive accessor query = "";
-  @reactive accessor busy = false;
   @reactive accessor filter: Filter = "all";
-  @reactive accessor detail: ImageInfo | null = null;
-  @reactive accessor selected: string[] = [];
-  @reactive accessor fleet: FleetImagesHost[] | null = null; // cross-host images ("all hosts")
 
-  // "all hosts" is the same client-side view flag the dashboard uses.
-  get fleetMode() {
-    return this.hostCtx.fleet;
-  }
-
-  // Host/fleet switched elsewhere — re-fetch in place (no reload).
-  @on(HostChanged)
-  onHostChanged() {
-    if (this.auth.isAuthenticated) this.load();
-  }
-
-  @mount
-  onMount() {
-    if (!this.auth.isAuthenticated) {
-      this.router.navigate("/login");
-      return;
-    }
-    this.load();
-  }
+  // Selection key — the same image id can exist on multiple hosts in the all
+  // view, so key by host+id, not id alone.
+  protected key = (i: ImageInfo & { host?: string }) => (i.host ? i.host + "|" : "") + i.id;
 
   // All hosts' images flattened into one combined, host-tagged list, so the
   // normal table + filters + search work across the whole fleet.
@@ -235,7 +196,7 @@ export class ImagesPage extends LoomElement {
     }
   };
 
-  private load = async () => {
+  protected load = async () => {
     if (this.fleetMode) return this.loadFleet();
     this.busy = true;
     try {
@@ -251,7 +212,7 @@ export class ImagesPage extends LoomElement {
     }
   };
 
-  private visible(): (ImageInfo & { host?: string })[] {
+  protected visible(): (ImageInfo & { host?: string })[] {
     const q = this.query.trim().toLowerCase();
     return this.images.filter((i) => {
       if (this.filter === "used" && !i.in_use) return false;
@@ -328,15 +289,6 @@ export class ImagesPage extends LoomElement {
     return ok;
   }
 
-  // ---- selection ----
-  // Selection key — the same image id can exist on multiple hosts in the all
-  // view, so key by host+id, not id alone.
-  private imgKey = (i: ImageInfo & { host?: string }) => (i.host ? i.host + "|" : "") + i.id;
-  private toggleSel = (key: string, e: Event) => {
-    e.stopPropagation();
-    this.selected = this.selected.includes(key) ? this.selected.filter((x) => x !== key) : [...this.selected, key];
-  };
-  private clearSel = () => (this.selected = []);
 
   // Cross-fleet prune: run the prune stream on every connected host in turn,
   // piping each host's output into the shared processing dialog.
@@ -437,16 +389,8 @@ export class ImagesPage extends LoomElement {
     await this.load();
   };
 
-  // Only images with no containers using them are selectable for bulk removal.
-  private removable = () => this.visible().filter((i) => !i.used_by.length);
-  private selectAllVisible = (e: Event) => {
-    e.stopPropagation();
-    const keys = this.removable().map((i) => this.imgKey(i));
-    const allSel = keys.length > 0 && keys.every((k) => this.selected.includes(k));
-    this.selected = allSel ? this.selected.filter((k) => !keys.includes(k)) : Array.from(new Set([...this.selected, ...keys]));
-  };
   private selImages(): (ImageInfo & { host?: string })[] {
-    return this.images.filter((i) => this.selected.includes(this.imgKey(i)));
+    return this.images.filter((i) => this.selected.includes(this.key(i)));
   }
 
   private removeSelected = async () => {
@@ -718,7 +662,7 @@ export class ImagesPage extends LoomElement {
               </colgroup>
               <thead>
                 <tr>
-                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((i) => this.selected.includes(this.imgKey(i))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((i) => this.selected.includes(this.key(i))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
                   <th>Repository</th>
                   <th>Image ID</th>
                   <th class="r">Size</th>
@@ -729,12 +673,12 @@ export class ImagesPage extends LoomElement {
               </thead>
               <tbody>
                 {vis.map((i) => (
-                  <tr class={"irow" + (this.selected.includes(this.imgKey(i)) ? " sel" : "")} onClick={() => (this.detail = i)}>
+                  <tr class={"irow" + (this.selected.includes(this.key(i)) ? " sel" : "")} onClick={() => (this.detail = i)}>
                     {i.used_by.length ? (
                       <td class="sel"></td>
                     ) : (
-                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.imgKey(i), e)}>
-                        <span class={"ck" + (this.selected.includes(this.imgKey(i)) ? " on" : "")}></span>
+                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.key(i), e)}>
+                        <span class={"ck" + (this.selected.includes(this.key(i)) ? " on" : "")}></span>
                       </td>
                     )}
                     <td class="repo" title={i.tags.join(", ")}>

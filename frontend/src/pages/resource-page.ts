@@ -67,7 +67,8 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
     this.selected = this.selected.includes(k) ? this.selected.filter((x) => x !== k) : [...this.selected, k];
   };
 
-  selectAllVisible = () => {
+  selectAllVisible = (e?: Event) => {
+    e?.stopPropagation();
     const keys = this.removable().map((x) => this.key(x));
     this.selected =
       keys.length > 0 && keys.every((k) => this.selected.includes(k))
