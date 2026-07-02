@@ -81,7 +81,7 @@ export class ApiDocsPage extends LoomElement {
     if (!this.auth.isAuthenticated) this.router.navigate("/login");
   }
 
-  private logout = () => { this.auth.clear(); this.router.navigate("/login"); };
+  private logout = () => this.auth.logout();
 
   private get keyBlock(): string {
     return `[auth]\napi_keys = ["a-long-random-string"]`;

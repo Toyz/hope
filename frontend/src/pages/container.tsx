@@ -768,10 +768,7 @@ export class ContainerPage extends LoomElement {
     if (ok) this.enter(this.id); // reload the (recreated) container
   };
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   // Raw: syntax-highlighted JSON (a real DOM node so we can set innerHTML).
   private renderInspect() {

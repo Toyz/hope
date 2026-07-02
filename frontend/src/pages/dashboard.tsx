@@ -613,10 +613,7 @@ export class DashboardPage extends LoomElement {
   private outdatedIds(): Set<string> {
     return new Set((this.updates?.updates ?? []).filter((u) => u.status === "outdated").map((u) => u.id));
   }
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   // Cross-fleet overview: one section per host (local + agents), each listing
   // that host's stacks. Same visual language as the single-host dashboard.

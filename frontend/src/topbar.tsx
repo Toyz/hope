@@ -3,10 +3,7 @@ import { AuthStore } from "./auth-store";
 import type { LoomRouter } from "@toyz/loom/router";
 
 export function topbar(opts: { auth: AuthStore; router: LoomRouter; title?: string }) {
-  const logout = () => {
-    opts.auth.clear();
-    opts.router.navigate("/login");
-  };
+  const logout = () => opts.auth.logout();
   return (
     <div class="topbar">
       <div class="row">

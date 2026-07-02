@@ -189,10 +189,7 @@ export class AgentsPage extends LoomElement {
     }
   };
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   update() {
     return (

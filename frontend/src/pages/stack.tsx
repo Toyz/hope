@@ -1046,10 +1046,7 @@ export class StackPage extends LoomElement {
     };
   }
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   // editStack opens this stack in the deploy builder. The target rides a shared
   // module, not a query string (loom's router strips query strings on navigate).

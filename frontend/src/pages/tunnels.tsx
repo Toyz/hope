@@ -635,10 +635,7 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   update() {
     const online = this.connectors.filter((c) => c.online).length;

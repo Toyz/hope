@@ -171,10 +171,7 @@ export class NetworksPage extends LoomElement {
     }
   };
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
   private openUser = (u: { id: string; project: string }) => {
     this.detail = null;
     if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);

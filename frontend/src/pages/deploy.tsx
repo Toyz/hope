@@ -198,10 +198,7 @@ export class DeployPage extends LoomElement {
     }
   }
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   private async loadConnectors() {
     try {

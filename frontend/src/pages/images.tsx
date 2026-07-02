@@ -641,10 +641,7 @@ export class ImagesPage extends LoomElement {
     );
   }
 
-  private logout = () => {
-    this.auth.clear();
-    this.router.navigate("/login");
-  };
+  private logout = () => this.auth.logout();
 
   // Cross-fleet images overview: a section per host with its counts; "manage"
   // drills into that host's full images page (filters, prune, selection).

@@ -60,7 +60,7 @@ async function boot() {
   if (!auth.isAuthenticated) {
     try {
       const res = await transport.call<{ token: string }>("Auth", "sso", []);
-      if (res?.token) auth.set(res.token);
+      if (res?.token) auth.set(res.token, true); // Access SSO session
     } catch {
       /* not behind Access — fall back to the login form */
     }

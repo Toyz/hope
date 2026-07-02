@@ -128,7 +128,7 @@ export class HopeTransport extends RpcTransport {
       const j = (await res.json()) as { data?: { token?: string } };
       const tok = j?.data?.token;
       if (tok) {
-        this.auth.set(tok);
+        this.auth.set(tok, true); // came from the Access assertion
         return true;
       }
     } catch {
