@@ -171,7 +171,6 @@ interface Ranked extends StackSummary {
     align-items: center; gap: 16px;
     padding: 0 16px; height: 42px;
     border-bottom: 1px solid var(--line); cursor: pointer;
-    animation: fade .15s ease both;
   }
   .row:last-child { border-bottom: none; }
   .row:hover { background: var(--raised); }
@@ -192,7 +191,6 @@ interface Ranked extends StackSummary {
     border: 1px solid var(--line); background: var(--panel);
     padding: 16px 16px 17px; cursor: pointer; display: flex; flex-direction: column; gap: 15px;
     transition: border-color .12s ease, background .12s ease;
-    animation: fade .18s ease both;
   }
   .tile:hover { border-color: var(--line2); background: var(--raised); }
   .tile.off { opacity: .55; }
