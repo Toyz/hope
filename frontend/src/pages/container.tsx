@@ -11,6 +11,7 @@ import { UNGROUPED } from "../const";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
+import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo } from "../contracts";
 import { theme, markClass } from "../styles";
@@ -82,10 +83,6 @@ const MAX_LINES = 600;
   .mitem.danger:hover { color: var(--bad); }
   .mitem.danger:hover loom-icon { color: var(--bad); }
   .mitem:disabled { opacity: .4; cursor: not-allowed; }
-  .toast { position: fixed; right: 22px; bottom: 22px; z-index: 60; background: var(--raised);
-    border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px;
-    max-width: 420px; }
-  .toast.bad { border-color: var(--bad); color: var(--bad); }
   .bar .act { padding: 0; border-left: 1px solid var(--line); }
   .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
@@ -292,6 +289,7 @@ export class ContainerPage extends LoomElement {
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -326,8 +324,6 @@ export class ContainerPage extends LoomElement {
   @reactive accessor dropOpen = false;
   @reactive accessor cbusy = ""; // op currently running
   @reactive accessor actOpen = false; // action kebab menu
-  @reactive accessor toast = "";
-  @reactive accessor toastKind = "";
   @reactive accessor outdated = false; // image has a newer version on the registry
 
   // The route param, bound reactively. Watching it reloads the page on any
@@ -411,13 +407,13 @@ export class ContainerPage extends LoomElement {
     this.cbusy = op;
     this.error = "";
     const verb = op === "pull" ? "pulling" : op;
-    this.showToast(`${verb} ${this.service()}…`, "", true);
+    const t = this.toast.progress(`${verb} ${this.service()}…`);
     try {
       await this.rpc.call("Containers", op, [this.id]);
-      this.showToast(`${op} ${this.service()} — done`);
+      t.done(`${op} ${this.service()} — done`);
       await this.loadInfo();
     } catch (err: any) {
-      this.showToast(`${op} ${this.service()} — ${err?.message ?? "failed"}`, "bad");
+      t.error(`${op} ${this.service()} — ${err?.message ?? "failed"}`);
     } finally {
       this.cbusy = "";
     }
@@ -449,7 +445,7 @@ export class ContainerPage extends LoomElement {
       }
       await this.loadInfo();
     } catch (err: any) {
-      this.showToast(`redeploy ${this.service()} — ${err?.message ?? "failed"}`, "bad");
+      this.toast.error(`redeploy ${this.service()} — ${err?.message ?? "failed"}`);
     } finally {
       this.cbusy = "";
     }
@@ -468,14 +464,6 @@ export class ContainerPage extends LoomElement {
     } catch {
       return "";
     }
-  }
-
-  private toastTimer: any = 0;
-  private showToast(msg: string, kind = "", sticky = false) {
-    this.toast = msg;
-    this.toastKind = kind;
-    clearTimeout(this.toastTimer);
-    if (!sticky) this.toastTimer = setTimeout(() => (this.toast = ""), 3500);
   }
 
   private enter(id: string) {
@@ -507,7 +495,6 @@ export class ContainerPage extends LoomElement {
   @unmount
   onUnmount() {
     this.ctrl.abort();
-    clearTimeout(this.toastTimer);
     document.body.style.overflow = ""; // never leave scroll locked
   }
 
@@ -562,13 +549,13 @@ export class ContainerPage extends LoomElement {
       await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
       await this.loadTunnels();
     } catch (err: any) {
-      this.showToast(`remove — ${err?.message ?? "failed"}`, "bad");
+      this.toast.error(`remove — ${err?.message ?? "failed"}`);
     }
   };
 
   private addTunnel = async () => {
     if (!this.tunnelConnectors.length) {
-      this.showToast("no connectors — deploy one on the Tunnels page", "bad");
+      this.toast.error("no connectors — deploy one on the Tunnels page");
       return;
     }
     const proj = this.project();
@@ -1154,7 +1141,6 @@ export class ContainerPage extends LoomElement {
             </div>
           ) : null}
         </main>
-        {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.healthOpen ? this.renderHealthModal() : null}
         {this.editOpen ? (
           <div class="editmodal" onClick={() => (this.editOpen = false)}>

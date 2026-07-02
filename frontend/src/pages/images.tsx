@@ -9,6 +9,7 @@ import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
+import { ToastService } from "../toast";
 import type { ImageInfo, PruneResult, OpFrame, FleetImagesHost } from "../contracts";
 import { theme } from "../styles";
 import { bytes, shortId } from "../format";
@@ -83,10 +84,6 @@ type Filter = "all" | "used" | "unused" | "dangling";
   .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent;
     border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-  .toast { position: fixed; right: 22px; bottom: 22px; z-index: 60; background: var(--raised);
-    border: 1px solid var(--line2); color: var(--hi); font: 500 12px/1.4 var(--mono); padding: 11px 15px; max-width: 420px; }
-  .toast.bad { border-color: var(--bad); color: var(--bad); }
-
   .search { position: relative; margin-bottom: 18px; }
   .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
     font: 13px/1 var(--mono); padding: 11px 12px 11px 38px; }
@@ -178,6 +175,7 @@ export class ImagesPage extends LoomElement {
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(ToastService) accessor toast!: ToastService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -188,8 +186,6 @@ export class ImagesPage extends LoomElement {
   @reactive accessor query = "";
   @reactive accessor busy = false;
   @reactive accessor filter: Filter = "all";
-  @reactive accessor toast = "";
-  @reactive accessor toastKind = "";
   @reactive accessor detail: ImageInfo | null = null;
   @reactive accessor selected: string[] = [];
   @reactive accessor fleet: FleetImagesHost[] | null = null; // cross-host images ("all hosts")
@@ -265,13 +261,6 @@ export class ImagesPage extends LoomElement {
     });
   }
 
-  private showToast(msg: string, kind = "") {
-    this.toast = msg;
-    this.toastKind = kind;
-    clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => (this.toast = ""), 3500);
-  }
-  private toastTimer: any = 0;
 
   private removeImg = async (i: ImageInfo & { host?: string }) => {
     const label = i.tags[0] || shortId(i.id);
@@ -291,10 +280,10 @@ export class ImagesPage extends LoomElement {
       // In the all-hosts view the row belongs to a specific host — target it.
       if (i.host) await this.rpc.call("System", "setActiveHost", [i.host]);
       await this.rpc.call("System", "removeImage", [i.id, true]);
-      this.showToast(`removed ${label}`);
+      this.toast.ok(`removed ${label}`);
       await this.load();
     } catch (err: any) {
-      this.showToast(`remove ${label} — ${err?.message ?? "failed"}`, "bad");
+      this.toast.error(`remove ${label} — ${err?.message ?? "failed"}`);
     }
   };
 
@@ -786,7 +775,6 @@ export class ImagesPage extends LoomElement {
             <div class="empty">{this.query ? "No images match." : "No images on this daemon."}</div>
           ) : null}
         </main>
-        {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.detail ? this.renderDetail(this.detail) : null}
       </div>
     );

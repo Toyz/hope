@@ -7,6 +7,7 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
+import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap } from "../contracts";
 import { theme, markClass, stackSeverity } from "../styles";
@@ -238,13 +239,6 @@ function aggMark(items: ContainerSummary[]): string {
   .blk .label { display: block; font: 600 10px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
   .err { color: var(--bad); font: 12px/1.5 var(--mono); margin: 14px 0; }
 
-  .toast {
-    position: fixed; right: 22px; bottom: 22px; z-index: 60;
-    background: var(--raised); border: 1px solid var(--line2); color: var(--hi);
-    font: 500 12px/1.4 var(--mono); padding: 11px 15px; max-width: 420px;
-    animation: fade .15s ease both;
-  }
-  .toast.bad { border-color: var(--bad); color: var(--bad); }
   .toast.warn { border-color: var(--warn); color: var(--warn); }
 
   /* advanced redeploy dialog */
@@ -302,6 +296,7 @@ export class StackPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(DeployIntent) accessor intent!: DeployIntent;
   @inject(HostContext) accessor hostCtx!: HostContext;
@@ -323,8 +318,6 @@ export class StackPage extends LoomElement {
   @reactive accessor logsTitle = "";
   @reactive accessor logsLines: string[] = [];
   @reactive accessor wrap = false;
-  @reactive accessor toast = "";
-  @reactive accessor toastKind = "";
   @reactive accessor stats: Record<string, ContainerStat> = {};
   @reactive accessor statsBusy = false;
   @reactive accessor host = ""; // active host id (shown in the crumb for multi-host)
@@ -350,14 +343,6 @@ export class StackPage extends LoomElement {
   }
   private logsCtrl: AbortController | null = null;
   private opCtrl?: AbortController;
-  private toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-  private showToast(msg: string, kind = "", sticky = false) {
-    this.toast = msg;
-    this.toastKind = kind;
-    if (this.toastTimer) clearTimeout(this.toastTimer);
-    if (!sticky) this.toastTimer = setTimeout(() => (this.toast = ""), 2800);
-  }
 
   // Route param bound reactively; watching it reloads on any change, including
   // stack -> stack navigation (the outlet re-injects params without remounting).
@@ -570,7 +555,7 @@ export class StackPage extends LoomElement {
       await this.rpc.call<OpResult>("Tunnels", "removeTunnel", [hostname, path || ""]);
       await this.loadTunnels();
     } catch (err: any) {
-      this.showToast(err?.message ?? "remove failed", "bad");
+      this.toast.error(err?.message ?? "remove failed");
     }
   };
 
@@ -636,7 +621,7 @@ export class StackPage extends LoomElement {
   // Add a public route for a service in this stack (target is implied).
   private addTunnel = async (service: string, ports: string[]) => {
     if (!this.tunnelConnectors.length) {
-      this.showToast("no connectors — deploy one on the Tunnels page", "bad");
+      this.toast.error("no connectors — deploy one on the Tunnels page");
       return;
     }
     const haveZones = this.tunnelZones.length > 0;
@@ -782,14 +767,15 @@ export class StackPage extends LoomElement {
   private runStackOp = async (op: StackOp) => {
     this.busy = `stack:${op}`;
     this.opLog = "";
-    this.showToast(`${op} ${this.project}…`, "", true);
+    const t = this.toast.progress(`${op} ${this.project}…`);
     try {
       const res = await this.rpc.call<OpResult>("Stacks", op, [this.project]);
       this.opLog = (res.output ?? "") + (res.error ? "\n" + res.error : "");
-      this.showToast(res.ok ? `${op} ${this.project} — done` : `${op} ${this.project} — failed`, res.ok ? "" : "bad");
+      if (res.ok) t.done(`${op} ${this.project} — done`);
+      else t.error(`${op} ${this.project} — failed`);
       await this.load();
     } catch (err: any) {
-      this.showToast(`${op} ${this.project} — ${err?.message ?? "failed"}`, "bad");
+      t.error(`${op} ${this.project} — ${err?.message ?? "failed"}`);
     } finally {
       this.busy = "";
     }
@@ -935,7 +921,6 @@ export class StackPage extends LoomElement {
   onUnmount() {
     this.logsCtrl?.abort();
     this.opCtrl?.abort();
-    if (this.toastTimer) clearTimeout(this.toastTimer);
   }
 
   private openLogs = (method: "logs" | "stackLogs" | "serviceLogs", args: string[], title: string, e?: Event) => {
@@ -989,7 +974,7 @@ export class StackPage extends LoomElement {
       for (const s of rows) map[s.id] = s;
       this.stats = map;
     } catch (err: any) {
-      this.showToast(`snapshot — ${err?.message ?? "failed"}`, "bad");
+      this.toast.error(`snapshot — ${err?.message ?? "failed"}`);
     } finally {
       this.statsBusy = false;
     }
@@ -999,16 +984,16 @@ export class StackPage extends LoomElement {
   private checkUpdates = async () => {
     this.menuOpen = false;
     this.updatesBusy = true;
-    this.showToast(`checking ${this.project} for image updates…`, "", true);
+    const t = this.toast.progress(`checking ${this.project} for image updates…`);
     try {
       const rows = (await this.rpc.call<ImageUpdate[]>("Stacks", "updates", [this.project])) || [];
       const map: Record<string, ImageUpdate> = {};
       for (const u of rows) map[u.id] = u;
       this.updates = map;
       const out = rows.filter((u) => u.status === "outdated").length;
-      this.showToast(out ? `${out} container(s) out of date` : `all images up to date`, out ? "warn" : "");
+      t.done(out ? `${out} container(s) out of date` : `all images up to date`, out ? "warn" : "");
     } catch (err: any) {
-      this.showToast(`updates — ${err?.message ?? "failed"}`, "bad");
+      t.error(`updates — ${err?.message ?? "failed"}`);
     } finally {
       this.updatesBusy = false;
     }
@@ -1196,7 +1181,7 @@ export class StackPage extends LoomElement {
     if (!v) return;
     const name = v.name.trim();
     const image = v.image.trim();
-    if (!name || !image) { this.showToast("name and image are required", "bad"); return; }
+    if (!name || !image) { this.toast.error("name and image are required"); return; }
     const svc: ContainerSpec = { name, image };
     if (v.restart) svc.restart = v.restart;
     const ports: PortMap[] = v.ports.split(",").map((p) => p.trim()).filter(Boolean).map((p) => {
@@ -1211,7 +1196,7 @@ export class StackPage extends LoomElement {
       const host = (haveZones ? (v.t_sub.trim() ? `${v.t_sub.trim()}.${v.t_domain}` : v.t_domain) : v.t_host).trim().toLowerCase();
       const port = (v.t_port || "").trim() || ports[0]?.container || "";
       if (host && port && v.t_connector) route = { host, port, connector: v.t_connector, path: (v.t_path || "").trim() };
-      else this.showToast("tunnel needs a connector, hostname and port — skipped", "warn");
+      else this.toast.warn("tunnel needs a connector, hostname and port — skipped");
     }
 
     await this.applyStackEdit(
@@ -1429,7 +1414,6 @@ export class StackPage extends LoomElement {
             </div>
           ) : null}
         </main>
-        {this.toast ? <div class={"toast " + this.toastKind}>{this.toast}</div> : null}
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
         {this.pullOpen && s ? this.renderPull(s) : null}
