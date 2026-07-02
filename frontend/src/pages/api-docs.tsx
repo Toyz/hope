@@ -24,7 +24,7 @@ import { appBar } from "../app-bar";
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 24px 24px 64px; max-width: 900px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
 
   .hero { display: flex; align-items: flex-end; gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 20px; }
   .hero .t { font: 700 20px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }

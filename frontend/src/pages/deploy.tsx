@@ -40,7 +40,7 @@ interface ResDecl { name: string; driver: string; }
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
-  main { padding: 24px 24px 80px; max-width: 900px; margin: 0 auto; }
+  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
   .tabs { display: flex; gap: 2px; margin-bottom: 22px; }
   .tab { padding: 9px 16px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer;
     font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
