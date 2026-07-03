@@ -732,13 +732,6 @@ export class DashboardPage extends LoomElement {
     this.router.navigate(`/stack/${encodeURIComponent(p)}`);
   }
 
-  // Fleet ribbon → jump to a host: make sure it's expanded, then scroll to it.
-  private scrollToHost = (id: string) => {
-    this.collapsed = this.collapsed.filter((x) => x !== id);
-    requestAnimationFrame(() => {
-      this.shadowRoot?.querySelector(`[data-host="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  };
 
   // Every stack with an update, for the bulk picker (host carried in fleet mode).
   private allUpdateGroups(): Array<{ project: string; host?: string; services: { service: string; count: number }[]; count: number }> {
@@ -872,6 +865,8 @@ export class DashboardPage extends LoomElement {
         .sort((a, b) => severityRank(a.sev) - severityRank(b.sev) || a.project.localeCompare(b.project));
 
     if (this.fleetMode) {
+      // The server returns hosts in map order (non-deterministic); sort so the
+      // sections don't shuffle on every fleet reload. Local first, then by id.
       return (this.fleet ?? []).map((h) => {
         const ranked = rank(h.stacks ?? []);
         return {
@@ -888,7 +883,7 @@ export class DashboardPage extends LoomElement {
           updProjects: new Set((h.updates ?? []).filter((u) => u.project).map((u) => u.project)),
           outIds: new Set((h.updates ?? []).map((u) => u.id)),
         };
-      });
+      }).sort((a, b) => (a.kind === "local" ? 0 : 1) - (b.kind === "local" ? 0 : 1) || a.id.localeCompare(b.id));
     }
 
     const ranked = rank(this.stacks);
@@ -1018,25 +1013,10 @@ export class DashboardPage extends LoomElement {
             <hope-search placeholder="Search stacks and services…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
           ) : null}
 
-          {multi ? (
-            // Fleet ribbon: one cell per HOST, tinted by its worst stack — a flat
-            // per-stack strip across every host reads as undifferentiated noise.
-            secs.length > 0 ? (
-              <div class="ribbon hosts">
-                {secs.map((h) => {
-                  const sev = !h.online ? "down" : h.loops > 0 ? "loop" : h.issues > 0 ? "warn" : "ok";
-                  const cls = sev === "ok" && h.outdated > 0 ? "upd" : sev;
-                  return (
-                    <i
-                      class={cls}
-                      data-tip={`${h.id}   ${h.up}/${h.tot}${h.issues ? `   ${h.issues} issue${h.issues === 1 ? "" : "s"}` : ""}${h.outdated ? `   ↑ ${h.outdated}` : ""}${h.online ? "" : "   offline"}`}
-                      onClick={() => this.scrollToHost(h.id)}
-                    ></i>
-                  );
-                })}
-              </div>
-            ) : null
-          ) : allStacks.length > 0 ? (
+          {/* the per-stack density ribbon is a single-host view; in fleet mode the
+              summary strip + per-host sections carry the same signal without a
+              long, host-blind strip. */}
+          {!multi && allStacks.length > 0 ? (
             <div class="ribbon">
               {allStacks.map((x) => {
                 const hasUpd = x.sec.updProjects.has(x.s.project);
