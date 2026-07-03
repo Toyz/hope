@@ -942,19 +942,23 @@ export class ContainerPage extends LoomElement {
   private mountList() {
     const mounts = (this.info?.Mounts as any[]) ?? [];
     const sizes = new Map((this.volsQ.data || []).map((v) => [v.name, v.size]));
-    return mounts.map((m) => {
-      const type = (m.Type || "").toLowerCase(); // volume | bind | tmpfs
-      const name = m.Name || "";
-      const size = type === "volume" ? sizes.get(name) ?? -1 : -1;
-      return {
-        type,
-        name,
-        source: m.Source || "", // host path (bind) / volume data dir
-        dest: m.Destination || "", // mount point inside the container
-        rw: m.RW !== false,
-        size, // bytes; -1 = unknown / not a named volume
-      };
-    });
+    return mounts
+      .map((m) => {
+        const type = (m.Type || "").toLowerCase(); // volume | bind | tmpfs
+        const name = m.Name || "";
+        const size = type === "volume" ? sizes.get(name) ?? -1 : -1;
+        return {
+          type,
+          name, // named volume ("" for bind/tmpfs/anonymous)
+          source: m.Source || "", // host path (bind) / volume data dir
+          dest: m.Destination || "", // mount point inside the container
+          rw: m.RW !== false,
+          size, // bytes; -1 = unknown / not a named volume
+        };
+      })
+      // docker inspect returns Mounts in an unstable order — sort by mount point
+      // so the panel doesn't reshuffle between polls.
+      .sort((a, b) => a.dest.localeCompare(b.dest));
   }
 
   update() {
@@ -1115,15 +1119,16 @@ export class ContainerPage extends LoomElement {
             <hope-panel label="Mounts" icon="box" flush={true}>
               <hope-table>
                 <table class="flat">
-                  <colgroup><col style="width:88px" /><col /><col style="width:30%" /><col style="width:86px" /><col style="width:64px" /></colgroup>
-                  <thead><tr><th class="pl">Type</th><th>Source</th><th>Mount point</th><th class="r">Size</th><th class="r">Access</th></tr></thead>
+                  <colgroup><col style="width:78px" /><col /><col style="width:26%" /><col style="width:22%" /><col style="width:82px" /><col style="width:56px" /></colgroup>
+                  <thead><tr><th class="pl">Type</th><th>Name</th><th>Source</th><th>Mount point</th><th class="r">Size</th><th class="r">Access</th></tr></thead>
                   <tbody>
                     {this.mountList().map((m) => (
                       <tr>
                         <td class="pl dim">{m.type || "—"}</td>
-                        <td class="cmd">{m.type === "volume" ? (m.name || m.source || "—") : (m.source || "—")}</td>
+                        <td class="hi">{m.name || <span class="dim">—</span>}</td>
+                        <td class="cmd">{m.source || "—"}</td>
                         <td class="num">{m.dest || "—"}</td>
-                        <td class="r num">{m.size >= 0 ? bytes(m.size) : "—"}</td>
+                        <td class="r num">{m.size >= 0 ? bytes(m.size) : <span class="dim">—</span>}</td>
                         <td class="r">{m.rw ? <span class="dim">rw</span> : <span style="color:var(--warn)">ro</span>}</td>
                       </tr>
                     ))}
