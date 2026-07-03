@@ -58,12 +58,7 @@ interface ResDecl { name: string; driver: string; }
   input:focus, textarea:focus { outline: none; border-color: var(--line2); }
   hope-select { display: block; height: 38px; }
 
-  .svc { border: 1px solid var(--line); margin-bottom: 14px; }
-  .svc .sh { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--line);
-    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
-  .svc .sh .n { font: 600 12px/1 var(--mono); color: var(--hi); }
-  .svc .sh .grow { flex: 1; }
-  .svc .sb { padding: 16px 14px; }
+  /* each service is a collapsible <hope-panel>; the form is its slotted body */
   .xbtn { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent;
     border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .xbtn:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
@@ -520,16 +515,10 @@ export class DeployPage extends LoomElement {
         ) : null}
 
         {this.rows.map((r) => (
-          <div class="svc">
-            <div class="sh">
-              <span class="n">{r.initial.name || "service"}</span>
-              <span class="grow"></span>
-              {this.rows.length > 1 ? <button class="xbtn" title="remove service" onClick={() => this.removeService(r.key)}><loom-icon name="x" size={14}></loom-icon></button> : null}
-            </div>
-            <div class="sb">
-              <hope-service-form initial={r.initial} seed={this.seed} networks={availNets} volumes={availVols} connectors={this.connectors} zones={this.zones} showName={true}></hope-service-form>
-            </div>
-          </div>
+          <hope-panel label={r.initial.name || "service"} icon="box" collapsible={true} style="margin-top:14px">
+            {this.rows.length > 1 ? <button slot="actions" class="xbtn" title="remove service" onClick={(e: any) => { e.stopPropagation(); this.removeService(r.key); }}><loom-icon name="x" size={14}></loom-icon></button> : null}
+            <hope-service-form initial={r.initial} seed={this.seed} networks={availNets} volumes={availVols} connectors={this.connectors} zones={this.zones} showName={true}></hope-service-form>
+          </hope-panel>
         ))}
         <button class="add" onClick={this.addService}><loom-icon name="plus" size={12}></loom-icon> add service</button>
 
