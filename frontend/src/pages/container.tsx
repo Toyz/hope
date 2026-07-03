@@ -21,6 +21,7 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import { ImageDetailService } from "../components/image-detail";
 import { NetworkDetailService } from "../components/network-detail";
+import type { HopeColumn } from "../components/table";
 import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView, TopResult } from "../contracts";
 import { markClass } from "../styles";
 import "../components/service-form";
@@ -183,21 +184,6 @@ const MAX_LINES = 600;
   .netrow .grow { flex: 1; }
   .netrow .rrm { display: inline-grid; place-items: center; width: 26px; height: 26px; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .netrow .rrm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-  /* one <table> so columns share widths and align across every row (auto layout
-     sizes each column to its widest cell); a trailing spacer column eats the
-     slack so the data stays tight-left with full-width row dividers */
-  .nettbl { width: 100%; border-collapse: collapse; }
-  .nettbl th { text-align: left; white-space: nowrap; padding: 9px 30px 8px 0; border-bottom: 1px solid var(--line);
-    font: 600 8.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .nettbl td { white-space: nowrap; padding: 7px 30px 7px 0; border-bottom: 1px solid var(--line);
-    font: 400 12px/1.3 var(--mono); color: var(--mid); font-variant-numeric: tabular-nums; }
-  .nettbl tbody tr:last-child td { border-bottom: 0; }
-  .nettbl th:first-child, .nettbl td:first-child { padding-left: 16px; }
-  .nettbl td.nn { font: 600 12.5px/1.3 var(--mono); color: var(--hi); }
-  .nettbl td.nn.slink { cursor: pointer; }
-  .nettbl td.nn.slink:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
-  .nettbl td.al { color: var(--dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-  .nettbl .sp { width: 100%; padding: 0; }
 
   .tabs { display: flex; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
   .tabs button {
@@ -956,6 +942,19 @@ export class ContainerPage extends LoomElement {
     return out.join(", ") || "—";
   }
 
+  // Columns for the container's networks table (<hope-table>). The name cell
+  // opens the shared network inspector; a trailing grow column keeps the data
+  // clustered left.
+  private get netCols(): HopeColumn[] {
+    return [
+      { label: "network", tip: () => "inspect network", render: (n) => <span class="link" onClick={() => this.networkDetail.open({ host: this.hostCtx.activeHost, ref: n.name })}>{n.name}</span> },
+      { label: "ip", width: "150px", cls: () => "num", render: (n) => n.ip || "—" },
+      { label: "gateway", width: "150px", cls: () => "num", render: (n) => n.gateway || "—" },
+      { label: "mac", width: "168px", cls: () => "num", render: (n) => n.mac || "—" },
+      { label: "aliases", grow: true, cls: () => "dim", tip: (n) => (n.aliases.length ? n.aliases.join(", ") : undefined), render: (n) => (n.aliases.length ? n.aliases.join(", ") : "—") },
+    ];
+  }
+
   // The networks this container is attached to, with its address on each.
   private netList() {
     const nets = this.info?.NetworkSettings?.Networks ?? {};
@@ -1106,23 +1105,7 @@ export class ContainerPage extends LoomElement {
 
           {this.netList().length ? (
             <hope-panel label="Networks" icon="link" flush={true}>
-              <table class="nettbl">
-                <thead>
-                  <tr><th>network</th><th>ip</th><th>gateway</th><th>mac</th><th>aliases</th><th class="sp"></th></tr>
-                </thead>
-                <tbody>
-                  {this.netList().map((n) => (
-                    <tr>
-                      <td class="nn slink" data-tip="inspect network" onClick={() => this.networkDetail.open({ host: this.hostCtx.activeHost, ref: n.name })}>{n.name}</td>
-                      <td>{n.ip || "—"}</td>
-                      <td>{n.gateway || "—"}</td>
-                      <td>{n.mac || "—"}</td>
-                      <td class="al" data-tip={n.aliases.length ? n.aliases.join(", ") : undefined}>{n.aliases.length ? n.aliases.join(", ") : "—"}</td>
-                      <td class="sp"></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <hope-table columns={this.netCols} rows={this.netList()}></hope-table>
             </hope-panel>
           ) : null}
 
