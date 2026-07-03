@@ -2,7 +2,7 @@
 // synthesizes fleet state; a flat fleet ribbon shows every stack as a cell
 // (dark = nominal, lit = trouble); below, an Attention zone then a quiet Fleet
 // list of instrument rows. No glows, no per-row noise. Refreshes every 5s.
-import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, interval, on, app, persist } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -23,6 +23,23 @@ import { stackSeverity, severityRank, markClass, severityMark, type Severity } f
 
 interface Ranked extends StackSummary {
   sev: Severity;
+}
+
+// One normalized host section — the single unit the dashboard renders. The
+// single-host view is just a fleet of one of these.
+interface HostSec {
+  id: string;
+  kind: string;
+  online: boolean;
+  error?: string;
+  ranked: Ranked[];
+  up: number;
+  tot: number;
+  issues: number;
+  loops: number;
+  outdated: number;
+  updProjects: Set<string>;
+  outIds: Set<string>;
 }
 
 @route("/")
@@ -80,6 +97,10 @@ interface Ranked extends StackSummary {
   .fleetsec .hdot.local { background: var(--upd); }
   .fleetsec .hdot.agent { background: var(--ok); }
   .fleetsec .khint { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .fleetsec .head.hhead { cursor: pointer; }
+  .fleetsec .head .caret { color: var(--dim); flex: none; transition: transform .12s ease; }
+  .fleetsec .head:not(.collapsed) .caret { transform: rotate(90deg); }
+  .fleetsec .head.hhead:hover .label { color: var(--hi); }
 
   /* fleet summary reuses the .hostbar strip; these tint the highlight cells */
   .hostbar .hv.warn { color: var(--warn); }
@@ -228,6 +249,14 @@ export class DashboardPage extends LoomElement {
   @reactive accessor storeEphemeral = false; // db on container rootfs → lost on recreate
   @reactive accessor updBusy = false;
   @reactive accessor fleetBusy = false;
+  // Collapsed host groups (by host id), persisted so the fleet layout sticks.
+  @persist("hope.dash.collapsed") accessor collapsed: string[] = [];
+
+  private toggleHost = (id: string) => {
+    this.collapsed = this.collapsed.includes(id)
+      ? this.collapsed.filter((x) => x !== id)
+      : [...this.collapsed, id];
+  };
 
   // Data via loom-rpc @rpc queries (ApiState, SWR); getters expose .data so the
   // render + computed getters read the same names as before.
@@ -652,6 +681,14 @@ export class DashboardPage extends LoomElement {
     this.router.navigate(`/stack/${encodeURIComponent(p)}`);
   }
 
+  // Fleet ribbon → jump to a host: make sure it's expanded, then scroll to it.
+  private scrollToHost = (id: string) => {
+    this.collapsed = this.collapsed.filter((x) => x !== id);
+    requestAnimationFrame(() => {
+      this.shadowRoot?.querySelector(`[data-host="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   // segs renders a stack's containers as a thin heat-bar (one cell per
   // container, colored by state) — texture + density on each tile.
   private segs(s: StackSummary, outIds: Set<string>) {
@@ -673,195 +710,137 @@ export class DashboardPage extends LoomElement {
   }
   private logout = () => this.auth.logout();
 
-  // Cross-fleet overview: one section per host (local + agents), each listing
-  // that host's stacks. Same visual language as the single-host dashboard.
-  private renderFleet() {
-    const f = this.fleet ?? [];
-    const hosts = f.length;
-    const online = f.filter((h) => h.online).length;
-    let runC = 0,
-      totC = 0,
-      stackC = 0,
-      updC = 0;
-    const problems: { host: string; s: any }[] = [];
-    const fupdates: { host: string; u: any }[] = [];
-    for (const h of f) {
-      const ups = h.updates ?? [];
-      updC += ups.length;
-      for (const u of ups) fupdates.push({ host: h.id, u });
-      for (const s of h.stacks) {
-        runC += s.running;
-        totC += s.total;
-        stackC++;
-        const sev = stackSeverity(s.running, s.total, s.restarting);
-        if (sev === "loop" || sev === "warn") problems.push({ host: h.id, s: { ...s, sev } });
-      }
+  // ── Unified host model ──────────────────────────────────────────────────
+  // Both the single-host and all-hosts views are the same thing: a list of host
+  // sections (single host = a fleet of one). The bar, ribbon, Attention/Updates,
+  // and the grouped grids are all computed from this one shape.
+  private hostSections(): HostSec[] {
+    const q = this.query.trim().toLowerCase();
+    const match = (s: StackSummary) =>
+      !q || s.project.toLowerCase().includes(q) || s.containers.some((c) => (c.service || c.name).toLowerCase().includes(q));
+    const rank = (list: StackSummary[]): Ranked[] =>
+      list
+        .filter(match)
+        .map((s) => ({ ...s, sev: stackSeverity(s.running, s.total, s.restarting) }))
+        .sort((a, b) => severityRank(a.sev) - severityRank(b.sev) || a.project.localeCompare(b.project));
+
+    if (this.fleetMode) {
+      return (this.fleet ?? []).map((h) => {
+        const ranked = rank(h.stacks ?? []);
+        return {
+          id: h.id,
+          kind: h.kind,
+          online: h.online,
+          error: h.error,
+          ranked,
+          up: (h.stacks ?? []).reduce((a, s) => a + s.running, 0),
+          tot: (h.stacks ?? []).reduce((a, s) => a + s.total, 0),
+          issues: ranked.filter((s) => s.sev === "loop" || s.sev === "warn").length,
+          loops: ranked.filter((s) => s.sev === "loop").length,
+          outdated: h.outdated ?? 0,
+          updProjects: new Set((h.updates ?? []).filter((u) => u.project).map((u) => u.project)),
+          outIds: new Set((h.updates ?? []).map((u) => u.id)),
+        };
+      });
     }
-    problems.sort((a, b) => severityRank(b.s.sev) - severityRank(a.s.sev));
-    const vClass = problems.some((p) => p.s.sev === "loop") ? "bad" : problems.length ? "warn" : "ok";
-    return (
-      <div>
-        <div class="bar">
-          <div class="s brand">HOPE</div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <div class="s"><span class="k">all hosts</span></div>
-                              <hope-nav></hope-nav>
-          <div class="grow"></div>
-          <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{hosts}</span></span></div>
-          <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
-          <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
-          <div class={"s verdict " + vClass}>
-            <span class={"mark " + vClass}></span>
-            {problems.length === 0 ? "nominal" : `${problems.length} ${problems.length === 1 ? "issue" : "issues"}`}
-          </div>
-          {updC > 0 ? (
-            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span></div>
-          ) : null}
-          <div class="s act">
-            <button class="upcheck" disabled={this.fleetBusy} title="recheck every host for image updates" onClick={this.refreshFleet}>
-              <loom-icon class={this.fleetBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
-              <span>check</span>
-            </button>
-          </div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
-        </div>
-        {this.loading ? <div class="loadbar"><i></i></div> : null}
-        <main>
-          {this.storeBanner()}
-          {!this.loaded ? <div class="loading">loading fleet…</div> : null}
-          {this.error ? <div class="err">{this.error}</div> : null}
 
-          {this.statStrip([
-            { k: "hosts", v: <>{online}<i class="t">/{hosts}</i></> },
-            { k: "stacks", v: stackC },
-            { k: "containers", v: <>{runC}<i class="t">/{totC}</i></> },
-            { k: "issues", v: problems.length, cls: problems.length ? vClass : "" },
-            { k: "updates", v: updC, cls: updC ? "upd" : "" },
-          ])}
-
-          {problems.length > 0 ? (
-            <section>
-              <div class="head">
-                <span class="label">Attention</span>
-                <span class="rule"></span>
-                <span class={"n " + vClass}>{problems.length}</span>
-              </div>
-              <div class="rows">
-                {problems.map((p) => this.attentionRow(p.s, { host: p.host, onClick: () => this.goCross(p.host, p.s.project) }))}
-              </div>
-            </section>
-          ) : null}
-
-          {fupdates.length > 0 ? (
-            <section>
-              <div class="head">
-                <span class="label">Updates</span>
-                <span class="rule"></span>
-                {this.fleetChecked() ? <span class="ago">checked {ago(this.fleetChecked())}</span> : null}
-                <button class="rfr" disabled={this.fleetBusy} title="recheck every host" onClick={this.refreshFleet}>
-                  <loom-icon class={this.fleetBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
-                </button>
-                <span class="n upd">{fupdates.length}</span>
-              </div>
-              <div class="rows">
-                {this.fleetUpdateGroups(f).map((g) =>
-                  this.updateRow(g, { host: g.host, onClick: () => this.goCross(g.host, g.project) }),
-                )}
-              </div>
-            </section>
-          ) : null}
-
-          {f.map((h) => this.renderFleetHost(h))}
-        </main>
-      </div>
-    );
+    const ranked = rank(this.stacks);
+    return [
+      {
+        id: this.host?.Name || "local",
+        kind: "local",
+        online: true,
+        error: undefined,
+        ranked,
+        up: ranked.reduce((a, s) => a + s.running, 0),
+        tot: ranked.reduce((a, s) => a + s.total, 0),
+        issues: ranked.filter((s) => s.sev === "loop" || s.sev === "warn").length,
+        loops: ranked.filter((s) => s.sev === "loop").length,
+        outdated: this.outdated().length,
+        updProjects: this.updSet(),
+        outIds: this.outdatedIds(),
+      },
+    ];
   }
 
-  private renderFleetHost(h: FleetHost) {
-    const ranked = (h.stacks ?? [])
-      .filter(() => true)
-      .map((s) => ({ ...s, sev: stackSeverity(s.running, s.total, s.restarting) }))
-      .sort((a, b) => severityRank(b.sev) - severityRank(a.sev));
-    const up = (h.stacks ?? []).reduce((a, s) => a + s.running, 0);
-    const tot = (h.stacks ?? []).reduce((a, s) => a + s.total, 0);
-    const loops = ranked.filter((s) => s.sev === "loop").length;
-    const issues = ranked.filter((s) => s.sev === "loop" || s.sev === "warn").length;
-    // Per-host update context for the cards (which projects have updates; which
-    // container ids are outdated) — same inputs the single-host grid uses.
-    const hostUpd = new Set((h.updates ?? []).filter((u) => u.project).map((u) => u.project));
-    const hostOut = new Set((h.updates ?? []).map((u) => u.id));
+  // One host's stacks. Single host → just the grid (no header). Fleet → a
+  // collapsible section headed by the host id + its vitals.
+  private hostGroup(h: HostSec, multi: boolean) {
+    const open = (project: string) => (multi ? this.goCross(h.id, project) : this.go(project));
+    const grid = !h.online ? (
+      h.error ? <div class="ferr">{h.error}</div> : null
+    ) : h.ranked.length === 0 ? (
+      <div class="frow-empty">no stacks</div>
+    ) : (
+      <div class="grid">
+        {h.ranked.map((s) => this.stackTile(s, { onClick: () => open(s.project), hasUpd: h.updProjects.has(s.project), outIds: h.outIds }))}
+      </div>
+    );
+    if (!multi) return grid;
+    const collapsed = this.collapsed.includes(h.id);
     return (
-      <section class="fleetsec">
-        <div class="head">
+      <section class="fleetsec" data-host={h.id}>
+        <div class={"head hhead" + (collapsed ? " collapsed" : "")} onClick={() => this.toggleHost(h.id)}>
+          <loom-icon class="caret" name="chevron-right" size={14}></loom-icon>
           <span class={"hdot " + h.kind}></span>
           <span class="label">{h.id}</span>
           <span class="khint">{h.kind}</span>
           <span class="rule"></span>
           {h.online ? (
             <>
-              {issues > 0 ? <hope-chip tone={loops > 0 ? "bad" : "warn"} size="sm">{issues} {issues === 1 ? "issue" : "issues"}</hope-chip> : null}
+              {h.issues > 0 ? <hope-chip tone={h.loops > 0 ? "bad" : "warn"} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
               {h.outdated > 0 ? <hope-chip tone="upd" size="sm">{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
-              <span class="n">{up}<span class="t">/{tot}</span></span>
+              <span class="n">{h.up}<span class="t">/{h.tot}</span></span>
             </>
           ) : (
             <span class="foff">{h.error ? "unreachable" : "offline"}</span>
           )}
         </div>
-        {h.online ? (
-          ranked.length === 0 ? (
-            <div class="frow-empty">no stacks</div>
-          ) : (
-            <div class="grid">
-              {ranked.map((s) =>
-                this.stackTile(s, {
-                  onClick: () => this.goCross(h.id, s.project),
-                  hasUpd: hostUpd.has(s.project),
-                  outIds: hostOut,
-                }),
-              )}
-            </div>
-          )
-        ) : h.error ? (
-          <div class="ferr">{h.error}</div>
-        ) : null}
+        {collapsed ? null : grid}
       </section>
     );
   }
 
   update() {
-    if (this.fleetMode) return this.renderFleet();
-    const all = this.ranked();
-    const vis = this.visible();
-    const upd = this.updSet();
-    const outIds = this.outdatedIds();
-    const issues = all.filter((s) => s.sev === "loop" || s.sev === "warn");
-    const nominal = all.filter((s) => s.sev === "ok" || s.sev === "down");
-    const runC = vis.reduce((a, s) => a + s.running, 0);
-    const totC = vis.reduce((a, s) => a + s.total, 0);
-    const loops = all.filter((s) => s.sev === "loop").length;
+    const secs = this.hostSections();
+    const multi = this.fleetMode;
+    // Every stack across every online host, tagged with its host + section.
+    const allStacks = secs.flatMap((h) => (h.online ? h.ranked.map((s) => ({ s, host: multi ? h.id : undefined, sec: h })) : []));
+    const issues = allStacks.filter((x) => x.s.sev === "loop" || x.s.sev === "warn");
+    const stackC = secs.reduce((a, h) => a + h.ranked.length, 0);
+    const runC = secs.reduce((a, h) => a + h.up, 0);
+    const totC = secs.reduce((a, h) => a + h.tot, 0);
+    const updC = secs.reduce((a, h) => a + h.outdated, 0);
+    const loops = issues.filter((x) => x.s.sev === "loop").length;
+    const online = secs.filter((h) => h.online).length;
     const vClass = loops > 0 ? "bad" : issues.length > 0 ? "warn" : "ok";
     const vText = issues.length === 0 ? "nominal" : `${issues.length} ${issues.length === 1 ? "issue" : "issues"}`;
+    const updGroups: any[] = multi ? this.fleetUpdateGroups(this.fleet ?? []) : this.updateGroups();
+    const checked = multi ? this.fleetChecked() : this.updates?.checked_at;
+    const refresh = multi ? this.refreshFleet : this.refreshUpdates;
+    const busy = multi ? this.fleetBusy : this.updBusy;
 
     return (
       <div>
         <div class="bar">
           <div class="s brand">HOPE</div>
           <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <div class="s"><span class="k">fleet</span></div>
-                              <hope-nav></hope-nav>
+          <div class="s"><span class="k">{multi ? "all hosts" : "fleet"}</span></div>
+          <hope-nav></hope-nav>
           <div class="grow"></div>
-          <div class="s"><span class="k">stacks</span><span class="v">{vis.length}</span></div>
+          {multi ? <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{secs.length}</span></span></div> : null}
+          <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
           <div class={"s verdict " + vClass}>
-            <span class={"mark " + (vClass === "ok" ? "ok" : vClass)}></span>
+            <span class={"mark " + vClass}></span>
             {vText}
           </div>
-          {this.outdated().length > 0 ? (
-            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{this.outdated().length} updates</span></div>
+          {updC > 0 ? (
+            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span></div>
           ) : null}
           <div class="s act">
-            <button class="upcheck" disabled={this.updBusy} title="check all images for updates now" onClick={this.refreshUpdates}>
-              <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+            <button class="upcheck" disabled={busy} title="check every image for updates now" onClick={refresh}>
+              <loom-icon class={busy ? "spin" : ""} name="rotate" size={13}></loom-icon>
               <span>check</span>
             </button>
           </div>
@@ -871,24 +850,51 @@ export class DashboardPage extends LoomElement {
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
           {this.storeBanner()}
-          {this.host ? this.hostStrip() : null}
+          {multi
+            ? this.statStrip([
+                { k: "hosts", v: <>{online}<i class="t">/{secs.length}</i></> },
+                { k: "stacks", v: stackC },
+                { k: "containers", v: <>{runC}<i class="t">/{totC}</i></> },
+                { k: "issues", v: issues.length, cls: issues.length ? vClass : "" },
+                { k: "updates", v: updC, cls: updC ? "upd" : "" },
+              ])
+            : this.host ? this.hostStrip() : null}
 
           {this.error ? <div class="empty">{this.error}</div> : null}
+          {multi && !this.loaded ? <div class="loading">loading fleet…</div> : null}
 
-          {this.stacks.length > 0 ? (
+          {stackC > 0 || this.query ? (
             <hope-search placeholder="Search stacks and services…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
           ) : null}
 
-          {all.length > 0 ? (
+          {multi ? (
+            // Fleet ribbon: one cell per HOST, tinted by its worst stack — a flat
+            // per-stack strip across every host reads as undifferentiated noise.
+            secs.length > 0 ? (
+              <div class="ribbon hosts">
+                {secs.map((h) => {
+                  const sev = !h.online ? "down" : h.loops > 0 ? "loop" : h.issues > 0 ? "warn" : "ok";
+                  const cls = sev === "ok" && h.outdated > 0 ? "upd" : sev;
+                  return (
+                    <i
+                      class={cls}
+                      data-tip={`${h.id}   ${h.up}/${h.tot}${h.issues ? `   ${h.issues} issue${h.issues === 1 ? "" : "s"}` : ""}${h.outdated ? `   ↑ ${h.outdated}` : ""}${h.online ? "" : "   offline"}`}
+                      onClick={() => this.scrollToHost(h.id)}
+                    ></i>
+                  );
+                })}
+              </div>
+            ) : null
+          ) : allStacks.length > 0 ? (
             <div class="ribbon">
-              {all.map((s) => {
-                const hasUpd = upd.has(s.project);
-                const cls = (s.sev === "ok" || s.sev === "down") && hasUpd ? "upd" : s.sev;
+              {allStacks.map((x) => {
+                const hasUpd = x.sec.updProjects.has(x.s.project);
+                const cls = (x.s.sev === "ok" || x.s.sev === "down") && hasUpd ? "upd" : x.s.sev;
                 return (
                   <i
                     class={cls}
-                    data-tip={`${s.project}   ${s.running}/${s.total}${s.restarting ? "   ⟳ restarting" : ""}${hasUpd ? "   ↑ update" : ""}`}
-                    onClick={() => this.go(s.project)}
+                    data-tip={`${x.s.project}   ${x.s.running}/${x.s.total}${x.s.restarting ? "   ⟳ restarting" : ""}${hasUpd ? "   ↑ update" : ""}`}
+                    onClick={() => this.go(x.s.project)}
                   ></i>
                 );
               })}
@@ -903,45 +909,32 @@ export class DashboardPage extends LoomElement {
                 <span class={"n " + vClass}>{issues.length}</span>
               </div>
               <div class="rows">
-                {issues.map((s) => this.attentionRow(s, { onClick: () => this.go(s.project) }))}
+                {issues.map((x) => this.attentionRow(x.s, { host: x.host, onClick: () => (multi ? this.goCross(x.host!, x.s.project) : this.go(x.s.project)) }))}
               </div>
             </section>
           ) : null}
 
-          {this.outdated().length > 0 ? (
+          {updGroups.length > 0 ? (
             <section>
               <div class="head">
                 <span class="label">Updates</span>
                 <span class="rule"></span>
-                {this.updates?.checked_at ? <span class="ago">checked {ago(this.updates.checked_at)}</span> : null}
-                <button class="rfr" disabled={this.updBusy} title="check now" onClick={this.refreshUpdates}>
-                  <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={13}></loom-icon>
+                {checked ? <span class="ago">checked {ago(checked)}</span> : null}
+                <button class="rfr" disabled={busy} title="check now" onClick={refresh}>
+                  <loom-icon class={busy ? "spin" : ""} name="rotate" size={13}></loom-icon>
                 </button>
-                <span class="n upd">{this.outdated().length}</span>
+                <span class="n upd">{updC}</span>
               </div>
               <div class="rows">
-                {this.updateGroups().map((g) =>
-                  this.updateRow(g, { onClick: () => this.go(g.project), linkable: g.project !== UNGROUPED }),
-                )}
+                {updGroups.map((g) => this.updateRow(g, { host: multi ? g.host : undefined, onClick: () => (multi ? this.goCross(g.host, g.project) : this.go(g.project)), linkable: g.project !== UNGROUPED }))}
               </div>
             </section>
           ) : null}
 
-          {nominal.length > 0 ? (
-            <section>
-              <div class="head">
-                <span class="label">Fleet</span>
-                <span class="rule"></span>
-                <span class="n">{nominal.length}</span>
-              </div>
-              <div class="grid">
-                {nominal.map((s) => this.stackTile(s, { onClick: () => this.go(s.project), hasUpd: upd.has(s.project), outIds }))}
-              </div>
-            </section>
-          ) : null}
+          {secs.map((h) => this.hostGroup(h, multi))}
 
-          {this.loaded && all.length === 0 && !this.error ? (
-            <div class="empty">No containers on this daemon.</div>
+          {this.loaded && stackC === 0 && !this.query && !this.error ? (
+            <div class="empty">{multi ? "No stacks across the fleet." : "No containers on this daemon."}</div>
           ) : null}
         </main>
       </div>
