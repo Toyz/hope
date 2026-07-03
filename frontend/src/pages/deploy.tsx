@@ -465,7 +465,7 @@ export class DeployPage extends LoomElement {
         <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
         <div class="foot">
           <span class="grow"></span>
-          <button class="go" onClick={this.deployContainer}>Deploy container</button>
+          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployContainer}>Deploy container</hope-button>
         </div>
       </hope-panel>
     );
@@ -485,7 +485,7 @@ export class DeployPage extends LoomElement {
           <hope-panel label="import a compose file" icon="download" collapsible={true} collapsed={true} style="margin-bottom:18px">
             <div class="filerow">
               <input id="composefile" type="file" accept=".yml,.yaml,text/yaml,text/plain" style="display:none" onChange={this.onFile} />
-              <button class="ghost sm" onClick={() => this.composeFileInput?.click()}><loom-icon name="download" size={13}></loom-icon> Choose a compose file</button>
+              <hope-button size="sm" icon="download" onClick={() => this.composeFileInput?.click()}>Choose a compose file</hope-button>
               <span class="or">or paste it below</span>
             </div>
             <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>
@@ -529,11 +529,11 @@ export class DeployPage extends LoomElement {
         </hope-panel>
 
         <div class="foot">
-          {this.editing ? <button class="ghost" onClick={this.doExport}>Copy as compose</button> : null}
-          {this.editing ? <button class="danger" onClick={this.deleteStack}>Delete stack</button> : null}
+          {this.editing ? <hope-button icon="copy" onClick={this.doExport}>Copy as compose</hope-button> : null}
+          {this.editing ? <hope-button tone="danger" icon="trash" onClick={this.deleteStack}>Delete stack</hope-button> : null}
           <span class="grow"></span>
-          <button class="ghost" onClick={() => this.router.navigate("/dashboard")}>Cancel</button>
-          <button class="go" onClick={this.deployStack}>{this.editing ? "Apply changes" : "Deploy stack"}</button>
+          <hope-button onClick={() => this.router.navigate("/dashboard")}>Cancel</hope-button>
+          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployStack}>{this.editing ? "Apply changes" : "Deploy stack"}</hope-button>
         </div>
       </div>
     );

@@ -75,7 +75,7 @@ interface HostSec {
     height: 100%; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer;
   }
-  .bar .act button:hover { color: var(--hi); background: var(--raised); }
+  .bar .act button:hover { color: var(--hi); }
   .bar .act button:disabled { opacity: .55; cursor: default; }
   .bar .act .upcheck { display: inline-flex; align-items: center; gap: 7px; }
   .bar .act .upcheck loom-icon { color: var(--upd); }
