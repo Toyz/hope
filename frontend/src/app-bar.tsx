@@ -36,11 +36,7 @@ export function appBar(
       <div class="grow"></div>
       {actions}
       {opts.onRefresh ? (
-        <div class="s act">
-          <button style="display:inline-flex;align-items:center;gap:6px" disabled={!!opts.refreshing} onClick={() => opts.onRefresh!()}>
-            <loom-icon class={opts.refreshing ? "spin" : ""} name="rotate" size={13} color="var(--upd)"></loom-icon>refresh
-          </button>
-        </div>
+        <div class="s act"><hope-refresh run={() => opts.onRefresh!()}></hope-refresh></div>
       ) : null}
       <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={() => auth.logout()}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
     </div>

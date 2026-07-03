@@ -14,6 +14,16 @@ export class HostChanged extends LoomEvent {
   }
 }
 
+// Fired around any refresh: active=true when it starts, false when it ends. The
+// shared refresh control (<hope-refresh>) ref-counts these and spins while any
+// refresh is in flight — so the spin lasts exactly as long as the work, on every
+// mounted control, from any source.
+export class Refreshing extends LoomEvent {
+  constructor(public active: boolean) {
+    super();
+  }
+}
+
 // Fired by any modal when it opens or closes. The root shell (hope-app) listens
 // and ref-counts open modals to lock/unlock body scroll centrally — components
 // announce intent, the root owns the DOM side-effect. `source` is the modal
