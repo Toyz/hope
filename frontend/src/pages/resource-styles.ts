@@ -31,10 +31,6 @@ export const resourceStyles = `
   .summary .v.warnv { color: var(--warn); }
   .summary .v .t { color: var(--dim); font-weight: 400; font-style: normal; }
 
-  .search { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); padding: 0 14px; margin-bottom: 16px; }
-  .search .ico { color: var(--dim); display: flex; }
-  .search input { flex: 1; background: transparent; border: 0; outline: 0; color: var(--hi); font: 400 13px/1 var(--mono); padding: 12px 0; }
-
   .rlist { border: 1px solid var(--line); }
   .rrow { display: flex; align-items: center; gap: 13px; padding: 0 16px; height: 46px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .rrow:last-child { border-bottom: none; }

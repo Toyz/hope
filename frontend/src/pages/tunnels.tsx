@@ -681,10 +681,7 @@ export class TunnelsPage extends LoomElement {
           ) : null}
 
           {!this.disabled && this.routes.length > 3 ? (
-            <div class="search">
-              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
-              <input type="text" placeholder="Filter routes by hostname…" value={this.hostQuery} onInput={(e: any) => (this.hostQuery = e.target.value)} />
-            </div>
+            <hope-search placeholder="Filter routes by hostname…" text={this.hostQuery} onSearch={(e: any) => (this.hostQuery = e.detail)}></hope-search>
           ) : null}
 
           {this.connectors.map((c) => this.renderConnector(c))}

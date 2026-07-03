@@ -210,10 +210,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
           ) : null}
 
           {items.length > 0 ? (
-            <div class="search">
-              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
-              <input type="text" placeholder="Search networks…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
-            </div>
+            <hope-search placeholder="Search networks…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
           ) : null}
 
           {vis.length > 0 ? (

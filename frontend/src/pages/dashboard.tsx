@@ -128,19 +128,6 @@ interface Ranked extends StackSummary {
   .hrefresh:hover { color: var(--hi); background: var(--raised); }
   .hrefresh:disabled { opacity: .6; cursor: not-allowed; }
 
-  /* search */
-  .search { position: relative; margin-bottom: 22px; }
-  .search input {
-    width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
-    font: 13px/1 var(--mono); padding: 12px 13px 12px 38px; border-radius: 0;
-  }
-  .search input::placeholder { color: var(--dim); }
-  .search input:focus { outline: none; border-color: var(--line2); }
-  .search .ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
-  .search .clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-    background: transparent; border: 0; color: var(--dim); cursor: pointer; font: 11px/1 var(--mono);
-    letter-spacing: .1em; text-transform: uppercase; padding: 5px; }
-  .search .clear:hover { color: var(--hi); }
 
   /* ── fleet ribbon ── */
   .ribbon { display: flex; gap: 3px; height: 14px; margin: 6px 0 28px; }
@@ -899,16 +886,7 @@ export class DashboardPage extends LoomElement {
           {this.error ? <div class="empty">{this.error}</div> : null}
 
           {this.stacks.length > 0 ? (
-            <div class="search">
-              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
-              <input
-                type="text"
-                placeholder="Search stacks and services…"
-                value={this.query}
-                onInput={(e: any) => (this.query = e.target.value)}
-              />
-              {this.query ? <button class="clear" onClick={() => (this.query = "")}>clear</button> : null}
-            </div>
+            <hope-search placeholder="Search stacks and services…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
           ) : null}
 
           {all.length > 0 ? (

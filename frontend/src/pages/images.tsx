@@ -149,12 +149,6 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
   .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent;
     border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-  .search { position: relative; margin-bottom: 18px; }
-  .search input { width: 100%; background: var(--panel); border: 1px solid var(--line); color: var(--hi);
-    font: 13px/1 var(--mono); padding: 11px 12px 11px 38px; }
-  .search input::placeholder { color: var(--dim); }
-  .search input:focus { outline: none; border-color: var(--line2); }
-  .search .ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--dim); display: flex; }
 
   table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
   colgroup col.c-sel { width: 40px; }
@@ -861,10 +855,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
           ) : null}
 
           {this.items().length > 0 ? (
-            <div class="search">
-              <span class="ico"><loom-icon name="search" size={15}></loom-icon></span>
-              <input type="text" placeholder="Search image tags and ids…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
-            </div>
+            <hope-search placeholder="Search image tags and ids…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
           ) : null}
 
           {vis.length > 0 ? (
