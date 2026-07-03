@@ -42,14 +42,10 @@ import { appBar } from "../app-bar";
   .lcard .lb { flex: 1; min-width: 0; }
   .lcard .go { color: var(--dim); }
 
-  .panel { border: 1px solid var(--line); background: var(--panel); margin-bottom: 14px; }
-  .ph { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line);
-    font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
-  .ph .n { color: var(--dim); }
-  .pb { padding: 16px; }
-  .pb p { font: 12.5px/1.7 var(--mono); color: var(--mid); margin: 0 0 12px; }
-  .pb p:last-child { margin-bottom: 0; }
-  .pb p code, .htable code { color: var(--upd); }
+  /* section cards use the site-standard <hope-panel>; these style its slotted body */
+  .doc p { font: 12.5px/1.7 var(--mono); color: var(--mid); margin: 0 0 12px; }
+  .doc p:last-child { margin-bottom: 0; }
+  .doc p code, .htable code { color: var(--upd); }
 
   .htable { display: flex; flex-direction: column; }
   .hrow { display: flex; gap: 18px; align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--line); }
@@ -149,34 +145,25 @@ export class ApiDocsPage extends LoomElement {
             </a>
           </div>
 
-          <div class="panel">
-            <div class="ph"><span class="n">01</span> Get a key</div>
-            <div class="pb">
-              <p>Set one or more long random keys in hope's config, then restart. A key is root-equivalent over every host hope manages — keep it secret.</p>
-              {this.codeBlock("key", this.keyBlock)}
-            </div>
-          </div>
+          <hope-panel n="01" label="Get a key">
+            <p>Set one or more long random keys in hope's config, then restart. A key is root-equivalent over every host hope manages — keep it secret.</p>
+            {this.codeBlock("key", this.keyBlock)}
+          </hope-panel>
 
-          <div class="panel">
-            <div class="ph"><span class="n">02</span> Headers</div>
-            <div class="pb">
-              <div class="htable">
-                <div class="hrow"><span class="hk req">Authorization: Bearer &lt;key&gt;</span><span class="hv">Required. Your API key (or a session token).</span></div>
-                <div class="hrow"><span class="hk req">Content-Type: application/json</span><span class="hv">Required.</span></div>
-                <div class="hrow"><span class="hk">X-Hope-Host: &lt;host-id&gt;</span><span class="hv">Optional. Target one host for this call — <code>local</code> or an agent id from the Agents page. Omit to use the active host.</span></div>
-              </div>
+          <hope-panel n="02" label="Headers">
+            <div class="htable">
+              <div class="hrow"><span class="hk req">Authorization: Bearer &lt;key&gt;</span><span class="hv">Required. Your API key (or a session token).</span></div>
+              <div class="hrow"><span class="hk req">Content-Type: application/json</span><span class="hv">Required.</span></div>
+              <div class="hrow"><span class="hk">X-Hope-Host: &lt;host-id&gt;</span><span class="hv">Optional. Target one host for this call — <code>local</code> or an agent id from the Agents page. Omit to use the active host.</span></div>
             </div>
-          </div>
+          </hope-panel>
 
-          <div class="panel">
-            <div class="ph"><span class="n">03</span> Request shape</div>
-            <div class="pb">
-              <p>Method names are lower-first (<code>Stacks/list</code>, <code>Containers/inspect</code>). Arguments go in <code>args</code> — sov accepts either a <b>named object</b> matching the method's params or a <b>positional array</b>. (The UI uses positional; both hit the same handler.)</p>
-              {this.codeBlock("curl", this.curl)}
-              <p style="margin-top:14px">Both forms of <code>args</code> for <code>Containers/inspect</code>:</p>
-              {this.codeBlock("args", this.argForms)}
-            </div>
-          </div>
+          <hope-panel n="03" label="Request shape">
+            <p>Method names are lower-first (<code>Stacks/list</code>, <code>Containers/inspect</code>). Arguments go in <code>args</code> — sov accepts either a <b>named object</b> matching the method's params or a <b>positional array</b>. (The UI uses positional; both hit the same handler.)</p>
+            {this.codeBlock("curl", this.curl)}
+            <p style="margin-top:14px">Both forms of <code>args</code> for <code>Containers/inspect</code>:</p>
+            {this.codeBlock("args", this.argForms)}
+          </hope-panel>
           </div>
         </main>
       </div>

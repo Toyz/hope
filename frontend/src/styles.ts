@@ -81,6 +81,10 @@ export const theme = css`
   .seg > i.bad, .seg > i.loop { background: var(--bad); }
   .seg > i.upd { background: var(--upd); }
 
+  /* <hope-alert> slotted-message emphasis (light DOM, so styled globally) */
+  hope-alert b { color: var(--hi); font-weight: 600; }
+  hope-alert code { color: var(--hi); font-family: var(--mono); }
+
   /* tooltip — flat, hairline, no shadow */
   [data-tip] { position: relative; }
   [data-tip]:hover::after {

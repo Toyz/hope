@@ -163,15 +163,12 @@ const MAX_LINES = 600;
   .kv .v.link { cursor: pointer; }
   .kv .v.link:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
 
-  .netblk { border: 1px solid var(--line); margin-bottom: 22px; }
-  .netlbl { display: flex; align-items: center; gap: 10px; font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
-    padding: 11px 16px; border-bottom: 1px solid var(--line); }
-  .netlbl .grow { flex: 1; }
-  .netlbl .rshare { font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ok);
+  /* Networks + Public routes use <hope-panel>; these style the header actions */
+  .rshare { font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ok);
     border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
-  .netlbl .addr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
+  .addr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 9px; }
-  .netlbl .addr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .addr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   /* .netrow is the public-routes row (the networks list uses .nettbl now) */
   .netrow { display: flex; flex-wrap: wrap; gap: 9px 22px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); }
   .netrow:last-child { border-bottom: 0; }
@@ -1108,8 +1105,7 @@ export class ContainerPage extends LoomElement {
           </div>
 
           {this.netList().length ? (
-            <div class="netblk">
-              <div class="netlbl">Networks</div>
+            <hope-panel label="Networks" flush={true}>
               <table class="nettbl">
                 <thead>
                   <tr><th>network</th><th>ip</th><th>gateway</th><th>mac</th><th>aliases</th><th class="sp"></th></tr>
@@ -1127,17 +1123,13 @@ export class ContainerPage extends LoomElement {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </hope-panel>
           ) : null}
 
           {this.tunnelsOn ? (
-            <div class="netblk">
-              <div class="netlbl">
-                Public routes
-                {this.siblings.length > 1 ? <span class="rshare" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</span> : null}
-                <span class="grow"></span>
-                <button class="addr" onClick={this.addTunnel}>+ add tunnel</button>
-              </div>
+            <hope-panel label="Public routes" flush={true}>
+              {this.siblings.length > 1 ? <span slot="actions" class="rshare" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</span> : null}
+              <button slot="actions" class="addr" onClick={this.addTunnel}>+ add tunnel</button>
               {this.myRoutes().length ? (
                 this.myRoutes().map((r) => (
                   <div class="netrow trow">
@@ -1153,7 +1145,7 @@ export class ContainerPage extends LoomElement {
               ) : (
                 <div class="netrow none">No public routes — <b>+ add tunnel</b> to expose this service.</div>
               )}
-            </div>
+            </hope-panel>
           ) : null}
 
           <div class="tabs">

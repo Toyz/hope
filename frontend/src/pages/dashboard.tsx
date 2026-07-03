@@ -361,6 +361,17 @@ export class DashboardPage extends LoomElement {
   }
 
   // The single-host Docker daemon strip, built from the shared statStrip.
+  // Persistence warning — shown in both the single-host and fleet dashboards
+  // when no state db is mounted.
+  private storeBanner() {
+    if (!this.storeOff) return null;
+    return (
+      <hope-alert tone="warn">
+        No state db mounted — some state (e.g. <b>UI-added registries</b>) won't persist across a restart. Mount a volume and set <code>[store] path</code> to keep it.
+      </hope-alert>
+    );
+  }
+
   private hostStrip() {
     const h = this.host;
     const dt = this.diskTotals();
@@ -386,13 +397,6 @@ export class DashboardPage extends LoomElement {
           ) : gb(dt.cache),
         },
       );
-    }
-    if (this.storeOff) {
-      cells.push({
-        k: "persistence",
-        v: <span data-tip="No state db mounted. Mount a volume and set [store] path so agents, registries, the freshness cache and deploy specs survive a restart.">off</span>,
-        cls: "warn",
-      });
     }
     return this.statStrip(
       cells,
@@ -733,6 +737,7 @@ export class DashboardPage extends LoomElement {
         </div>
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
+          {this.storeBanner()}
           {!this.loaded ? <div class="loading">loading fleet…</div> : null}
           {this.error ? <div class="err">{this.error}</div> : null}
 
@@ -875,6 +880,7 @@ export class DashboardPage extends LoomElement {
 
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
+          {this.storeBanner()}
           {this.host ? this.hostStrip() : null}
 
           {this.error ? <div class="empty">{this.error}</div> : null}

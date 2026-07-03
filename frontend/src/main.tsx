@@ -28,6 +28,7 @@ import "./components/image-detail"; // shared image-detail modal (<hope-image-de
 import "./components/kvlist"; // reusable key/value list for labels/options (<hope-kvlist>)
 import "./components/kv-editor"; // shared key/value editor for options/labels (<hope-kv-editor>)
 import "./components/panel"; // site-standard section card + header bar (<hope-panel>)
+import "./components/alert"; // reusable inline banner (<hope-alert>)
 import "./components/network-detail"; // shared network inspector modal (<hope-network-detail>)
 import "./app";
 import "./pages/login";
