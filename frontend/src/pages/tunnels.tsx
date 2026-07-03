@@ -52,7 +52,6 @@ const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "â
   .caddr.upd:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
   .cx { background: transparent; border: 0; color: var(--dim); cursor: pointer; padding: 4px; display: flex; }
   .cx:hover { color: var(--bad); }
-  .seclbl { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin: 0 0 12px; }
   td.host a { color: var(--hi); text-decoration: none; }
   td.host a:hover { text-decoration: underline; }
   td.host .sub { color: var(--hi); font-weight: 600; }
