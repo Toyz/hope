@@ -301,6 +301,7 @@ export class DashboardPage extends LoomElement {
   // Bulk-update picker: open state + selected group keys (host|project).
   @reactive accessor updModalOpen = false;
   @reactive accessor updSel: string[] = [];
+  @reactive accessor updModalHost = ""; // scope the picker to one host ("" = all)
 
   private toggleHost = (id: string) => {
     this.collapsed = this.collapsed.includes(id)
@@ -747,11 +748,16 @@ export class DashboardPage extends LoomElement {
   }
   private updKey = (g: { project: string; host?: string }) => (g.host ? g.host + "|" : "") + g.project;
 
-  // Open the bulk picker. With a host, pre-select just that host's stacks (from
-  // clicking a host section's update chip); without, select everything.
+  // The groups the picker shows — scoped to one host when opened from a host chip.
+  private modalGroups() {
+    return this.allUpdateGroups().filter((g) => !this.updModalHost || g.host === this.updModalHost);
+  }
+
+  // Open the bulk picker. With a host, scope the list to that host (from clicking
+  // a host section's update chip); without, show every host. All start selected.
   private openUpdModal = (host?: string) => {
-    const groups = this.allUpdateGroups();
-    this.updSel = groups.filter((g) => !host || g.host === host).map(this.updKey);
+    this.updModalHost = host || "";
+    this.updSel = this.modalGroups().map(this.updKey);
     this.updModalOpen = true;
   };
   private toggleUpd = (key: string) => {
@@ -761,7 +767,7 @@ export class DashboardPage extends LoomElement {
   // Pull latest + recreate the outdated containers of every selected stack, one
   // after another in a single proc dialog so the whole sweep streams in one place.
   private bulkUpdate = async () => {
-    const groups = this.allUpdateGroups().filter((g) => this.updSel.includes(this.updKey(g)));
+    const groups = this.modalGroups().filter((g) => this.updSel.includes(this.updKey(g)));
     if (!groups.length) return;
     this.updModalOpen = false;
     let ok = true;
@@ -782,8 +788,9 @@ export class DashboardPage extends LoomElement {
   };
 
   private renderUpdModal() {
-    const groups = this.allUpdateGroups();
+    const groups = this.modalGroups();
     const sel = this.updSel;
+    const scoped = !!this.updModalHost;
     const allOn = groups.length > 0 && groups.every((g) => sel.includes(this.updKey(g)));
     return (
       <div class="dmodal" onClick={() => (this.updModalOpen = false)}>
@@ -791,6 +798,7 @@ export class DashboardPage extends LoomElement {
           <div class="uhead">
             <loom-icon name="download" size={15}></loom-icon>
             <span class="ut">Update stacks</span>
+            {scoped ? <hope-chip host={true}>{this.updModalHost}</hope-chip> : null}
             <span class="usub">{groups.length} with newer images</span>
             <span class="grow"></span>
             <button class="dx" onClick={() => (this.updModalOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
@@ -806,7 +814,7 @@ export class DashboardPage extends LoomElement {
               return (
                 <div class={"brow" + (on ? " on" : "")} onClick={() => this.toggleUpd(key)}>
                   <span class={"ck" + (on ? " on" : "")}></span>
-                  <span class="uname">{g.host ? <hope-chip host={true}>{g.host}</hope-chip> : null}{g.project}</span>
+                  <span class="uname">{g.host && !scoped ? <hope-chip host={true}>{g.host}</hope-chip> : null}{g.project}</span>
                   <span class="usvcs">
                     {g.services.slice(0, 6).map((s) => <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>)}
                     {g.services.length > 6 ? <span class="svc more">+{g.services.length - 6}</span> : null}
