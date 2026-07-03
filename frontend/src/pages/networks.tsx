@@ -217,36 +217,33 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
           ) : null}
 
           {vis.length > 0 ? (
-            <table>
-              <colgroup>
-                <col class="c-sel" />
-                <col class="c-name" />
-                <col class="c-meta" />
-                <col class="c-meta" />
-                <col class="c-use" />
-                <col class="c-act" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((n) => this.selected.includes(this.key(n))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                  <th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {vis.map((n) => (
-                  <tr class={this.selected.includes(this.key(n)) ? "sel" : ""} onClick={() => this.networkDetail.open({ host: n.host, ref: n.name, onChange: () => this.refresh() })}>
-                    {n.used_by.length ? <td class="sel"></td> : (
-                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
-                    )}
-                    <td class="rname">{n.host ? <span class="htag" title={n.host}>{n.host}</span> : null}{n.name}{n.internal ? <span class="chip" style="margin-left:8px">internal</span> : null}</td>
-                    <td class="rmeta">{n.driver}</td>
-                    <td class="rmeta">{n.scope}</td>
-                    <td class="use">{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="ubmore"> +{n.used_by.length - 1}</span> : null}</span> : <span class="none">—</span>}</td>
-                    <td class="r">{!n.used_by.length ? <button class="rm" title="remove network" onClick={(e: Event) => { e.stopPropagation(); this.del(n); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
+            <hope-table>
+              <table>
+                <colgroup>
+                  <col style="width:40px" /><col /><col style="width:120px" /><col style="width:110px" /><col style="width:28%" /><col style="width:52px" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th class="pl"><span class={"ck" + (this.removable().length > 0 && this.removable().every((n) => this.selected.includes(this.key(n))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                    <th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {vis.map((n) => (
+                    <tr class={"click" + (this.selected.includes(this.key(n)) ? " sel" : "")} onClick={() => this.networkDetail.open({ host: n.host, ref: n.name, onChange: () => this.refresh() })}>
+                      {n.used_by.length ? <td class="pl"></td> : (
+                        <td class="pl" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
+                      )}
+                      <td class="hi">{n.host ? <span class="htag" title={n.host}>{n.host}</span> : null}{n.name}</td>
+                      <td class="dim">{n.driver}</td>
+                      <td class="dim">{n.scope}</td>
+                      <td>{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="dim"> +{n.used_by.length - 1}</span> : null}</span> : <span class="dim">—</span>}</td>
+                      <td class="r">{!n.used_by.length ? <button class="rm" title="remove network" onClick={(e: Event) => { e.stopPropagation(); this.del(n); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </hope-table>
           ) : items.length === 0 && !error && !busy ? (
             <div class="empty">No networks.</div>
           ) : null}

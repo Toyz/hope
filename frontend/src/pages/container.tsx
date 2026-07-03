@@ -21,7 +21,6 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import { ImageDetailService } from "../components/image-detail";
 import { NetworkDetailService } from "../components/network-detail";
-import type { HopeColumn } from "../components/table";
 import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView, TopResult } from "../contracts";
 import { markClass } from "../styles";
 import "../components/service-form";
@@ -269,18 +268,6 @@ const MAX_LINES = 600;
   .pnum { color: #e0a23b; font-family: var(--mono); }
   .pmuted { color: var(--dim); }
   .pempty { padding: 32px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
-
-  /* processes (docker top) */
-  .procwrap { border: 1px solid var(--line); overflow: auto; max-height: 62vh; }
-  .proctable { width: 100%; border-collapse: collapse; }
-  .proctable th { position: sticky; top: 0; z-index: 1; text-align: left; white-space: nowrap; background: var(--panel);
-    padding: 10px 14px; border-bottom: 1px solid var(--line); font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .proctable td { padding: 9px 14px; border-bottom: 1px solid var(--line); font: 12.5px/1.5 var(--mono); color: var(--hi);
-    white-space: nowrap; vertical-align: top; }
-  .proctable td:last-child { white-space: normal; word-break: break-all; color: var(--mid); } /* CMD column wraps */
-  .proctable tr:last-child td { border-bottom: none; }
-  .proctable tbody tr:hover td { background: var(--raised); }
-  .proctable .pnone { text-align: center; color: var(--dim); white-space: normal; }
 
   .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
     overflow: hidden; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
@@ -942,19 +929,6 @@ export class ContainerPage extends LoomElement {
     return out.join(", ") || "—";
   }
 
-  // Columns for the container's networks table (<hope-table>). The name cell
-  // opens the shared network inspector; a trailing grow column keeps the data
-  // clustered left.
-  private get netCols(): HopeColumn[] {
-    return [
-      { label: "network", tip: () => "inspect network", render: (n) => <span class="link" onClick={() => this.networkDetail.open({ host: this.hostCtx.activeHost, ref: n.name })}>{n.name}</span> },
-      { label: "ip", width: "150px", cls: () => "num", render: (n) => n.ip || "—" },
-      { label: "gateway", width: "150px", cls: () => "num", render: (n) => n.gateway || "—" },
-      { label: "mac", width: "168px", cls: () => "num", render: (n) => n.mac || "—" },
-      { label: "aliases", grow: true, cls: () => "dim", tip: (n) => (n.aliases.length ? n.aliases.join(", ") : undefined), render: (n) => (n.aliases.length ? n.aliases.join(", ") : "—") },
-    ];
-  }
-
   // The networks this container is attached to, with its address on each.
   private netList() {
     const nets = this.info?.NetworkSettings?.Networks ?? {};
@@ -1105,7 +1079,23 @@ export class ContainerPage extends LoomElement {
 
           {this.netList().length ? (
             <hope-panel label="Networks" icon="link" flush={true}>
-              <hope-table columns={this.netCols} rows={this.netList()}></hope-table>
+              <hope-table>
+                <table class="flat">
+                  <colgroup><col /><col style="width:150px" /><col style="width:150px" /><col style="width:168px" /><col style="width:30%" /></colgroup>
+                  <thead><tr><th class="pl">Network</th><th>IP</th><th>Gateway</th><th>MAC</th><th>Aliases</th></tr></thead>
+                  <tbody>
+                    {this.netList().map((n) => (
+                      <tr>
+                        <td class="pl"><span class="link" onClick={() => this.networkDetail.open({ host: this.hostCtx.activeHost, ref: n.name })}>{n.name}</span></td>
+                        <td class="num">{n.ip || "—"}</td>
+                        <td class="num">{n.gateway || "—"}</td>
+                        <td class="num">{n.mac || "—"}</td>
+                        <td class="dim">{n.aliases.length ? n.aliases.join(", ") : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </hope-table>
             </hope-panel>
           ) : null}
 
@@ -1182,21 +1172,22 @@ export class ContainerPage extends LoomElement {
             ) : !this.procs ? (
               <div class="pempty">{this.procsLoading ? "Loading processes…" : "No process data."}</div>
             ) : (
-              <div class="procwrap">
-                <table class="proctable">
+              <hope-table>
+                <table>
+                  <colgroup>{this.procs.titles.map((_, i) => <col style={i === this.cmdColIdx() ? "" : "width:14%"} />)}</colgroup>
                   <thead><tr>{this.procs.titles.map((t) => <th>{t}</th>)}</tr></thead>
                   <tbody>
                     {this.procs.processes.length ? (
                       this.procs.processes.map((row) => {
                         const ci = this.cmdColIdx();
-                        return <tr>{row.map((cell, x) => <td>{x === ci && !this.revealSecrets ? redactCmd(cell) : cell}</td>)}</tr>;
+                        return <tr>{row.map((cell, x) => <td class={x === ci ? "cmd" : "num"}>{x === ci && !this.revealSecrets ? redactCmd(cell) : cell}</td>)}</tr>;
                       })
                     ) : (
-                      <tr><td colSpan={this.procs.titles.length || 1} class="pnone">No running processes.</td></tr>
+                      <tr><td colSpan={this.procs.titles.length || 1} class="dim" style="text-align:center">No running processes.</td></tr>
                     )}
                   </tbody>
                 </table>
-              </div>
+              </hope-table>
             )
           ) : null}
 

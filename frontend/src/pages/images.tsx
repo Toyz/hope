@@ -165,6 +165,8 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
   colgroup col.c-use { width: 29%; }
   colgroup col.c-act { width: 7%; }
   th.sel, td.sel { padding-left: 16px; padding-right: 0; cursor: pointer; }
+  /* box widgets overflow their narrow column; clip so no stray ellipsis mark shows */
+  th:has(.ck), td:has(.ck), td:has(.rm) { text-overflow: clip; }
   td.sel:hover .ck { border-color: var(--mid); }
   .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
   .ck:hover { border-color: var(--mid); }

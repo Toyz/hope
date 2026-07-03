@@ -237,36 +237,33 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
           ) : null}
 
           {vis.length > 0 ? (
-            <table>
-              <colgroup>
-                <col class="c-sel" />
-                <col class="c-name" />
-                <col class="c-meta" />
-                <col class="c-meta" />
-                <col class="c-use" />
-                <col class="c-act" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((v) => this.selected.includes(v.name)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                  <th>Name</th><th>Driver</th><th class="r">Size</th><th>Mounted by</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {vis.map((v) => (
-                  <tr class={this.selected.includes(v.name) ? "sel" : ""} onClick={() => (this.detail = v)}>
-                    {v.used_by.length ? <td class="sel"></td> : (
-                      <td class="sel" onClick={(e: Event) => this.toggleSel(v.name, e)}><span class={"ck" + (this.selected.includes(v.name) ? " on" : "")}></span></td>
-                    )}
-                    <td class="rname">{v.host ? <span class="htag" title={v.host}>{v.host}</span> : null}{v.name}</td>
-                    <td class="rmeta">{v.driver}</td>
-                    <td class="rmeta r">{bytes(v.size)}</td>
-                    <td class="use">{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="ubmore"> +{v.used_by.length - 1}</span> : null}</span> : <span class="none">unused</span>}</td>
-                    <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
+            <hope-table>
+              <table>
+                <colgroup>
+                  <col style="width:40px" /><col /><col style="width:120px" /><col style="width:100px" /><col style="width:30%" /><col style="width:52px" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th class="pl"><span class={"ck" + (this.removable().length > 0 && this.removable().every((v) => this.selected.includes(v.name)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
+                    <th>Name</th><th>Driver</th><th class="r">Size</th><th>Mounted by</th><th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {vis.map((v) => (
+                    <tr class={"click" + (this.selected.includes(v.name) ? " sel" : "")} onClick={() => (this.detail = v)}>
+                      {v.used_by.length ? <td class="pl"></td> : (
+                        <td class="pl" onClick={(e: Event) => this.toggleSel(v.name, e)}><span class={"ck" + (this.selected.includes(v.name) ? " on" : "")}></span></td>
+                      )}
+                      <td class="hi">{v.host ? <span class="htag" title={v.host}>{v.host}</span> : null}{v.name}</td>
+                      <td class="dim">{v.driver}</td>
+                      <td class="r num">{bytes(v.size)}</td>
+                      <td>{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="dim"> +{v.used_by.length - 1}</span> : null}</span> : <span class="dim">unused</span>}</td>
+                      <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </hope-table>
           ) : items.length === 0 && !error && !busy ? (
             <div class="empty">No volumes.</div>
           ) : null}
