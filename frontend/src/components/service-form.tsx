@@ -8,7 +8,7 @@
 // via getSpec(). That avoids a per-keystroke round-trip through the parent.
 import { LoomElement, component, styles, css, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
-import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option } from "../contracts";
+import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option, HealthSpec } from "../contracts";
 
 interface PortRow { host: string; container: string; proto: string; }
 interface EnvRow { k: string; v: string; }
@@ -118,6 +118,12 @@ export class HopeServiceForm extends LoomElement {
   @reactive accessor capAdd = "";
   @reactive accessor privileged = false;
   @reactive accessor labels: EnvRow[] = [];
+  // healthcheck (compose healthcheck: block). hcTest is the shell command; empty = none.
+  @reactive accessor hcTest = "";
+  @reactive accessor hcInterval = "";
+  @reactive accessor hcTimeout = "";
+  @reactive accessor hcRetries = "";
+  @reactive accessor hcStart = "";
   @reactive accessor advOpen = false;
 
   @mount
@@ -149,6 +155,13 @@ export class HopeServiceForm extends LoomElement {
     this.capAdd = (s.cap_add || []).join(", ");
     this.privileged = !!s.privileged;
     this.labels = Object.entries(s.labels || {}).map(([k, v]) => ({ k, v }));
+    const t = s.health?.test || [];
+    // Strip the compose CMD/CMD-SHELL prefix for editing; NONE = disabled.
+    this.hcTest = t[0] === "NONE" ? "" : t[0] === "CMD-SHELL" || t[0] === "CMD" ? t.slice(1).join(" ") : t.join(" ");
+    this.hcInterval = s.health?.interval || "";
+    this.hcTimeout = s.health?.timeout || "";
+    this.hcRetries = s.health?.retries != null ? String(s.health.retries) : "";
+    this.hcStart = s.health?.start_period || "";
   }
 
   /** getSpec assembles the current fields into a ContainerSpec. */
@@ -192,6 +205,16 @@ export class HopeServiceForm extends LoomElement {
     if (this.privileged) spec.privileged = true;
     const caps = this.capAdd.split(",").map((c) => c.trim()).filter(Boolean);
     if (caps.length) spec.cap_add = caps;
+    const hcCmd = this.hcTest.trim();
+    if (hcCmd) {
+      const health: HealthSpec = { test: ["CMD-SHELL", hcCmd] };
+      if (this.hcInterval.trim()) health.interval = this.hcInterval.trim();
+      if (this.hcTimeout.trim()) health.timeout = this.hcTimeout.trim();
+      if (this.hcStart.trim()) health.start_period = this.hcStart.trim();
+      const r = parseInt(this.hcRetries, 10);
+      if (!isNaN(r) && r > 0) health.retries = r;
+      spec.health = health;
+    }
     const labels: Record<string, string> = {};
     for (const l of this.labels) if (l.k.trim()) labels[l.k.trim()] = l.v;
     if (Object.keys(labels).length) spec.labels = labels;
@@ -388,6 +411,16 @@ export class HopeServiceForm extends LoomElement {
               <div class="f"><label>working dir</label><input type="text" placeholder="/app" value={this.workingDir} onInput={(e: any) => (this.workingDir = e.target.value)} /></div>
               <div class="f"><label>cap_add</label><input type="text" placeholder="NET_ADMIN, SYS_TIME" value={this.capAdd} onInput={(e: any) => (this.capAdd = e.target.value)} /></div>
               <div class="f"><label>privileged</label><span class={"tog" + (this.privileged ? " on" : "")} onClick={() => (this.privileged = !this.privileged)}><span class="sw"></span><span class="tl">{this.privileged ? "on" : "off"}</span></span></div>
+            </div>
+            <div class="sec">
+              <div class="lab"><span>healthcheck</span></div>
+              <div class="grid">
+                <div class="f wide"><label>test command</label><input type="text" placeholder="curl -fsS http://localhost:8080/health || exit 1" value={this.hcTest} onInput={(e: any) => (this.hcTest = e.target.value)} /></div>
+                <div class="f"><label>interval</label><input type="text" placeholder="30s" value={this.hcInterval} onInput={(e: any) => (this.hcInterval = e.target.value)} /></div>
+                <div class="f"><label>timeout</label><input type="text" placeholder="5s" value={this.hcTimeout} onInput={(e: any) => (this.hcTimeout = e.target.value)} /></div>
+                <div class="f"><label>retries</label><input type="text" placeholder="3" value={this.hcRetries} onInput={(e: any) => (this.hcRetries = e.target.value)} /></div>
+                <div class="f"><label>start period</label><input type="text" placeholder="10s" value={this.hcStart} onInput={(e: any) => (this.hcStart = e.target.value)} /></div>
+              </div>
             </div>
             <div class="sec">
               <div class="lab"><span>labels</span></div>
