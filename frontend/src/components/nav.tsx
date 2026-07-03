@@ -17,14 +17,26 @@ const ITEMS: [string, string][] = [
   ["tunnels", "/tunnels"],
 ];
 
+// Icon per nav item (registered in icons.ts).
+const NAV_ICONS: Record<string, string> = {
+  deploy: "rocket",
+  images: "box",
+  networks: "link",
+  volumes: "database",
+  agents: "server",
+  tunnels: "globe",
+  api: "code",
+};
+
 @component("hope-nav")
 @styles(theme, css`
   :host { display: flex; align-items: stretch; position: relative; }
   .strip { display: flex; align-items: stretch; }
   .item { display: flex; align-items: center; padding: 0 14px; border-right: 1px solid var(--line); }
-  .navlink { font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); cursor: pointer; white-space: nowrap; }
-  .navlink:hover { color: var(--hi); }
-  .navlink.on { color: var(--hi); }
+  .navlink { display: inline-flex; align-items: center; gap: 7px; font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .navlink loom-icon { color: var(--dim); transition: color .1s; }
+  .navlink:hover, .navlink:hover loom-icon { color: var(--hi); }
+  .navlink.on, .navlink.on loom-icon { color: var(--hi); }
 
   /* compact (narrow): a single menu button that opens a dropdown */
   .menubtn { display: inline-flex; align-items: center; gap: 8px; height: 100%; padding: 0 14px;
@@ -83,7 +95,7 @@ export class HopeNav extends LoomElement {
           {this.open ? (
             <div class="drop" onClick={(e: Event) => e.stopPropagation()}>
               {items.map(([label, path]) => (
-                <span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.go(path)}>{label}</span>
+                <span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.go(path)}><loom-icon name={NAV_ICONS[label]} size={13}></loom-icon>{label}</span>
               ))}
             </div>
           ) : null}
@@ -93,7 +105,7 @@ export class HopeNav extends LoomElement {
     return (
       <div class="strip">
         {items.map(([label, path]) => (
-          <div class="item"><span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.go(path)}>{label}</span></div>
+          <div class="item"><span class={"navlink" + (this.active === label ? " on" : "")} onClick={() => this.go(path)}><loom-icon name={NAV_ICONS[label]} size={13}></loom-icon>{label}</span></div>
         ))}
       </div>
     );

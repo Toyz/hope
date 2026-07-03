@@ -1008,7 +1008,7 @@ export class ContainerPage extends LoomElement {
                     <hope-nav></hope-nav>
           <div class="grow"></div>
           <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" title="edit this container's settings" onClick={this.openEdit}><loom-icon name="redeploy" size={13}></loom-icon> edit</button></div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
         </div>
 
         <main>

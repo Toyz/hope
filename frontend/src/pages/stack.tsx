@@ -94,9 +94,11 @@ function aggMark(items: ContainerSummary[]): string {
   .ttl .mark { width: 9px; height: 9px; }
   .ttl h1 { font: 600 22px/1 var(--mono); margin: 0; letter-spacing: .01em; }
   .toolbar { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  .tbtn { padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
+  .tbtn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
     font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+  .tbtn loom-icon { color: var(--dim); }
   .tbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .tbtn:hover loom-icon { color: var(--hi); }
   .tbtn:disabled { opacity: .4; cursor: not-allowed; }
   .more { position: relative; display: flex; }
   .more .tbtn { padding: 8px 11px; letter-spacing: .24em; }
@@ -1247,7 +1249,7 @@ export class StackPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><loom-link to="/" class="back">‹ {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
+          <div class="s"><loom-link to="/" class="back"><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
           {this.host && this.host !== "local" ? (
             <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}
@@ -1258,9 +1260,9 @@ export class StackPage extends LoomElement {
             <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={!!this.busy} title="add a service to this stack" onClick={() => this.addServiceToStack()}><loom-icon name="plus" size={12}></loom-icon> service</button></div>
           )}
           {this.isUngrouped ? null : (
-            <div class="s act"><button title="edit this stack in the builder" onClick={() => this.editStack()}>edit</button></div>
+            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" title="edit this stack in the builder" onClick={() => this.editStack()}><loom-icon name="edit" size={12}></loom-icon>edit</button></div>
           )}
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
         </div>
 
         <main>
@@ -1280,9 +1282,9 @@ export class StackPage extends LoomElement {
                       <button class="tbtn danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</button>
                     ) : (
                       <>
-                        <button class="tbtn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</button>
-                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</button>
-                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</button>
+                        <button class="tbtn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}><loom-icon name="terminal" size={13}></loom-icon>logs</button>
+                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("restart")}><loom-icon name="rotate" size={13}></loom-icon>{this.busy === "stack:restart" ? "restart…" : "restart"}</button>
+                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}><loom-icon name="redeploy" size={13}></loom-icon>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</button>
                         <div class="more">
                           <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
                           {this.menuOpen ? (
@@ -1703,7 +1705,7 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="rdx" onClick={() => (this.cloneOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
-          <p class="rdmsg">Deploys this stack's spec onto the checked hosts. Public routes stay on the source (a hostname can't point at two hosts) — add them per host after.</p>
+          <p class="rdmsg">Deploys this stack's spec onto the checked hosts. Named volumes are created empty — data isn't copied — and bind-mount host paths must already exist on the target. Public routes stay on the source; add them per host after.</p>
           <div class="rdbody">
             {targets.length === 0 ? (
               <div class="rdrow" style="cursor:default"><span class="rdname" style="color:var(--dim)">No other connected hosts.</span></div>

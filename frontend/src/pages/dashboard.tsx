@@ -990,7 +990,7 @@ export class DashboardPage extends LoomElement {
               <span>check</span>
             </button>
           </div>
-          <div class="s act"><button onClick={this.logout}>exit</button></div>
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
         </div>
 
         {this.loading ? <div class="loadbar"><i></i></div> : null}
