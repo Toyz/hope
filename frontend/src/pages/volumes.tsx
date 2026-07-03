@@ -251,7 +251,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
                       {v.used_by.length ? <td class="pl"></td> : (
                         <td class="pl" onClick={(e: Event) => this.toggleSel(v.name, e)}><span class={"ck" + (this.selected.includes(v.name) ? " on" : "")}></span></td>
                       )}
-                      <td class="hi">{v.host ? <span class="htag" title={v.host}>{v.host}</span> : null}{v.name}</td>
+                      <td class="hi">{v.host ? <hope-chip host={true} title={v.host}>{v.host}</hope-chip> : null}{v.name}</td>
                       <td class="dim">{v.driver}</td>
                       <td class="r num">{bytes(v.size)}</td>
                       <td>{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="dim"> +{v.used_by.length - 1}</span> : null}</span> : <span class="dim">unused</span>}</td>

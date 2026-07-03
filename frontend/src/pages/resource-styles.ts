@@ -54,12 +54,7 @@ export const resourceStyles = `
   .users .user b { color: var(--hi); font-weight: 600; }
   .users .user .sep { color: var(--dim); }
 
-  /* host pill + toolbar/filters (match the images page) */
-  .htag { display: inline-block; width: 96px; box-sizing: border-box; text-align: center; vertical-align: middle;
-    margin-right: 11px;
-    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
-    padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* toolbar/filters (match the images page) */
   .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
   .toolbar .grow { flex: 1; }
   .filters { display: flex; gap: 6px; }

@@ -119,9 +119,6 @@ export const theme = css`
   hope-table .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent;
     border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   hope-table .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--raised); }
-  hope-table .htag { display: inline-flex; justify-content: center; align-items: center; min-width: 78px; box-sizing: border-box;
-    margin-right: 11px; vertical-align: middle; font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-    color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; }
 
   /* tooltip — flat, hairline, no shadow */
   [data-tip] { position: relative; }
@@ -184,8 +181,8 @@ export function healthLabel(sev: Severity): string {
   return { ok: "healthy", warn: "degraded", down: "down", loop: "restarting" }[sev];
 }
 
-// The single sev -> text-tone class (ok green / warn amber / bad red / dim grey).
+// The single sev -> <hope-chip> tone (ok green / warn amber / bad red / neutral).
 // "down" is neutral (a fully-stopped stack isn't an error), loop is the loudest.
 export function severityTone(sev: Severity): string {
-  return { ok: "ok", warn: "warn", down: "dim", loop: "bad" }[sev];
+  return { ok: "ok", warn: "warn", down: "", loop: "bad" }[sev];
 }

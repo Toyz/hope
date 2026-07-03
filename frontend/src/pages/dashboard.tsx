@@ -80,22 +80,12 @@ interface Ranked extends StackSummary {
   .fleetsec .hdot.local { background: var(--upd); }
   .fleetsec .hdot.agent { background: var(--ok); }
   .fleetsec .khint { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .fleetsec .fbadge { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
-  .fleetsec .fbadge.warn { color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
-  .fleetsec .fbadge.bad { color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
-  .fleetsec .fbadge.upd { color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, transparent); }
 
   /* fleet summary reuses the .hostbar strip; these tint the highlight cells */
   .hostbar .hv.warn { color: var(--warn); }
   .hostbar .hv.bad { color: var(--bad); }
   .hostbar .hv.upd { color: var(--upd); }
 
-  /* cross-host rows prefix the name with a small host pill, so the grid (and
-     thus the service chips + count column) stays identical to the per-host view */
-  .row .name .htag { display: inline-block; box-sizing: border-box; width: 92px; margin-right: 9px; vertical-align: middle;
-    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; text-align: center;
-    color: var(--dim); padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .umark { color: var(--upd); }
   .row .name .svc { color: var(--dim); }
   .row .why.upd { color: var(--upd); }
@@ -573,7 +563,7 @@ export class DashboardPage extends LoomElement {
     return (
       <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
         <span class="mark upd"></span>
-        <span class="name">{opts.host ? <span class="htag" title={opts.host}>{opts.host}</span> : null}{g.project}</span>
+        <span class="name">{opts.host ? <hope-chip host={true} title={opts.host}>{opts.host}</hope-chip> : null}{g.project}</span>
         <span class="svcs">
           {g.services.slice(0, 8).map((s) => (
             <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
@@ -617,7 +607,7 @@ export class DashboardPage extends LoomElement {
     return (
       <div class="row" onClick={opts.onClick}>
         <span class={"mark " + s.sev}></span>
-        <span class="name">{opts.host ? <span class="htag" title={opts.host}>{opts.host}</span> : null}{s.project}</span>
+        <span class="name">{opts.host ? <hope-chip host={true} title={opts.host}>{opts.host}</hope-chip> : null}{s.project}</span>
         <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
           {s.sev === "loop"
             ? `${s.containers.filter((c: any) => c.state === "restarting").length} restarting`
@@ -809,8 +799,8 @@ export class DashboardPage extends LoomElement {
           <span class="rule"></span>
           {h.online ? (
             <>
-              {issues > 0 ? <span class={"fbadge " + (loops > 0 ? "bad" : "warn")}>{issues} {issues === 1 ? "issue" : "issues"}</span> : null}
-              {h.outdated > 0 ? <span class="fbadge upd">{h.outdated} {h.outdated === 1 ? "update" : "updates"}</span> : null}
+              {issues > 0 ? <hope-chip tone={loops > 0 ? "bad" : "warn"} size="sm">{issues} {issues === 1 ? "issue" : "issues"}</hope-chip> : null}
+              {h.outdated > 0 ? <hope-chip tone="upd" size="sm">{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
               <span class="n">{up}<span class="t">/{tot}</span></span>
             </>
           ) : (

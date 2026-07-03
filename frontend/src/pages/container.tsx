@@ -40,8 +40,6 @@ const MAX_LINES = 600;
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
   .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .back:hover { color: var(--hi); }
-  .bar .hostcrumb { font: 600 11px/1 var(--mono); letter-spacing: .08em; color: var(--ok); text-transform: lowercase;
-    padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: 6px; }
   .ov .v.slink loom-icon { vertical-align: -1px; }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .crumb .p { color: var(--mid); cursor: pointer; }
@@ -61,7 +59,6 @@ const MAX_LINES = 600;
   .ritem .rn { color: var(--hi); font-weight: 600; width: 30px; }
   .ritem .rid { color: var(--dim); flex: 1; }
   .ritem .rst { color: var(--mid); }
-  .rbadge { font: 600 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 6px 9px; }
   .updchip { display: inline-flex; align-items: center; gap: 6px; font: 600 10px/1 var(--mono); letter-spacing: .12em;
     text-transform: uppercase; padding: 6px 10px; background: transparent; cursor: pointer;
     color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); }
@@ -101,10 +98,6 @@ const MAX_LINES = 600;
   .id { display: flex; align-items: center; gap: 13px; margin-bottom: 4px; }
   .id .mark { width: 9px; height: 9px; flex: none; }
   .id h1 { font: 600 22px/1 var(--mono); margin: 0; }
-  .id .state { display: flex; align-items: center; gap: 8px; font: 600 11px/1 var(--mono);
-    letter-spacing: .12em; text-transform: uppercase; padding: 6px 11px; border: 1px solid var(--line); }
-  .id .state.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
-  .id .state.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .sub { font: 12px/1 var(--mono); color: var(--dim); margin-bottom: 20px; }
 
   /* overview readout — short metrics strip */
@@ -113,6 +106,7 @@ const MAX_LINES = 600;
   .ov .c:last-child { border-right: 0; }
   .ov .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
   .ov .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov .v.ok { color: var(--ok); }
   .ov .v.warn { color: var(--warn); }
   .ov .v.bad { color: var(--bad); }
   .ov .v .mdim { color: var(--dim); font-weight: 400; }
@@ -163,9 +157,6 @@ const MAX_LINES = 600;
   .kv .v.link { cursor: pointer; }
   .kv .v.link:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
 
-  /* Networks + Public routes use <hope-panel>; these style the header actions */
-  .rshare { font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ok);
-    border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
   .addr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 9px; }
   .addr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
@@ -956,7 +947,7 @@ export class ContainerPage extends LoomElement {
             </span>
           </div>
           {this.host && this.host !== "local" ? (
-            <div class="s"><span class="hostcrumb">{this.host}</span></div>
+            <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}
           <div class="s">
             <span class="crumb">
@@ -1002,9 +993,9 @@ export class ContainerPage extends LoomElement {
             <div class="id">
               <span class={"mark " + markClass(this.state())}></span>
               <h1>{this.service()}</h1>
-              {this.siblings.length > 1 ? <span class="rbadge">#{this.currentNumber()}</span> : null}
+              {this.siblings.length > 1 ? <hope-chip>#{this.currentNumber()}</hope-chip> : null}
               {this.state() ? (
-                <span class={"state " + (running ? "ok" : "bad")}>{this.state()}</span>
+                <hope-chip tone={running ? "ok" : "bad"}>{this.state()}</hope-chip>
               ) : null}
               {this.outdated ? (
                 <button class="updchip" disabled={!!this.cbusy} title="a newer image is available — redeploy to update" onClick={() => this.containerOp("redeploy")}>
@@ -1031,7 +1022,7 @@ export class ContainerPage extends LoomElement {
           <div class="sub">{this.id.slice(0, 24)}</div>
 
           <div class="ov">
-            <div class="c"><span class="k">State</span><span class={"v" + (running ? "" : " bad")}>{this.state() || "—"}</span></div>
+            <div class="c"><span class="k">State</span><span class={"v" + (running ? " ok" : this.state() === "restarting" ? " warn" : " bad")}>{this.state() || "—"}</span></div>
             <div class="c"><span class="k">Uptime</span><span class="v">{running ? uptime(this.info?.State?.StartedAt) : "—"}</span></div>
             {running ? (
               <>
@@ -1101,7 +1092,7 @@ export class ContainerPage extends LoomElement {
 
           {this.tunnelsOn ? (
             <hope-panel label="Public routes" icon="link" flush={true}>
-              {this.siblings.length > 1 ? <span slot="actions" class="rshare" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</span> : null}
+              {this.siblings.length > 1 ? <hope-chip slot="actions" tone="ok" size="sm" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</hope-chip> : null}
               <button slot="actions" class="addr" onClick={this.addTunnel}>+ add tunnel</button>
               {this.myRoutes().length ? (
                 this.myRoutes().map((r) => (

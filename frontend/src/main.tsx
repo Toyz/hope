@@ -31,6 +31,7 @@ import "./components/panel"; // site-standard section card + header bar (<hope-p
 import "./components/alert"; // reusable inline banner (<hope-alert>)
 import "./components/table"; // site-standard data table (<hope-table>)
 import "./components/search"; // site-standard filter box (<hope-search>)
+import "./components/chip"; // site-standard square label (<hope-chip>)
 import "./components/network-detail"; // shared network inspector modal (<hope-network-detail>)
 import "./app";
 import "./pages/login";

@@ -79,8 +79,6 @@ function aggMark(items: ContainerSummary[]): string {
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
   .bar .back { color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
   .bar .back:hover { color: var(--hi); }
-  .bar .hostcrumb { font: 600 11px/1 var(--mono); letter-spacing: .08em; color: var(--ok); text-transform: lowercase;
-    padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--ok) 40%, var(--line)); border-radius: 6px; }
   .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
   .bar .grow { flex: 1; }
   .bar .act { padding: 0; border-left: 1px solid var(--line); }
@@ -281,10 +279,10 @@ function aggMark(items: ContainerSummary[]): string {
   .tbtn.updbtn:hover { background: var(--upd); }
   .tbtn.updbtn:disabled { opacity: .4; cursor: not-allowed; }
   .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
-    padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; }
+    padding: 4px 8px; border: 1px solid var(--line); }
   /* aggregated stack health word, tinted by severity (see severityTone) */
   .health { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; padding: 4px 8px;
-    border: 1px solid var(--line); border-radius: 5px; }
+    border: 1px solid var(--line); }
   .health.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
   .health.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .health.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
@@ -1248,7 +1246,7 @@ export class StackPage extends LoomElement {
         <div class="bar">
           <div class="s"><loom-link to="/" class="back">‹ {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
           {this.host && this.host !== "local" ? (
-            <div class="s"><span class="hostcrumb">{this.host}</span></div>
+            <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}
           <div class="s"><span class="crumb">{this.project}</span></div>
                     <hope-nav></hope-nav>
@@ -1271,8 +1269,8 @@ export class StackPage extends LoomElement {
                   <div class="ttl">
                     <span class={"mark " + severityMark(sev, this.outdatedCount() > 0)}></span>
                     <h1>{this.isUngrouped ? "ungrouped" : s.project}</h1>
-                    <span class={"health " + severityTone(sev)}>{healthLabel(sev)}</span>
-                    {this.isUngrouped ? <span class="loosetag" title="free-floating containers, not a compose stack">loose</span> : null}
+                    <hope-chip tone={severityTone(sev)}>{healthLabel(sev)}</hope-chip>
+                    {this.isUngrouped ? <hope-chip title="free-floating containers, not a compose stack">loose</hope-chip> : null}
                   </div>
                   <div class="toolbar">
                     {this.isUngrouped ? (

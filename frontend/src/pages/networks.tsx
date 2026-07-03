@@ -231,7 +231,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
                       {n.used_by.length ? <td class="pl"></td> : (
                         <td class="pl" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
                       )}
-                      <td class="hi">{n.host ? <span class="htag" title={n.host}>{n.host}</span> : null}{n.name}</td>
+                      <td class="hi">{n.host ? <hope-chip host={true} title={n.host}>{n.host}</hope-chip> : null}{n.name}</td>
                       <td class="dim">{n.driver}</td>
                       <td class="dim">{n.scope}</td>
                       <td>{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="dim"> +{n.used_by.length - 1}</span> : null}</span> : <span class="dim">—</span>}</td>

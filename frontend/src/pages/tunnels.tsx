@@ -38,7 +38,6 @@ const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "â
   .cwho { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .cl1 { display: flex; align-items: center; gap: 9px; }
   .cl1 .cname { font: 700 14px/1 var(--mono); color: var(--hi); }
-  .cl1 .cdef { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
   .cl2 { font: 11.5px/1 var(--mono); color: var(--dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .cl2 .sep { color: var(--faint); }
   .cl2 .ok { color: var(--ok); }
@@ -714,7 +713,7 @@ export class TunnelsPage extends LoomElement {
         <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
           <div class="dhead">
             <span class="dt" title={c.title || c.name}>{c.title || c.name}</span>
-            {c.default ? <span class="cdef">shared</span> : null}
+            {c.default ? <hope-chip tone="upd" size="sm">shared</hope-chip> : null}
             <span class="dgrow"></span>
             <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
@@ -754,7 +753,7 @@ export class TunnelsPage extends LoomElement {
           <div class="cwho" title="open connector details" onClick={() => (this.detail = c)}>
             <div class="cl1">
               <span class="cname">{c.title || c.name}</span>
-              {c.default ? <span class="cdef">shared</span> : null}
+              {c.default ? <hope-chip tone="upd" size="sm">shared</hope-chip> : null}
               {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.hostOf(c)}</span> : null}
             </div>
             <div class="cl2">

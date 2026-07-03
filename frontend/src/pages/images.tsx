@@ -220,15 +220,7 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .dacts .grow { flex: 1; }
   .dnote { font: 11px/1.4 var(--mono); color: var(--warn); max-width: 360px; }
-  .chip { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 7px;
-    border: 1px solid var(--line2); color: var(--mid); }
-  .chip.use { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
-  .chip.dang { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
-  .repo .htag { display: inline-flex; justify-content: center; align-items: center; min-width: 78px; box-sizing: border-box;
-    margin-right: 11px; vertical-align: middle;
-    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
-    padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
 
   /* registries manager modal */
   .rbox { width: 620px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
@@ -240,8 +232,6 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
   .rrow .rserver { font: 600 13px/1 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rrow .rmeta { font: 11px/1 var(--mono); color: var(--dim); }
   .rrow .rmeta .nopw { color: var(--warn); }
-  .rtag { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 4px 7px; border: 1px solid var(--line2); color: var(--dim); flex: none; }
-  .rtag.db { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
   .rempty { padding: 26px 18px; text-align: center; color: var(--dim); font: 12px/1.5 var(--mono); border-bottom: 1px solid var(--line); }
   .rform { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 18px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
@@ -772,7 +762,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                       {r.has_password ? null : <span class="nopw"> · no password</span>}
                     </span>
                   </div>
-                  <span class={"rtag" + (r.editable ? " db" : "")}>{r.source}</span>
+                  <hope-chip tone={r.editable ? "ok" : ""} size="sm">{r.source}</hope-chip>
                   {r.editable ? (
                     <button class="rm" title="remove registry" onClick={() => this.removeReg(r)}><loom-icon name="x" size={14}></loom-icon></button>
                   ) : null}
@@ -891,7 +881,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                       </td>
                     )}
                     <td class="repo" title={i.tags.join(", ")}>
-                      {i.host ? <span class="htag" title={i.host}>{i.host}</span> : null}
+                      {i.host ? <hope-chip host={true} title={i.host}>{i.host}</hope-chip> : null}
                       {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
                       {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
                     </td>
@@ -905,9 +895,9 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                           {i.used_by.length > 1 ? <span class="ubmore"> +{i.used_by.length - 1}</span> : null}
                         </span>
                       ) : i.dangling ? (
-                        <span class="chip dang">dangling</span>
+                        <hope-chip tone="warn" size="sm">dangling</hope-chip>
                       ) : (
-                        <span class="chip">unused</span>
+                        <hope-chip size="sm">unused</hope-chip>
                       )}
                     </td>
                     <td class="r">
