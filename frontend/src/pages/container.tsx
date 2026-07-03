@@ -1105,7 +1105,7 @@ export class ContainerPage extends LoomElement {
           </div>
 
           {this.netList().length ? (
-            <hope-panel label="Networks" flush={true}>
+            <hope-panel label="Networks" icon="link" flush={true}>
               <table class="nettbl">
                 <thead>
                   <tr><th>network</th><th>ip</th><th>gateway</th><th>mac</th><th>aliases</th><th class="sp"></th></tr>
@@ -1127,7 +1127,7 @@ export class ContainerPage extends LoomElement {
           ) : null}
 
           {this.tunnelsOn ? (
-            <hope-panel label="Public routes" flush={true}>
+            <hope-panel label="Public routes" icon="link" flush={true}>
               {this.siblings.length > 1 ? <span slot="actions" class="rshare" title="shared across all replicas of this service">shared · {this.siblings.length} replicas</span> : null}
               <button slot="actions" class="addr" onClick={this.addTunnel}>+ add tunnel</button>
               {this.myRoutes().length ? (

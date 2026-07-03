@@ -12,7 +12,7 @@
 // - `collapsible` makes the label area toggle the body; `collapsed` sets the
 //   initial state.
 // - `flush` when the body manages its own padding (tables / full-bleed rows).
-import { LoomElement, component, styles, css, prop, reactive, mount } from "@toyz/loom";
+import { LoomElement, component, styles, css, prop, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
 
 @component("hope-panel")
@@ -45,6 +45,11 @@ export class HopePanel extends LoomElement {
   @reactive accessor viewOpen = true;
 
   @mount onMount() {
+    this.viewOpen = !this.collapsed;
+  }
+
+  // `collapsed` is controllable: a parent can drive open/closed by changing it.
+  @watch("collapsed") private syncCollapse() {
     this.viewOpen = !this.collapsed;
   }
 

@@ -83,15 +83,8 @@ interface ResDecl { name: string; driver: string; }
     background: transparent; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); padding: 12px 18px; cursor: pointer; }
   .danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
 
-  .imp { border: 1px solid var(--line); margin-bottom: 18px; }
-  .imp .ih { display: flex; align-items: center; gap: 8px; padding: 11px 14px; cursor: pointer;
-    font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
-  .imp .ih:hover { color: var(--hi); }
-  .imp .ih loom-icon { transition: transform .12s; }
-  .imp.open .ih loom-icon { transform: rotate(90deg); }
-  .imp .ib { padding: 0 14px 14px; }
-  .imp .filerow { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-  .imp .filerow .or { font: 11.5px/1 var(--mono); color: var(--dim); }
+  .filerow { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .filerow .or { font: 11.5px/1 var(--mono); color: var(--dim); }
   .ghost.sm, .go.sm { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; }
   .warns { margin: 10px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
     background: color-mix(in srgb, var(--warn) 7%, transparent); }
@@ -123,7 +116,6 @@ export class DeployPage extends LoomElement {
   @reactive accessor zones: string[] = [];
   @reactive accessor existingNets: string[] = [];
   @reactive accessor existingVols: string[] = [];
-  @reactive accessor importOpen = false;
   @reactive accessor importText = "";
   @reactive accessor importEnv = "";
   @reactive accessor warnings: string[] = [];
@@ -427,7 +419,6 @@ export class DeployPage extends LoomElement {
       const res = await this.rpc.call<ImportResult>("Deploy", "importCompose", [this.project || "stack", this.importText, this.importEnv]);
       this.seedFromSpec(res.spec);
       this.warnings = (res.warnings || []).map((w) => (w.service ? w.service + ": " : "") + w.message);
-      this.importOpen = false;
       this.toast.ok("imported " + (res.spec.services?.length || 0) + " service(s)");
     } catch (e: any) {
       this.toast.error("import failed: " + (e?.message || "error"));
@@ -469,7 +460,7 @@ export class DeployPage extends LoomElement {
 
   private renderContainer() {
     return (
-      <hope-panel label="One-off container">
+      <hope-panel label="One-off container" icon="box">
         <p class="sub">Create a single container on the active host. For a grouped, editable app, use the Stack tab.</p>
         <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
         <div class="foot">
@@ -491,23 +482,16 @@ export class DeployPage extends LoomElement {
         </div>
 
         {this.editing ? null : (
-          <div class={"imp" + (this.importOpen ? " open" : "")}>
-            <div class="ih" onClick={() => (this.importOpen = !this.importOpen)}>
-              <loom-icon name="chevron-right" size={13}></loom-icon> import a compose file
+          <hope-panel label="import a compose file" icon="download" collapsible={true} collapsed={true} style="margin-bottom:18px">
+            <div class="filerow">
+              <input id="composefile" type="file" accept=".yml,.yaml,text/yaml,text/plain" style="display:none" onChange={this.onFile} />
+              <button class="ghost sm" onClick={() => this.composeFileInput?.click()}><loom-icon name="download" size={13}></loom-icon> Choose a compose file</button>
+              <span class="or">or paste it below</span>
             </div>
-            {this.importOpen ? (
-              <div class="ib">
-                <div class="filerow">
-                  <input id="composefile" type="file" accept=".yml,.yaml,text/yaml,text/plain" style="display:none" onChange={this.onFile} />
-                  <button class="ghost sm" onClick={() => this.composeFileInput?.click()}><loom-icon name="download" size={13}></loom-icon> Choose a compose file</button>
-                  <span class="or">or paste it below</span>
-                </div>
-                <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>
-                <div class="f"><label>.env (optional, for ${"{VAR}"})</label><textarea style="min-height:90px" placeholder="TAG=1.25" value={this.importEnv} onInput={(e: any) => (this.importEnv = e.target.value)}></textarea></div>
-                <button class="go sm" onClick={this.doImport}><loom-icon name="box" size={13}></loom-icon> Parse into builder</button>
-              </div>
-            ) : null}
-          </div>
+            <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>
+            <div class="f"><label>.env (optional, for ${"{VAR}"})</label><textarea style="min-height:90px" placeholder="TAG=1.25" value={this.importEnv} onInput={(e: any) => (this.importEnv = e.target.value)}></textarea></div>
+            <button class="go sm" onClick={this.doImport}><loom-icon name="box" size={13}></loom-icon> Parse into builder</button>
+          </hope-panel>
         )}
 
         {this.warnings.length ? (
@@ -522,7 +506,7 @@ export class DeployPage extends LoomElement {
         ))}
         <button class="add" onClick={this.addService}><loom-icon name="plus" size={12}></loom-icon> add service</button>
 
-        <hope-panel label="stack networks" style="margin-top:22px">
+        <hope-panel label="stack networks" icon="link" style="margin-top:22px">
           {this.netDecls.map((n, i) => (
             <div class="resrow">
               <input type="text" placeholder="network name" value={n.name} onInput={(e: any) => (this.netDecls = patch(this.netDecls, i, { name: e.target.value }))} />
@@ -533,7 +517,7 @@ export class DeployPage extends LoomElement {
           <button class="add" onClick={() => (this.netDecls = [...this.netDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> network</button>
         </hope-panel>
 
-        <hope-panel label="stack volumes" style="margin-top:14px">
+        <hope-panel label="stack volumes" icon="copy" style="margin-top:14px">
           {this.volDecls.map((v, i) => (
             <div class="resrow">
               <input type="text" placeholder="volume name" value={v.name} onInput={(e: any) => (this.volDecls = patch(this.volDecls, i, { name: e.target.value }))} />
