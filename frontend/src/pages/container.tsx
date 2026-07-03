@@ -1029,9 +1029,9 @@ export class ContainerPage extends LoomElement {
               ) : null}
             </div>
             <div class="toolbar">
-              <button class="tbtn" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}>{this.cbusy === "start" ? "start…" : "start"}</button>
-              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}>{this.cbusy === "restart" ? "restart…" : "restart"}</button>
-              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</button>
+              <button class="tbtn" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}><loom-icon name="play" size={13}></loom-icon>{this.cbusy === "start" ? "start…" : "start"}</button>
+              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}><loom-icon name="rotate" size={13}></loom-icon>{this.cbusy === "restart" ? "restart…" : "restart"}</button>
+              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}><loom-icon name="redeploy" size={13}></loom-icon>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</button>
               <div class="more">
                 <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.actOpen = !this.actOpen; }}>···</button>
                 {this.actOpen ? (
@@ -1213,7 +1213,7 @@ export class ContainerPage extends LoomElement {
             ) : (
               <hope-table>
                 <table>
-                  <colgroup>{this.procs.titles.map((_, i) => <col style={i === this.cmdColIdx() ? "" : "width:14%"} />)}</colgroup>
+                  <colgroup>{this.procs.titles.map((_, i) => <col style={i === this.cmdColIdx() ? "" : "width:92px"} />)}</colgroup>
                   <thead><tr>{this.procs.titles.map((t) => <th>{t}</th>)}</tr></thead>
                   <tbody>
                     {this.procs.processes.length ? (

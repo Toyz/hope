@@ -112,7 +112,7 @@ export const theme = css`
   hope-table .dim { color: var(--dim); }
   hope-table .hi, hope-table td.hi { color: var(--hi); }
   hope-table .num, hope-table td.num { font-variant-numeric: tabular-nums; }
-  hope-table td.cmd { white-space: normal; word-break: break-all; color: var(--hi); } /* argv / long text wraps */
+  hope-table td.cmd { white-space: normal; overflow-wrap: anywhere; word-break: normal; color: var(--hi); } /* argv / long text wraps at spaces */
   hope-table .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
   hope-table .ck:hover { border-color: var(--mid); }
   hope-table .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
