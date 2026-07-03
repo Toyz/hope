@@ -184,8 +184,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
       <div>
         {appBar("networks", [
           <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
-          <div class="s act"><button disabled={busy} onClick={() => this.refresh()}>{busy ? "…" : "refresh"}</button></div>,
-        ])}
+        ], { onRefresh: () => this.refresh(), refreshing: busy })}
 
         <main>
           {error ? <div class="empty">{error}</div> : null}

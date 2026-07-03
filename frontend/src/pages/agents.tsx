@@ -230,8 +230,7 @@ export class AgentsPage extends LoomElement {
       <div>
         {appBar("agents", [
           <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openNew}><loom-icon name="plus" size={12}></loom-icon> new agent</button></div>,
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
-        ])}
+        ], { onRefresh: () => this.load(), refreshing: this.busy })}
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}

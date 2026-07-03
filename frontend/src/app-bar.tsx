@@ -13,7 +13,13 @@ import { HostContext } from "./host-context";
 // active: the <hope-nav> active key. actions: page-specific action cells (each a
 // `<div class="s act">…</div>`, nulls allowed) placed before Exit. hostSwitch:
 // include the host picker (false for pages with no host context, e.g. API docs).
-export function appBar(active: string, actions: unknown[] = [], opts: { hostSwitch?: boolean } = {}) {
+// onRefresh: when set, render the standard refresh control (spins while busy) so
+// every page's refresh looks + behaves the same instead of each rolling its own.
+export function appBar(
+  active: string,
+  actions: unknown[] = [],
+  opts: { hostSwitch?: boolean; onRefresh?: () => void; refreshing?: boolean } = {},
+) {
   const router = app.get(LoomRouter);
   const auth = app.get(AuthStore);
   const hostCtx = app.get(HostContext);
@@ -29,7 +35,14 @@ export function appBar(active: string, actions: unknown[] = [], opts: { hostSwit
       <hope-nav active={active}></hope-nav>
       <div class="grow"></div>
       {actions}
-      <div class="s act"><button onClick={() => auth.logout()}>exit</button></div>
+      {opts.onRefresh ? (
+        <div class="s act">
+          <button style="display:inline-flex;align-items:center;gap:6px" disabled={!!opts.refreshing} onClick={() => opts.onRefresh!()}>
+            <loom-icon class={opts.refreshing ? "spin" : ""} name="rotate" size={13} color="var(--upd)"></loom-icon>refresh
+          </button>
+        </div>
+      ) : null}
+      <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={() => auth.logout()}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
     </div>
   );
 }

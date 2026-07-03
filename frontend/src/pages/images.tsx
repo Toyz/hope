@@ -794,8 +794,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       <div>
         {appBar("images", [
           <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openRegs}><loom-icon name="plus" size={12}></loom-icon> registries</button></div>,
-          <div class="s act"><button disabled={this.loading()} onClick={() => this.refresh()}>{this.loading() ? "…" : "refresh"}</button></div>,
-        ])}
+        ], { onRefresh: () => this.refresh(), refreshing: this.loading() })}
 
         <main>
           {this.err() ? <div class="empty">{this.err()}</div> : null}

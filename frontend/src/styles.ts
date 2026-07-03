@@ -130,6 +130,7 @@ export const theme = css`
     z-index: 50; pointer-events: none;
   }
 
+  .spin { animation: spin 1s linear infinite; }
   @keyframes blink { 50% { opacity: .25; } }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

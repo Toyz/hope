@@ -640,8 +640,7 @@ export class TunnelsPage extends LoomElement {
           !this.disabled && this.loaded ? (
             <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.deployConnector}><loom-icon name="plus" size={12}></loom-icon> connector</button></div>
           ) : null,
-          <div class="s act"><button disabled={this.busy} onClick={this.load}>{this.busy ? "…" : "refresh"}</button></div>,
-        ])}
+        ], { onRefresh: () => this.load(), refreshing: this.busy })}
 
         <main>
           {this.disabled ? (
