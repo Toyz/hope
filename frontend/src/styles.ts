@@ -169,3 +169,23 @@ export function stackSeverity(running: number, total: number, restarting: boolea
 export function severityRank(s: Severity): number {
   return { loop: 0, warn: 1, down: 2, ok: 3 }[s];
 }
+
+// The single sev -> .mark class mapping (green/amber/red/blue/spin). "down" has
+// no glyph class -> the neutral faint ring. A healthy stack with an image update
+// available shows the blue update dot instead of green.
+export function severityMark(sev: Severity, hasUpdate = false): string {
+  if (sev === "ok") return hasUpdate ? "upd" : "ok";
+  if (sev === "down") return ""; // faint ring
+  return sev; // loop | warn
+}
+
+// The single sev -> human health word, shown next to the mark.
+export function healthLabel(sev: Severity): string {
+  return { ok: "healthy", warn: "degraded", down: "down", loop: "restarting" }[sev];
+}
+
+// The single sev -> text-tone class (ok green / warn amber / bad red / dim grey).
+// "down" is neutral (a fully-stopped stack isn't an error), loop is the loudest.
+export function severityTone(sev: Severity): string {
+  return { ok: "ok", warn: "warn", down: "dim", loop: "bad" }[sev];
+}

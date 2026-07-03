@@ -19,7 +19,7 @@ import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { System, Stacks } from "../contracts";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
-import { stackSeverity, severityRank, markClass, type Severity } from "../styles";
+import { stackSeverity, severityRank, markClass, severityMark, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -337,7 +337,7 @@ export class DashboardPage extends LoomElement {
       <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={opts.onClick}>
         <div class="top">
           <span class="nm">
-            <span class={"mark " + (s.sev === "ok" ? (opts.hasUpd ? "upd" : "ok") : s.sev === "down" ? "" : s.sev)}></span>
+            <span class={"mark " + severityMark(s.sev, opts.hasUpd)}></span>
             <span class="t">{s.project}</span>
           </span>
           <span class="ct">

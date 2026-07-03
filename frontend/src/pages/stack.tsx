@@ -15,7 +15,7 @@ import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
-import { markClass, stackSeverity } from "../styles";
+import { markClass, stackSeverity, severityMark, healthLabel, severityTone } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { innerPort } from "../format";
@@ -59,12 +59,12 @@ interface Group {
   items: ContainerSummary[];
 }
 
+// Health dot for a service group (its replicas) — the same sev -> mark mapping
+// the whole app uses, so a service and its stack read the same colors.
 function aggMark(items: ContainerSummary[]): string {
-  if (items.some((c) => c.state === "restarting")) return "loop";
   const running = items.filter((c) => c.state === "running").length;
-  if (running === items.length) return "ok";
-  if (running === 0) return "";
-  return "warn";
+  const restarting = items.some((c) => c.state === "restarting");
+  return severityMark(stackSeverity(running, items.length, restarting));
 }
 
 @route("/stack/:project")
@@ -282,6 +282,13 @@ function aggMark(items: ContainerSummary[]): string {
   .tbtn.updbtn:disabled { opacity: .4; cursor: not-allowed; }
   .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
     padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; }
+  /* aggregated stack health word, tinted by severity (see severityTone) */
+  .health { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; padding: 4px 8px;
+    border: 1px solid var(--line); border-radius: 5px; }
+  .health.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .health.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+  .health.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+  .health.dim { color: var(--dim); }
   .rmtoggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap;
     font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); user-select: none; }
   .rmtoggle:hover { color: var(--hi); }
@@ -1262,8 +1269,9 @@ export class StackPage extends LoomElement {
               <div class="shead">
                 <div class="row1">
                   <div class="ttl">
-                    <span class={"mark " + sev}></span>
+                    <span class={"mark " + severityMark(sev, this.outdatedCount() > 0)}></span>
                     <h1>{this.isUngrouped ? "ungrouped" : s.project}</h1>
+                    <span class={"health " + severityTone(sev)}>{healthLabel(sev)}</span>
                     {this.isUngrouped ? <span class="loosetag" title="free-floating containers, not a compose stack">loose</span> : null}
                   </div>
                   <div class="toolbar">
