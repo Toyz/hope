@@ -1,7 +1,8 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
+import { signalModal } from "../modal";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
 import type { RpcMutator } from "@toyz/loom-rpc";
@@ -364,6 +365,17 @@ export class StackPage extends LoomElement {
   @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
   @reactive accessor pullOpen = false; // pull-images picker dialog
   @reactive accessor pullExcluded: string[] = []; // services excluded from the pull
+  @query(".logsbody") accessor logsBodyEl!: HTMLElement | null;
+
+  // Lock body scroll while any of the stack's full-screen dialogs is open.
+  private syncBodyLock() {
+    signalModal(this, !!this.composeText || !!this.tunnelModalSvc || this.rdOpen || this.stopOpen || this.pullOpen);
+  }
+  @watch("composeText") private lockCompose() { this.syncBodyLock(); }
+  @watch("tunnelModalSvc") private lockTunnel() { this.syncBodyLock(); }
+  @watch("rdOpen") private lockRd() { this.syncBodyLock(); }
+  @watch("stopOpen") private lockStop() { this.syncBodyLock(); }
+  @watch("pullOpen") private lockPull() { this.syncBodyLock(); }
 
   // The "(ungrouped)" project isn't a real compose stack — it's free-floating
   // containers, so compose-level actions (redeploy/pull/compose file) don't apply.
@@ -920,6 +932,7 @@ export class StackPage extends LoomElement {
   onUnmount() {
     this.logsCtrl?.abort();
     this.opCtrl?.abort();
+    signalModal(this, false); // release the body lock if we leave mid-dialog
   }
 
   private openLogs = (method: "logs" | "stackLogs" | "serviceLogs", args: string[], title: string, e?: Event) => {
@@ -955,7 +968,7 @@ export class StackPage extends LoomElement {
   // user has scrolled up to read history.
   private scrollBottom() {
     requestAnimationFrame(() => {
-      const el = this.shadowRoot?.querySelector(".logsbody") as HTMLElement | null;
+      const el = this.logsBodyEl;
       if (el) el.scrollTop = el.scrollHeight;
     });
   }

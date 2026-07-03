@@ -297,16 +297,7 @@ export class HopeServiceForm extends LoomElement {
 
         <div class="sec">
           <div class="lab"><span>environment</span></div>
-          <div class="rows">
-            {this.envs.map((en, i) => (
-              <div class="row">
-                <input type="text" placeholder="KEY" value={en.k} onInput={(e: any) => (this.envs = this.up(this.envs, i, { k: e.target.value }))} />
-                <input type="text" placeholder="value" value={en.v} onInput={(e: any) => (this.envs = this.up(this.envs, i, { v: e.target.value }))} />
-                <button class="rm" onClick={() => (this.envs = this.del(this.envs, i))}><loom-icon name="x" size={14}></loom-icon></button>
-              </div>
-            ))}
-          </div>
-          <button class="add" onClick={() => (this.envs = [...this.envs, { k: "", v: "" }])}><loom-icon name="plus" size={12}></loom-icon> variable</button>
+          <hope-kv-editor value={rowsToText(this.envs)} addLabel="variable" onChange={(e: any) => (this.envs = textToRows(e.detail))}></hope-kv-editor>
         </div>
 
         <div class="sec">
@@ -400,20 +391,27 @@ export class HopeServiceForm extends LoomElement {
             </div>
             <div class="sec">
               <div class="lab"><span>labels</span></div>
-              <div class="rows">
-                {this.labels.map((l, i) => (
-                  <div class="row">
-                    <input type="text" placeholder="key" value={l.k} onInput={(e: any) => (this.labels = this.up(this.labels, i, { k: e.target.value }))} />
-                    <input type="text" placeholder="value" value={l.v} onInput={(e: any) => (this.labels = this.up(this.labels, i, { v: e.target.value }))} />
-                    <button class="rm" onClick={() => (this.labels = this.del(this.labels, i))}><loom-icon name="x" size={14}></loom-icon></button>
-                  </div>
-                ))}
-              </div>
-              <button class="add" onClick={() => (this.labels = [...this.labels, { k: "", v: "" }])}><loom-icon name="plus" size={12}></loom-icon> label</button>
+              <hope-kv-editor value={rowsToText(this.labels)} addLabel="label" onChange={(e: any) => (this.labels = textToRows(e.detail))}></hope-kv-editor>
             </div>
           </div>
         ) : null}
       </div>
     );
   }
+}
+
+// Bridge the EnvRow[] state to <hope-kv-editor>'s KEY=VALUE string (env + labels).
+function rowsToText(rows: { k: string; v: string }[]): string {
+  return rows.filter((r) => r.k.trim()).map((r) => `${r.k.trim()}=${r.v}`).join("\n");
+}
+function textToRows(s: string): { k: string; v: string }[] {
+  const out: { k: string; v: string }[] = [];
+  for (const line of (s || "").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.indexOf("=");
+    if (i < 0) out.push({ k: t, v: "" });
+    else out.push({ k: t.slice(0, i).trim(), v: t.slice(i + 1) });
+  }
+  return out;
 }

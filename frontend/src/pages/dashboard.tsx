@@ -14,6 +14,8 @@ import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
+import { ConfirmService } from "../confirm";
+import { ToastService } from "../toast";
 import { System, Stacks } from "../contracts";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { stackSeverity, severityRank, markClass, type Severity } from "../styles";
@@ -112,6 +114,12 @@ interface Ranked extends StackSummary {
   .hostbar .hk { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
   .hostbar .hv { font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
   .hostbar .hv .t { color: var(--dim); }
+  .cacheprune { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 0; padding: 0; cursor: pointer;
+    font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
+  .cacheprune loom-icon { color: var(--dim); }
+  .cacheprune:hover { color: var(--bad); }
+  .cacheprune:hover loom-icon { color: var(--bad); }
+  .cacheprune:disabled { color: var(--dim); cursor: default; }
   .hostbar .hi.grow { flex: 1; border-right: 0; padding: 0; }
   .hrefresh { display: inline-flex; align-items: center; gap: 7px; align-self: stretch; padding: 0 16px;
     background: transparent; border: 0; border-left: 1px solid var(--line); color: var(--dim);
@@ -228,6 +236,8 @@ export class DashboardPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(ProcService) accessor proc!: ProcService;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ToastService) accessor toast!: ToastService;
   @reactive accessor updBusyProj = "";
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -235,6 +245,7 @@ export class DashboardPage extends LoomElement {
 
   @reactive accessor query = "";
   @reactive accessor diskBusy = false;
+  @reactive accessor cacheBusy = false;
   @reactive accessor updBusy = false;
   @reactive accessor fleetBusy = false;
 
@@ -363,7 +374,14 @@ export class DashboardPage extends LoomElement {
       cells.push(
         { k: "disk", v: gb(dt.total) },
         { k: "volumes", v: gb(dt.volumes) },
-        { k: "build cache", v: gb(dt.cache) },
+        {
+          k: "build cache",
+          v: dt.cache > 0 ? (
+            <button class="cacheprune" disabled={this.cacheBusy} title="prune the builder cache (reclaims this space)" onClick={this.pruneCache}>
+              {this.cacheBusy ? "pruning…" : gb(dt.cache)}<loom-icon name="trash" size={11}></loom-icon>
+            </button>
+          ) : gb(dt.cache),
+        },
       );
     }
     return this.statStrip(
@@ -414,6 +432,28 @@ export class DashboardPage extends LoomElement {
       /* ignore */
     } finally {
       this.diskBusy = false;
+    }
+  };
+
+  private pruneCache = async () => {
+    const dt = this.diskTotals();
+    const ok = await this.confirm.ask({
+      title: "prune build cache",
+      danger: true,
+      confirmLabel: "Prune",
+      message: "Clear the Docker builder cache. Frees disk now; the next image build re-caches from scratch (slower once).",
+      stats: [{ label: "reclaims up to", value: dt ? "~" + gb(dt.cache) : "—" }],
+    });
+    if (!ok) return;
+    this.cacheBusy = true;
+    try {
+      const res = await this.rpc.call<{ reclaimed: number }>("System", "pruneBuildCache", []);
+      this.toast.ok(`build cache pruned — freed ${gb(res?.reclaimed || 0)}`);
+      this.refreshDisk();
+    } catch (err: any) {
+      this.toast.error(`prune build cache — ${err?.message ?? "failed"}`);
+    } finally {
+      this.cacheBusy = false;
     }
   };
 

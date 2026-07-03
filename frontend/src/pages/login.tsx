@@ -1,5 +1,5 @@
 // Login — a terminal prompt. One credential exchanged for a bearer token.
-import { LoomElement, component, styles, css, reactive, mount, unmount, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, on, query, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -49,7 +49,12 @@ export class LoginPage extends LoomElement {
   @reactive accessor nodes: { name: string; status: string; note: string }[] = [];
 
   private raf = 0;
-  private onResize: (() => void) | null = null;
+  private matrixResize: (() => void) | null = null;
+  @query("canvas.bg") accessor canvasEl!: HTMLCanvasElement | null;
+
+  // loom binds the listener on connect and drops it on disconnect — no manual
+  // add/removeEventListener bookkeeping.
+  @on(window, "resize") private onWinResize() { this.matrixResize?.(); }
 
   @mount
   async onMount() {
@@ -65,12 +70,11 @@ export class LoginPage extends LoomElement {
   @unmount
   onUnmount() {
     cancelAnimationFrame(this.raf);
-    if (this.onResize) removeEventListener("resize", this.onResize);
   }
 
   // A full digital-rain renderer. On a login screen. Because we could.
   private startMatrix() {
-    const c = this.shadowRoot?.querySelector("canvas.bg") as HTMLCanvasElement | null;
+    const c = this.canvasEl;
     const ctx = c?.getContext("2d");
     if (!c || !ctx) return;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return; // be reasonable, occasionally
@@ -89,8 +93,7 @@ export class LoginPage extends LoomElement {
       drops = Array.from({ length: cols }, () => Math.random() * -60);
     };
     resize();
-    this.onResize = resize;
-    addEventListener("resize", resize);
+    this.matrixResize = resize; // @on(window,"resize") calls this
 
     const chars = "アァカサタナハマヤラワabcdef0123456789{}[]<>/$#".split("");
     const draw = () => {

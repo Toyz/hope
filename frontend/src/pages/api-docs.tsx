@@ -2,6 +2,7 @@
 // headers, per-host targeting, and where to explore the schema. Surfaced from the
 // nav + footer only when API keys are configured ([auth] api_keys).
 import { LoomElement, component, styles, css, reactive, mount, app } from "@toyz/loom";
+import { clipboard, debounce } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
@@ -107,9 +108,13 @@ export class ApiDocsPage extends LoomElement {
     ].join("\n");
   }
 
-  private copy = async (text: string, tag: string) => {
-    try { await navigator.clipboard.writeText(text); this.copied = tag; setTimeout(() => (this.copied = ""), 1400); } catch { /* blocked */ }
-  };
+  @clipboard("write")
+  private copy(text: string, tag: string) {
+    this.copied = tag;
+    this.clearCopied();
+    return text;
+  }
+  @debounce(1400) private clearCopied() { this.copied = ""; }
 
   private codeBlock(tag: string, text: string) {
     return (

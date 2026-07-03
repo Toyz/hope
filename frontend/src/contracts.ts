@@ -105,6 +105,19 @@ export interface ImageInfo {
   dangling: boolean;
   in_use: boolean;
   used_by: ImageUser[];
+  registry: string; // where it came from: registry host (docker.io, ghcr.io, ...)
+  digests?: string[]; // repo@sha256 refs (the pulled-from source)
+}
+
+// ImageLayer is one entry of an image's build history (docker history).
+export interface ImageLayer {
+  id: string;
+  created: number; // unix seconds
+  created_by: string; // the Dockerfile instruction
+  size: number;
+  comment: string;
+  tags: string[];
+  empty: boolean; // metadata-only layer (0 bytes)
 }
 
 export interface PruneResult {
@@ -168,9 +181,19 @@ export class Stacks {
   }
 }
 
+// TopResult is a container's live process list (docker top): ps column titles
+// and one row of cells per process.
+export interface TopResult {
+  titles: string[];
+  processes: string[][];
+}
+
 @service("Containers")
 export class Containers {
   inspect(_id: string): unknown {
+    return undefined!;
+  }
+  top(_id: string): TopResult {
     return undefined!;
   }
   spec(_id: string): ContainerSpec {
@@ -220,10 +243,19 @@ export class System {
   images(): ImageInfo[] {
     return undefined!;
   }
+  image(_ref: string): ImageInfo {
+    return undefined!;
+  }
+  imageHistory(_ref: string): ImageLayer[] {
+    return undefined!;
+  }
   removeImage(_id: string, _force: boolean): unknown {
     return undefined!;
   }
   pruneImages(_all: boolean): PruneResult {
+    return undefined!;
+  }
+  pruneBuildCache(): { ok: boolean; reclaimed: number } {
     return undefined!;
   }
   hosts(): HostView[] {
@@ -244,6 +276,9 @@ export class System {
   networks(): NetworkInfo[] {
     return undefined!;
   }
+  network(_ref: string): NetworkInfo {
+    return undefined!;
+  }
   volumes(): VolumeInfo[] {
     return undefined!;
   }
@@ -262,12 +297,34 @@ export class System {
   agents(): AgentView[] {
     return undefined!;
   }
+  forgetAgent(_id: string): { ok: boolean } {
+    return undefined!;
+  }
   agentEnroll(): AgentEnroll {
     return undefined!;
   }
   features(): Capabilities {
     return undefined!;
   }
+  registries(): RegistryView[] {
+    return undefined!;
+  }
+  addRegistry(_server: string, _username: string, _password: string): { ok: boolean; persisted: boolean } {
+    return undefined!;
+  }
+  removeRegistry(_id: string): { ok: boolean } {
+    return undefined!;
+  }
+}
+
+// RegistryView is one known registry (credential-free). source "config" =
+// read-only (from config.json/[[registry]]); "db" = added in the UI, editable.
+export interface RegistryView {
+  server: string;
+  username: string;
+  has_password: boolean;
+  source: "config" | "db";
+  editable: boolean;
 }
 
 // Capabilities are the optional-feature flags the UI reads at load.
@@ -417,10 +474,10 @@ export class Deploy {
   exportCompose(_project: string): ExportResult {
     return undefined!;
   }
-  createNetwork(_name: string, _driver: string, _subnet: string, _gateway: string, _internal: boolean, _attachable: boolean, _ipv6: boolean): NetworkInfo {
+  createNetwork(_name: string, _driver: string, _subnet: string, _gateway: string, _internal: boolean, _attachable: boolean, _ipv6: boolean, _options: string, _labels: string): NetworkInfo {
     return undefined!;
   }
-  createVolume(_name: string, _driver: string): VolumeInfo {
+  createVolume(_name: string, _driver: string, _options: string, _labels: string): VolumeInfo {
     return undefined!;
   }
 }
@@ -475,6 +532,7 @@ export interface AgentView {
   running: number;
   images: number;
   online: boolean;
+  last_seen?: string; // when last connected — present for known-but-offline agents
 }
 
 export interface FleetNetworksHost {
@@ -511,6 +569,7 @@ export interface NetworkInfo {
   subnet: string;
   gateway: string;
   options: Record<string, string> | null;
+  labels?: Record<string, string> | null;
   created: number;
   used_by: ResourceUser[];
 }
@@ -520,7 +579,10 @@ export interface VolumeInfo {
   driver: string;
   mountpoint: string;
   created_at: string;
+  scope?: string;
   size: number; // bytes; -1 if the daemon didn't compute it
+  options?: Record<string, string> | null;
+  labels?: Record<string, string> | null;
   used_by: ResourceUser[];
 }
 

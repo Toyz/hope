@@ -12,6 +12,8 @@ import { PromptService } from "./prompt";
 import { ToastService } from "./toast";
 import { HostContext } from "./host-context";
 import { DeployIntent } from "./deploy-intent";
+import { ImageDetailService } from "./components/image-detail";
+import { NetworkDetailService } from "./components/network-detail";
 
 import "./icons";
 import "./components/confirm-modal"; // tiny stub; the real modal chunk is @lazy
@@ -22,6 +24,10 @@ import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
 import "./components/nav"; // shared system nav strip (<hope-nav>)
 import "./components/footer"; // site footer with API + source links (<hope-footer>)
+import "./components/image-detail"; // shared image-detail modal (<hope-image-detail>)
+import "./components/kvlist"; // reusable key/value list for labels/options (<hope-kvlist>)
+import "./components/kv-editor"; // shared key/value editor for options/labels (<hope-kv-editor>)
+import "./components/network-detail"; // shared network inspector modal (<hope-network-detail>)
 import "./app";
 import "./pages/login";
 import "./pages/dashboard";
@@ -42,6 +48,8 @@ app.use(PromptService);
 app.use(ToastService);
 app.use(HostContext);
 app.use(DeployIntent);
+app.use(ImageDetailService);
+app.use(NetworkDetailService);
 
 // Register the transport under both its concrete class (so components inject a
 // typed HopeTransport, incl. streamWithSignal) and the abstract RpcTransport

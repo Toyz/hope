@@ -1,8 +1,9 @@
 // The real <hope-prompt> implementation (lazy chunk). show(opts) returns a
 // promise of the field values (keyed by field.key) or null on cancel. Chrome
 // matches <hope-confirm> so dialogs feel identical across the app.
-import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/loom";
 import { theme } from "../styles";
+import { signalModal } from "../modal";
 import type { PromptOpts } from "../prompt";
 
 @styles(theme, css`
@@ -21,12 +22,15 @@ import type { PromptOpts } from "../prompt";
   .fields { padding: 8px 20px 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
   .field label { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .field input, .field select { width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line);
+  .field input, .field select, .field textarea { width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line);
     color: var(--hi); font: 13px/1 var(--mono); padding: 10px 12px; border-radius: 0; }
-  .field input::placeholder { color: var(--dim); }
-  .field input:focus, .field select:focus { outline: none; border-color: var(--line2); }
+  .field textarea { line-height: 1.6; resize: vertical; min-height: 62px; }
+  .field input::placeholder, .field textarea::placeholder { color: var(--dim); }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--line2); }
   .field .hint { font: 11px/1.4 var(--mono); color: var(--dim); }
-  .tog { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .field.togfield { margin-bottom: 9px; }
+  .tog { display: flex; align-items: center; gap: 11px; cursor: pointer; user-select: none; padding: 3px 0; }
+  .tog .tlabel { flex: 1; font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mid); }
   .tog .sw { width: 34px; height: 18px; border: 1px solid var(--line2); background: var(--ink); position: relative; flex: none; transition: background .12s, border-color .12s; }
   .tog .sw::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; background: var(--dim); transition: transform .12s, background .12s; }
   .tog.on .sw { border-color: var(--upd); background: color-mix(in srgb, var(--upd) 22%, var(--ink)); }
@@ -47,6 +51,9 @@ export default class PromptModalImpl extends LoomElement {
   @reactive accessor opts: PromptOpts = { fields: [] };
   @reactive accessor values: Record<string, string> = {};
   @reactive accessor err = "";
+
+  @watch("open") private lockBody() { signalModal(this, this.open); }
+  @unmount private releaseBody() { signalModal(this, false); }
   private resolver: ((v: Record<string, string> | null) => void) | null = null;
 
   show(o: PromptOpts): Promise<Record<string, string> | null> {
@@ -110,15 +117,20 @@ export default class PromptModalImpl extends LoomElement {
           {o.message ? <p class="msg">{o.message}</p> : null}
           <div class="fields">
             {o.fields.map((f) => (
-              <div class="field">
-                <label>{f.label}</label>
+              <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
+                {f.type !== "toggle" ? <label>{f.label}</label> : null}
                 {f.type === "select" ? (
                   <hope-select options={f.optionsFrom ? f.optionsFrom(this.values) : f.options || []} value={this.values[f.key]} placeholder={f.placeholder || "—"} onSelect={(e: any) => this.set(f.key, e.detail)}></hope-select>
                 ) : f.type === "toggle" ? (
                   <span class={"tog" + (this.values[f.key] === "true" ? " on" : "")} onClick={() => this.set(f.key, this.values[f.key] === "true" ? "false" : "true")}>
                     <span class="sw"></span>
+                    <span class="tlabel">{f.label}</span>
                     <span class="tl">{this.values[f.key] === "true" ? "on" : "off"}</span>
                   </span>
+                ) : f.type === "textarea" ? (
+                  <textarea rows={3} placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)}></textarea>
+                ) : f.type === "kv" ? (
+                  <hope-kv-editor value={this.values[f.key]} placeholder={f.placeholder || ""} addLabel={f.addLabel || "entry"} onChange={(e: any) => this.set(f.key, e.detail)}></hope-kv-editor>
                 ) : (
                   <input type="text" placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)} />
                 )}

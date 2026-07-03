@@ -12,6 +12,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
+import { NetworkDetailService } from "../components/network-detail";
 import { System, Deploy } from "../contracts";
 import type { NetworkInfo, FleetNetworksHost } from "../contracts";
 import { resourceStyles } from "./resource-styles";
@@ -35,11 +36,12 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
   // For cross-host removal only — each item may live on a different host, which
   // @mutate's ambient (single) host target can't express.
   @inject(HopeTransport) accessor rpc!: HopeTransport;
+  @inject(NetworkDetailService) accessor networkDetail!: NetworkDetailService;
 
   @rpc(System, "networks", { eager: false }) accessor singleQ!: ApiState<NetworkInfo[]>;
   @rpc(System, "fleetNetworks", { eager: false }) accessor fleetQ!: ApiState<FleetNetworksHost[]>;
   @mutate(Deploy, "createNetwork")
-  accessor mkNet!: RpcMutator<[string, string, string, string, boolean, boolean, boolean], NetworkInfo>;
+  accessor mkNet!: RpcMutator<[string, string, string, string, boolean, boolean, boolean, string, string], NetworkInfo>;
 
   // Selection keys: host|id (empty networks only).
   protected key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
@@ -110,32 +112,33 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
       submitLabel: "Create",
       fields: [
         { key: "name", label: "name", placeholder: "my-net" },
-        { key: "driver", label: "driver", type: "select", value: "bridge", options: [{ value: "bridge", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }] },
+        { key: "driver", label: "driver", type: "select", value: "bridge", options: [{ value: "bridge", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }, { value: "ipvlan", label: "ipvlan" }] },
         { key: "subnet", label: "subnet (optional)", optional: true, placeholder: "172.28.0.0/16" },
         { key: "gateway", label: "gateway (optional)", optional: true, placeholder: "172.28.0.1" },
         { key: "internal", label: "internal (no outbound)", type: "toggle", optional: true },
         { key: "attachable", label: "attachable", type: "toggle", optional: true },
         { key: "ipv6", label: "enable IPv6", type: "toggle", optional: true },
+        {
+          key: "options", label: "driver options", type: "kv", optional: true, addLabel: "option",
+          placeholder: "parent=eth0\nmtu=1500",
+          dependsOn: "driver",
+          defaultFrom: (vals) =>
+            vals.driver === "macvlan" ? "parent=eth0\nmacvlan_mode=bridge"
+              : vals.driver === "ipvlan" ? "parent=eth0\nipvlan_mode=l2"
+                : vals.driver === "overlay" ? "encrypted=true"
+                  : "",
+        },
+        { key: "labels", label: "labels", type: "kv", optional: true, addLabel: "label", placeholder: "team=platform" },
       ],
     });
     if (!v) return;
     try {
-      await this.mkNet.call(v.name.trim(), v.driver || "bridge", v.subnet.trim(), v.gateway.trim(), v.internal === "true", v.attachable === "true", v.ipv6 === "true");
+      await this.mkNet.call(v.name.trim(), v.driver || "bridge", v.subnet.trim(), v.gateway.trim(), v.internal === "true", v.attachable === "true", v.ipv6 === "true", v.options || "", v.labels || "");
       this.toast.ok("created network " + v.name.trim());
       this.refresh();
     } catch (err: any) {
       this.toast.error("create failed: " + (err?.message ?? "error"));
     }
-  };
-
-  private openUser = (u: { id: string; project: string }) => {
-    // In the all-hosts view the item lives on a specific host — point the
-    // ambient target there so the stack/container page loads against it.
-    const host = this.detail?.host;
-    this.detail = null;
-    if (host) this.hostCtx.activeHost = host;
-    if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
-    else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
   };
 
   private del = async (n: NetworkInfo & { host?: string }) => {
@@ -231,7 +234,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
               </thead>
               <tbody>
                 {vis.map((n) => (
-                  <tr class={this.selected.includes(this.key(n)) ? "sel" : ""} onClick={() => (this.detail = n)}>
+                  <tr class={this.selected.includes(this.key(n)) ? "sel" : ""} onClick={() => this.networkDetail.open({ host: n.host, ref: n.name, onChange: () => this.refresh() })}>
                     {n.used_by.length ? <td class="sel"></td> : (
                       <td class="sel" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
                     )}
@@ -248,50 +251,6 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
             <div class="empty">No networks.</div>
           ) : null}
         </main>
-
-        {this.detail ? this.renderDetail(this.detail) : null}
-      </div>
-    );
-  }
-
-  private renderDetail(n: NetworkInfo & { host?: string }) {
-    return (
-      <div class="dmodal" onClick={() => (this.detail = null)}>
-        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="dhead">
-            <span class="dt">{n.name}</span>
-            <span class="grow"></span>
-            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
-          </div>
-          <div class="dfacts">
-            {n.host ? <span class="st"><i class="sk">host</i><i class="sv">{n.host}</i></span> : null}
-            <span class="st"><i class="sk">driver</i><i class="sv">{n.driver}</i></span>
-            <span class="st"><i class="sk">scope</i><i class="sv">{n.scope}</i></span>
-            <span class="st"><i class="sk">created</i><i class="sv">{ago(n.created)}</i></span>
-            <span class="st"><i class="sk">attached</i><i class="sv">{n.used_by.length}</i></span>
-          </div>
-          <div class="dbody">
-            <div class="drow"><span class="dk">id</span><span class="dv">{n.id.slice(0, 12)}</span></div>
-            {n.subnet ? <div class="drow"><span class="dk">subnet</span><span class="dv">{n.subnet}</span></div> : null}
-            {n.gateway ? <div class="drow"><span class="dk">gateway</span><span class="dv">{n.gateway}</span></div> : null}
-            <div class="drow"><span class="dk">flags</span><span class="dv">{[n.internal ? "internal" : "", n.ipv6 ? "ipv6" : "", n.attachable ? "attachable" : ""].filter(Boolean).join(" · ") || <span class="dim">none</span>}</span></div>
-            {n.options && Object.keys(n.options).length ? (
-              <div class="drow top"><span class="dk">options</span><span class="dv">{Object.entries(n.options).map(([k, v]) => <span class="opt">{k}={v}</span>)}</span></div>
-            ) : null}
-            <div class="drow top"><span class="dk">attached</span>
-              <span class="dv">
-                {n.used_by.length ? n.used_by.map((u) => (
-                  <span class="ub" onClick={() => this.openUser(u)}>{u.project ? <span class="ubp">{u.project} / </span> : null}{u.service || u.name}</span>
-                )) : <span class="dim">nothing — safe to remove</span>}
-              </span>
-            </div>
-          </div>
-          <div class="dacts">
-            {n.used_by.length ? <span class="dnote">detach its containers before removing</span> : null}
-            <span class="grow"></span>
-            {n.used_by.length ? null : <button class="pbtn danger" onClick={() => this.del(n)}>remove</button>}
-          </div>
-        </div>
       </div>
     );
   }

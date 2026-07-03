@@ -2,8 +2,9 @@
 // serve (hostname -> stack/service). Deploy a connector, add/remove routes.
 // Host-aware: in "all hosts" mode the deploy/add dialogs ask which host to target;
 // otherwise they use the actively-selected host.
-import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, watch, interval, on, app } from "@toyz/loom";
 import { draggable, dropzone } from "@toyz/loom/element";
+import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -148,6 +149,9 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor busy = false;
   @reactive accessor hostQuery = "";
   @reactive accessor detail: ConnectorView | null = null;
+
+  @watch("detail") private lockBody() { signalModal(this, !!this.detail); }
+  @unmount private releaseBody() { signalModal(this, false); }
   private suppressUntil = 0; // pause the auto-reload right after a local change
 
   get fleetMode() {

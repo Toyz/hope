@@ -1,10 +1,8 @@
-// AuthStore persists the bearer token in localStorage so a reload keeps the
-// session. Single-user app — one token, no refresh.
-import { app } from "@toyz/loom";
+// AuthStore persists the bearer token so a reload keeps the session. Single-user
+// app — one token, no refresh. Persistence is loom's @persist (localStorage,
+// JSON-serialized), same as HostContext — no hand-rolled storage.
+import { app, persist } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
-
-const KEY = "hope.token";
-const ACCESS_KEY = "hope.access"; // set when the session came from a Cloudflare Access SSO exchange
 
 // Cloudflare Access intercepts this path on any Access-protected hostname and
 // clears the edge session cookie — so a real logout drops hope's token AND the
@@ -12,7 +10,9 @@ const ACCESS_KEY = "hope.access"; // set when the session came from a Cloudflare
 const ACCESS_LOGOUT = "/cdn-cgi/access/logout";
 
 export class AuthStore {
-  private _token: string | null = localStorage.getItem(KEY);
+  @persist("hope.token") private accessor _token: string | null = null;
+  // Set when the session came from a Cloudflare Access SSO exchange.
+  @persist("hope.access") private accessor _access = false;
 
   get token(): string | null {
     return this._token;
@@ -25,20 +25,17 @@ export class AuthStore {
   // True when this session was minted from a Cloudflare Access assertion (SSO),
   // so a real logout must also drop the Access cookie at the edge.
   get viaAccess(): boolean {
-    return localStorage.getItem(ACCESS_KEY) === "1";
+    return !!this._access;
   }
 
   set(token: string, viaAccess = false): void {
     this._token = token;
-    localStorage.setItem(KEY, token);
-    if (viaAccess) localStorage.setItem(ACCESS_KEY, "1");
-    else localStorage.removeItem(ACCESS_KEY);
+    this._access = viaAccess;
   }
 
   clear(): void {
     this._token = null;
-    localStorage.removeItem(KEY);
-    localStorage.removeItem(ACCESS_KEY);
+    this._access = false;
   }
 
   // User-initiated logout. Drops the hope token; if the session came in through

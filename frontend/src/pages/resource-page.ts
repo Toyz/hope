@@ -8,7 +8,8 @@
 // Host/fleet targeting is ambient: HostContext (a reactive @persist store) holds
 // the active host + fleet flag; the transport reads the host, and @watch on the
 // store re-fetches when either changes — no manual event.
-import { LoomElement, reactive, mount, on, app } from "@toyz/loom";
+import { LoomElement, reactive, mount, unmount, on, watch, app } from "@toyz/loom";
+import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
@@ -54,6 +55,10 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
   private onHostChanged() {
     if (this.auth.isAuthenticated) this.refresh();
   }
+
+  // Lock body scroll while the detail modal is open (all resource pages share it).
+  @watch("detail") private lockBody() { signalModal(this, !!this.detail); }
+  @unmount private releaseBody() { signalModal(this, false); }
 
   // Only unused items are selectable for bulk removal.
   protected removable(): (T & { host?: string })[] {

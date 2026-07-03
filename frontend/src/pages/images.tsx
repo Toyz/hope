@@ -1,6 +1,7 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
-import { component, styles, css, reactive } from "@toyz/loom";
+import { component, styles, css, reactive, watch, unmount } from "@toyz/loom";
+import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
 import { rpc } from "@toyz/loom-rpc";
@@ -8,11 +9,78 @@ import type { ApiState } from "@toyz/loom/query";
 import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
+import { ImageDetailService } from "../components/image-detail";
 import { System } from "../contracts";
-import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
+import type { ImageInfo, OpFrame, FleetImagesHost, RegistryView } from "../contracts";
 import { bytes, shortId } from "../format";
 
 type Filter = "all" | "used" | "unused" | "dangling";
+
+// Well-known registries: a quick-pick that prefills the server and tells the
+// operator exactly what to put in each field (most get this wrong — e.g. Docker
+// Hub wants an access token, not the account password). Some registries have a
+// per-account server (ECR, GAR): those declare `parts` we collect as fields and
+// `build` into the final server, instead of making the user hand-edit a template.
+type RegPart = { key: string; label: string; placeholder: string };
+type KnownRegistry = {
+  id: string; label: string; server: string; user: string; pass: string; note: string;
+  fixedUser?: string; // a literal username the registry requires (AWS, _json_key, nologin…) — prefilled
+  parts?: RegPart[]; // per-account server parts collected as fields
+  build?: (v: Record<string, string>) => string; // compose the server from those parts
+};
+const KNOWN_REGISTRIES: KnownRegistry[] = [
+  { id: "dockerhub", label: "Docker Hub", server: "docker.io", user: "your Docker Hub username", pass: "access token", note: "Create an access token at Docker Hub → Account Settings → Personal access tokens. Use the token, not your account password." },
+  { id: "ghcr", label: "GitHub (GHCR)", server: "ghcr.io", user: "your GitHub username", pass: "personal access token", note: "Use a GitHub PAT with the read:packages scope as the password." },
+  { id: "quay", label: "Quay", server: "quay.io", user: "quay username or robot account", pass: "token / robot password", note: "A robot account (Quay → Account → Robot Accounts) is the safest fit — its name is the username, its token the password." },
+  { id: "gitlab", label: "GitLab", server: "registry.gitlab.com", user: "username or deploy-token name", pass: "personal or deploy token", note: "Use a deploy token (Settings → Repository → Deploy tokens) with the read_registry scope, or a PAT." },
+  { id: "digitalocean", label: "DigitalOcean (DOCR)", server: "registry.digitalocean.com", user: "your DO API token", pass: "the same DO API token", note: "DigitalOcean uses your API token (or a read-only registry token) as BOTH the username and the password." },
+  {
+    id: "ecr", label: "AWS ECR (private)", server: "ACCOUNT.dkr.ecr.REGION.amazonaws.com", user: "AWS", pass: "aws ecr get-login-password output", fixedUser: "AWS",
+    note: "Username is literally AWS. Password is the output of `aws ecr get-login-password` — it EXPIRES (~12h), so re-add when it rotates.",
+    parts: [
+      { key: "account", label: "AWS account ID", placeholder: "123456789012" },
+      { key: "region", label: "Region", placeholder: "us-east-1" },
+    ],
+    build: (v) => `${v.account || "ACCOUNT"}.dkr.ecr.${v.region || "REGION"}.amazonaws.com`,
+  },
+  { id: "ecrpublic", label: "AWS ECR Public", server: "public.ecr.aws", user: "AWS", pass: "aws ecr-public get-login-password output", fixedUser: "AWS", note: "Username is AWS. Password is `aws ecr-public get-login-password --region us-east-1` — it EXPIRES (~12h), so re-add when it rotates." },
+  {
+    id: "gar", label: "Google Artifact Registry", server: "REGION-docker.pkg.dev", user: "_json_key", pass: "service-account JSON key", fixedUser: "_json_key",
+    note: "Username is _json_key; paste the whole service-account JSON key file as the password.",
+    parts: [{ key: "region", label: "Location", placeholder: "us (or europe, us-central1)" }],
+    build: (v) => `${v.region || "REGION"}-docker.pkg.dev`,
+  },
+  {
+    id: "acr", label: "Azure (ACR)", server: "REGISTRY.azurecr.io", user: "token name or service principal", pass: "token password / SP secret",
+    note: "Use a repository-scoped token (ACR → Tokens) or a service principal — its name/ID is the username, its secret the password.",
+    parts: [{ key: "name", label: "Registry name", placeholder: "myregistry" }],
+    build: (v) => `${v.name || "REGISTRY"}.azurecr.io`,
+  },
+  {
+    id: "ocir", label: "Oracle (OCIR)", server: "REGION.ocir.io", user: "<tenancy-namespace>/<username>", pass: "OCI auth token",
+    note: "Username is `<tenancy-namespace>/<username>` (federated: add /oracleidentitycloudservice/). Password is an OCI auth token. Region is the region KEY.",
+    parts: [{ key: "region", label: "Region key", placeholder: "iad, phx, fra…" }],
+    build: (v) => `${v.region || "REGION"}.ocir.io`,
+  },
+  {
+    id: "ibm", label: "IBM Cloud (ICR)", server: "REGION.icr.io", user: "iamapikey", pass: "IBM Cloud API key", fixedUser: "iamapikey",
+    note: "Username is `iamapikey`; password is an IBM Cloud API key. Region is the ICR region (us, de, uk, jp, au…).",
+    parts: [{ key: "region", label: "Region", placeholder: "us (→ us.icr.io)" }],
+    build: (v) => `${v.region || "REGION"}.icr.io`,
+  },
+  {
+    id: "scaleway", label: "Scaleway", server: "rg.REGION.scw.cloud", user: "nologin", pass: "Scaleway secret key", fixedUser: "nologin",
+    note: "Username is literally `nologin`; password is a Scaleway secret key (API key).",
+    parts: [{ key: "region", label: "Region", placeholder: "fr-par (or nl-ams, pl-waw)" }],
+    build: (v) => `rg.${v.region || "REGION"}.scw.cloud`,
+  },
+  {
+    id: "aliyun", label: "Alibaba (ACR)", server: "registry.REGION.aliyuncs.com", user: "your Alibaba Cloud account", pass: "registry password",
+    note: "Username is your Alibaba Cloud account (or RAM user); password is the registry access password you set in ACR.",
+    parts: [{ key: "region", label: "Region", placeholder: "cn-hangzhou, us-west-1…" }],
+    build: (v) => `registry.${v.region || "REGION"}.aliyuncs.com`,
+  },
+];
 
 @route("/images")
 @component("hope-images")
@@ -165,15 +233,146 @@ type Filter = "all" | "used" | "unused" | "dangling";
     margin-right: 11px; vertical-align: middle;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
     padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; white-space: nowrap; }
+
+  /* registries manager modal */
+  .rbox { width: 620px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
+  .rsub { padding: 10px 18px; border-bottom: 1px solid var(--line); font: 11px/1.5 var(--mono); color: var(--dim); }
+  .rlist { max-height: 40vh; overflow-y: auto; }
+  .rrow { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .rrow:last-child { border-bottom: 0; }
+  .rrow .rmain { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .rrow .rserver { font: 600 13px/1 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rrow .rmeta { font: 11px/1 var(--mono); color: var(--dim); }
+  .rrow .rmeta .nopw { color: var(--warn); }
+  .rtag { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 4px 7px; border: 1px solid var(--line2); color: var(--dim); flex: none; }
+  .rtag.db { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+  .rempty { padding: 26px 18px; text-align: center; color: var(--dim); font: 12px/1.5 var(--mono); border-bottom: 1px solid var(--line); }
+  .rform { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 18px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .rform .rf { display: flex; flex-direction: column; gap: 5px; }
+  .rform .rf.full { grid-column: 1 / -1; }
+  .rform label { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .rform input { background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); padding: 10px 11px; }
+  .rform input:focus { outline: none; border-color: var(--line2); }
+  .rform .rf.act { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
+  .rform .rf.act .grow { flex: 1; }
+  .rform hope-select { display: block; }
+  .rform .rserverpreview { background: var(--ink); border: 1px dashed var(--line2); color: var(--mid);
+    font: 12.5px/1 var(--mono); padding: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rform .rnote { font: 11.5px/1.6 var(--mono); color: var(--dim); padding: 10px 12px; border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 40%, transparent); }
+  .rform .rnote.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+    background: color-mix(in srgb, var(--warn) 7%, transparent); }
 `)
 export class ImagesPage extends ResourcePage<ImageInfo> {
   // Streams (prune/redeploy) + cross-host ops target hosts explicitly.
   @inject(HopeTransport) accessor rpc!: HopeTransport;
+  @inject(ImageDetailService) accessor imageDetail!: ImageDetailService;
 
   @rpc(System, "images", { eager: false }) accessor singleQ!: ApiState<ImageInfo[]>;
   @rpc(System, "fleetImages", { eager: false }) accessor fleetQ!: ApiState<FleetImagesHost[]>;
 
   @reactive accessor filter: Filter = "all";
+
+  // Registries manager (modal). hope is the fleet's registry-auth authority:
+  // creds added here apply to the local daemon and every connected agent, and
+  // persist (encrypted) when a state db is mounted. Config-defined registries
+  // are read-only.
+  @reactive accessor showRegs = false;
+
+  @watch("showRegs") private lockRegs() { signalModal(this, this.showRegs); }
+  @unmount private releaseRegs() { signalModal(this, false); }
+  @reactive accessor regs: RegistryView[] = [];
+  @reactive accessor regBusy = false;
+  @reactive accessor rServer = "";
+  @reactive accessor rUser = "";
+  @reactive accessor rPass = "";
+  @reactive accessor rPreset = ""; // selected known-registry id (quick-pick)
+  @reactive accessor rParts: Record<string, string> = {}; // per-account server parts (ECR/GAR)
+
+  private openRegs = async () => {
+    this.showRegs = true;
+    await this.loadRegs();
+  };
+  private closeRegs = () => {
+    this.showRegs = false;
+    this.rServer = this.rUser = this.rPass = this.rPreset = "";
+    this.rParts = {};
+  };
+
+  // Pick a known registry from the dropdown: prefill the server + fixed username
+  // and switch the field hints. Empty id = custom (clears the prefilled server).
+  private selectPreset = (id: string) => {
+    this.rPreset = id;
+    this.rParts = {};
+    this.rUser = ""; // don't carry a previous preset's fixed username (e.g. _json_key) over
+    const k = KNOWN_REGISTRIES.find((x) => x.id === id);
+    if (!k) {
+      this.rServer = "";
+      return;
+    }
+    this.rServer = k.build ? k.build({}) : k.server;
+    if (k.fixedUser) this.rUser = k.fixedUser;
+  };
+
+  // The already-configured registry matching a known preset's server (if any),
+  // so the picker can flag it and we can block re-adding a read-only config one.
+  private configuredFor(k: KnownRegistry): RegistryView | undefined {
+    if (k.build) return undefined; // per-account server (ECR/GAR) — can't pre-match
+    return this.regs.find((r) => r.server === k.server);
+  }
+
+  // Update a per-account server part (ECR/GAR) and recompute the server from it.
+  private setPart = (k: KnownRegistry, key: string, val: string) => {
+    this.rParts = { ...this.rParts, [key]: val.trim() };
+    if (k.build) this.rServer = k.build(this.rParts);
+  };
+  private loadRegs = async () => {
+    try {
+      this.regs = (await this.rpc.call<RegistryView[]>("System", "registries", [])) || [];
+    } catch (err: any) {
+      this.toast.error(`load registries — ${err?.message ?? "failed"}`);
+    }
+  };
+
+  private addReg = async () => {
+    const server = this.rServer.trim();
+    const user = this.rUser.trim();
+    if (!server || !user || !this.rPass) {
+      this.toast.error("server, username and password are required");
+      return;
+    }
+    this.regBusy = true;
+    try {
+      const res = await this.rpc.call<{ ok: boolean; persisted: boolean }>("System", "addRegistry", [server, user, this.rPass]);
+      this.toast.ok(res?.persisted ? `added ${server}` : `added ${server} (not persisted — no state db mounted)`);
+      this.rServer = this.rUser = this.rPass = this.rPreset = "";
+      this.rParts = {};
+      await this.loadRegs();
+    } catch (err: any) {
+      this.toast.error(`add ${server} — ${err?.message ?? "failed"}`);
+    } finally {
+      this.regBusy = false;
+    }
+  };
+
+  private removeReg = async (r: RegistryView) => {
+    const ok = await this.confirm.ask({
+      title: "remove registry",
+      danger: true,
+      confirmLabel: "Remove",
+      message: `Stop authenticating pulls from ${r.server} across the fleet.`,
+      stats: [{ label: "registry", value: r.server }, ...(r.username ? [{ label: "user", value: r.username }] : [])],
+    });
+    if (!ok) return;
+    try {
+      await this.rpc.call("System", "removeRegistry", [r.server]);
+      this.toast.ok(`removed ${r.server}`);
+      await this.loadRegs();
+    } catch (err: any) {
+      this.toast.error(`remove ${r.server} — ${err?.message ?? "failed"}`);
+    }
+  };
 
   // Selection key — the same image id can exist on multiple hosts in the all
   // view, so key by host+id, not id alone.
@@ -490,80 +689,108 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     this.refresh();
   };
 
-  // Redeploy every container using this image so they move onto their current
-  // tag — which frees the old (often untagged) image to be removed.
-  private redeployUsers = async (i: ImageInfo) => {
-    const users = i.used_by;
-    if (!users.length) return;
-    const ok = await this.confirm.ask({
-      title: "redeploy & free",
-      warn: true,
-      confirmLabel: "Redeploy",
-      message: "Redeploy each container onto its current image tag. That recreates them and frees this old image.",
-      stats: [{ label: "containers", value: String(users.length) }],
-    });
-    if (!ok) return;
-    this.detail = null;
-    await this.proc.run("redeploying containers", async (emit, signal) => {
-      let okv = true;
-      for (const u of users) {
-        emit("> " + (u.project ? u.project + "/" : "") + (u.service || u.name || shortId(u.id)));
-        if (!(await this.pipeStream(emit, signal, "redeploy", [u.id]))) okv = false;
-      }
-      emit("done — the old image is now free; remove it from the list");
-      return okv;
-    });
-    this.refresh();
-  };
-
-  private renderDetail(i: ImageInfo & { host?: string }) {
-    const title = i.tags.length ? i.tags[0] : "<untagged>";
+  private renderRegForm() {
+    const preset = KNOWN_REGISTRIES.find((k) => k.id === this.rPreset);
+    const cfg = preset ? this.configuredFor(preset) : undefined;
+    const blocked = !!cfg && !cfg.editable; // config-sourced -> read-only, can't shadow it
     return (
-      <div class="dmodal" onClick={() => (this.detail = null)}>
-        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="dhead">
-            <span class="dt" title={title}>{title}</span>
-            <span class="grow"></span>
-            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
-          </div>
-          <div class="dfacts">
-            {i.host ? <span class="st"><i class="sk">host</i><i class="sv">{i.host}</i></span> : null}
-            <span class="st"><i class="sk">size</i><i class="sv">{bytes(i.size)}</i></span>
-            <span class="st"><i class="sk">age</i><i class="sv">{age(i.created)}</i></span>
-            <span class="st"><i class="sk">status</i><i class="sv">{i.in_use ? "in use" : i.dangling ? "dangling" : "unused"}</i></span>
-            <span class="st"><i class="sk">containers</i><i class="sv">{i.used_by.length}</i></span>
-          </div>
-          <div class="dbody">
-            <div class="drow"><span class="dk">id</span><span class="dv mono">{shortId(i.id)}</span></div>
-            <div class="drow"><span class="dk">tags</span>
-              <span class="dv">{i.tags.length ? i.tags.map((t) => <span class="tagchip">{t}</span>) : <span class="dim">untagged</span>}</span>
+      <div class="rform">
+        <div class="rf full">
+          <label>Known registries</label>
+          <hope-select
+            options={[
+              { value: "", label: "Custom / other…" },
+              ...KNOWN_REGISTRIES.map((k) => {
+                const c = this.configuredFor(k);
+                return { value: k.id, label: k.label + (c ? (c.editable ? " · added" : " · config") : "") };
+              }),
+            ]}
+            value={this.rPreset}
+            placeholder="Custom / other…"
+            onSelect={(e: any) => this.selectPreset(e.detail)}
+          ></hope-select>
+        </div>
+        {preset?.parts ? (
+          <>
+            {preset.parts.map((p) => (
+              <div class="rf">
+                <label>{p.label}</label>
+                <input type="text" placeholder={p.placeholder} autocomplete="off" value={this.rParts[p.key] || ""} onInput={(e: any) => this.setPart(preset, p.key, e.target.value)} />
+              </div>
+            ))}
+            <div class="rf full">
+              <label>Registry server</label>
+              <div class="rserverpreview">{this.rServer}</div>
             </div>
-            <div class="drow top"><span class="dk">used by</span>
-              <span class="dv">
-                {i.used_by.length ? (
-                  i.used_by.map((u) => (
-                    <span class="ub" onClick={() => { if (i.host) this.hostCtx.activeHost = i.host; this.detail = null; this.router.navigate(`/container/${encodeURIComponent(u.id)}`); }}>
-                      {u.project ? <span class="ubp">{u.project} / </span> : null}
-                      {u.service || u.name || shortId(u.id)}
-                    </span>
-                  ))
-                ) : (
-                  <span class="dim">nothing — safe to remove</span>
-                )}
-              </span>
+          </>
+        ) : (
+          <div class="rf full">
+            <label>Registry server</label>
+            <input type="text" placeholder="registry.example.com" value={this.rServer} onInput={(e: any) => { this.rServer = e.target.value; }} />
+          </div>
+        )}
+        <div class="rf">
+          <label>Username</label>
+          <input type="text" placeholder={preset ? preset.user : "username"} autocomplete="off" value={this.rUser} onInput={(e: any) => (this.rUser = e.target.value)} />
+        </div>
+        <div class="rf">
+          <label>Password / token</label>
+          <input type="password" placeholder={preset ? preset.pass : "password or access token"} autocomplete="new-password" value={this.rPass} onInput={(e: any) => (this.rPass = e.target.value)} />
+        </div>
+        {preset ? <div class="rf full"><div class="rnote">{preset.note}</div></div> : null}
+        {cfg ? (
+          <div class="rf full">
+            <div class={"rnote" + (blocked ? " warn" : "")}>
+              {blocked
+                ? `${cfg.server} is already configured from config (read-only) — remove it there to change it.`
+                : `${cfg.server} is already added — saving updates its stored credentials.`}
             </div>
           </div>
-          <div class="dacts">
-            {i.used_by.length ? <span class="dnote">in use — redeploy frees it cleanly; remove force-deletes it from under the containers</span> : null}
-            <span class="grow"></span>
-            {i.used_by.length ? <button class="pbtn warn" onClick={() => this.redeployUsers(i)}>redeploy {i.used_by.length} &amp; free</button> : null}
-            <button class="pbtn danger" onClick={() => { const im = i; this.detail = null; this.removeImg(im); }}>remove</button>
-          </div>
+        ) : null}
+        <div class="rf act">
+          <span class="grow"></span>
+          <button class="pbtn" disabled={this.regBusy || blocked} onClick={this.addReg}>{this.regBusy ? "adding…" : blocked ? "read-only" : cfg ? "update registry" : "add registry"}</button>
         </div>
       </div>
     );
   }
 
+  private renderRegs() {
+    return (
+      <div class="dmodal" onClick={this.closeRegs}>
+        <div class="rbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="dhead">
+            <span class="dt">registries</span>
+            <span class="grow"></span>
+            <button class="dx" onClick={this.closeRegs}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="rsub">Credentials for private image pulls. hope authenticates these on the local daemon and every connected agent. Config-defined entries are read-only.</div>
+          <div class="rlist">
+            {this.regs.length ? (
+              this.regs.map((r) => (
+                <div class="rrow">
+                  <div class="rmain">
+                    <span class="rserver" title={r.server}>{r.server}</span>
+                    <span class="rmeta">
+                      {r.username || <span class="dim">no user</span>}
+                      {r.has_password ? null : <span class="nopw"> · no password</span>}
+                    </span>
+                  </div>
+                  <span class={"rtag" + (r.editable ? " db" : "")}>{r.source}</span>
+                  {r.editable ? (
+                    <button class="rm" title="remove registry" onClick={() => this.removeReg(r)}><loom-icon name="x" size={14}></loom-icon></button>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div class="rempty">No registries configured. Add one below to pull private images.</div>
+            )}
+          </div>
+          {this.renderRegForm()}
+        </div>
+      </div>
+    );
+  }
 
   // Cross-fleet images overview: a section per host with its counts; "manage"
   // drills into that host's full images page (filters, prune, selection).
@@ -580,6 +807,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     return (
       <div>
         {appBar("images", [
+          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openRegs}><loom-icon name="plus" size={12}></loom-icon> registries</button></div>,
           <div class="s act"><button disabled={this.loading()} onClick={() => this.refresh()}>{this.loading() ? "…" : "refresh"}</button></div>,
         ])}
 
@@ -661,7 +889,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
               </thead>
               <tbody>
                 {vis.map((i) => (
-                  <tr class={"irow" + (this.selected.includes(this.key(i)) ? " sel" : "")} onClick={() => (this.detail = i)}>
+                  <tr class={"irow" + (this.selected.includes(this.key(i)) ? " sel" : "")} onClick={() => this.imageDetail.open({ host: i.host, ref: i.id, onChange: () => this.refresh() })}>
                     {i.used_by.length ? (
                       <td class="sel"></td>
                     ) : (
@@ -702,7 +930,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
             <div class="empty">{this.query ? "No images match." : "No images on this daemon."}</div>
           ) : null}
         </main>
-        {this.detail ? this.renderDetail(this.detail) : null}
+        {this.showRegs ? this.renderRegs() : null}
       </div>
     );
   }

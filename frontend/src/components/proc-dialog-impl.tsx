@@ -1,9 +1,10 @@
 // The real processing-dialog implementation — the lazy chunk. Loaded on demand
 // by the <hope-proc> stub (see proc-dialog.tsx) the first time a long op runs.
 // loom queues run() calls made before this chunk lands and replays them here.
-import { LoomElement, styles, css, reactive } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, watch, unmount } from "@toyz/loom";
 import { query } from "@toyz/loom/element";
 import { theme } from "../styles";
+import { signalModal } from "../modal";
 import type { ProcFn } from "./proc-dialog";
 
 @styles(theme, css`
@@ -27,6 +28,9 @@ export default class ProcDialogImpl extends LoomElement {
   @reactive accessor title = "";
   @reactive accessor lines: string[] = [];
   @reactive accessor done = false;
+
+  @watch("open") private lockBody() { signalModal(this, this.open); }
+  @unmount private releaseBody() { signalModal(this, false); }
   @reactive accessor ok = true;
   @query(".log") accessor logEl!: HTMLElement | null;
   private ctrl?: AbortController;

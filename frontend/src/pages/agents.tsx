@@ -1,6 +1,8 @@
 // Agents page: every connected hope-agent with its build info (version, git
 // sha, Go version, platform), daemon version, and container/image counts.
-import { LoomElement, component, styles, css, reactive, mount, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, watch, interval, app } from "@toyz/loom";
+import { clipboard, debounce } from "@toyz/loom/element";
+import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -8,6 +10,8 @@ import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { ConfirmService } from "../confirm";
+import { ToastService } from "../toast";
 import { appBar } from "../app-bar";
 import { System } from "../contracts";
 import type { AgentView, AgentEnroll } from "../contracts";
@@ -36,6 +40,11 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .acard .adot.off { background: var(--bad); }
   .acard .aid { font: 700 14px/1 var(--mono); color: var(--hi); letter-spacing: .02em; }
   .acard .aup { margin-left: auto; font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .acard.off { border-color: color-mix(in srgb, var(--bad) 22%, var(--line)); }
+  .acard .aup.seen { color: var(--warn); }
+  .acard .afget { margin-left: 10px; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
+    background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+  .acard .afget:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
   .acard .arows { padding: 4px 16px 12px; }
   .acard .arow { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
   .acard .arow:last-child { border-bottom: 0; }
@@ -44,27 +53,29 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .acard .av .dim { color: var(--dim); }
   .acard .av .warnv { color: var(--warn); }
 
-  .setup { max-width: 760px; margin: 8px auto 0; }
-  .setup .lead { text-align: center; margin-bottom: 26px; }
-  .setup .lead h2 { font: 700 18px/1.3 var(--mono); color: var(--hi); margin: 0 0 8px; letter-spacing: .01em; }
-  .setup .lead p { font: 13px/1.6 var(--sans); color: var(--dim); margin: 0; }
-  .setup .step { display: flex; gap: 14px; padding: 18px 0; border-top: 1px solid var(--line); }
-  .setup .step:first-of-type { border-top: 0; }
-  .setup .num { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line2);
-    font: 700 12px/1 var(--mono); color: var(--upd); }
-  .setup .sbody { flex: 1; min-width: 0; }
-  .setup .stitle { font: 600 13px/1.4 var(--mono); color: var(--hi); margin-bottom: 4px; }
-  .setup .sdesc { font: 12.5px/1.6 var(--sans); color: var(--dim); margin-bottom: 10px; }
-  .setup .sdesc code { font-family: var(--mono); color: var(--mid); }
+  /* empty state mirrors the API page: hero + numbered panel cards */
+  .setup { max-width: 940px; margin: 0 auto; }
+  .setup .hero { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 22px; }
+  .setup .hero .t { display: block; font: 700 30px/1 var(--mono); letter-spacing: .06em; color: var(--hi); margin-bottom: 10px; }
+  .setup .hero .sub { display: block; max-width: 680px; font: 13px/1.6 var(--mono); color: var(--dim); }
+  .setup .hero .sub code { color: var(--mid); }
+  .setup .panel { border: 1px solid var(--line); background: var(--panel); margin-bottom: 14px; }
+  .setup .ph { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+    font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
+  .setup .ph .n { color: var(--dim); }
+  .setup .pb { padding: 16px; }
+  .setup .pb p { font: 12.5px/1.7 var(--mono); color: var(--mid); margin: 0 0 12px; }
+  .setup .pb p:last-child { margin-bottom: 0; }
+  .setup .pb p code { color: var(--upd); }
   .setup .code { position: relative; background: var(--ink); border: 1px solid var(--line); }
-  .setup .code pre { margin: 0; padding: 14px 15px; overflow-x: auto; font: 12px/1.65 var(--mono); color: var(--hi); white-space: pre; }
+  .setup .code pre { margin: 0; padding: 14px 15px; overflow-x: auto; font: 12px/1.7 var(--mono); color: var(--hi); white-space: pre; }
   .setup .code .cp { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px;
     background: var(--raised); border: 1px solid var(--line2); color: var(--dim); cursor: pointer;
     font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 7px 10px; }
   .setup .code .cp:hover { color: var(--hi); border-color: var(--mid); }
   .setup .code .cp.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
-  .setup .hint { font: 11.5px/1.5 var(--mono); color: var(--dim); margin-top: 9px; }
-  .setup .hint b { color: var(--warn); font-weight: 600; }
+  .setup .note { font: 11.5px/1.6 var(--mono); color: var(--dim); margin-top: 12px; }
+  .setup .note b { color: var(--warn); font-weight: 600; }
 
   .amodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
     background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: afade .12s ease both; }
@@ -104,6 +115,8 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
 export class AgentsPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(HostContext) accessor hostCtx!: HostContext;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ToastService) accessor toast!: ToastService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -111,9 +124,13 @@ export class AgentsPage extends LoomElement {
   // Agents are hub-global (not host-scoped), so no fleet/HostChanged wiring.
   @rpc(System, "agents", { eager: false }) accessor agentsQ!: ApiState<AgentView[]>;
   @mutate(System, "agentEnroll") accessor enrollMut!: RpcMutator<[], AgentEnroll>;
+  @mutate(System, "forgetAgent") accessor forgetMut!: RpcMutator<[string], { ok: boolean }>;
 
   @reactive accessor copied = "";
   @reactive accessor modalOpen = false;
+
+  @watch("modalOpen") private lockBody() { signalModal(this, this.modalOpen); }
+  @unmount private releaseBody() { signalModal(this, false); }
   @reactive accessor enroll: AgentEnroll | null = null;
   @reactive accessor hostId = "my-host";
 
@@ -161,19 +178,39 @@ export class AgentsPage extends LoomElement {
     return this.cmd(this.maskToken(this.enroll?.token || "YOUR_AGENT_TOKEN"), this.hostId, this.enroll?.ws_path || "/agent/connect");
   }
 
-  private copy = async (text: string, tag: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      this.copied = tag;
-      setTimeout(() => (this.copied = ""), 1500);
-    } catch { /* clipboard blocked */ }
-  };
+  // loom @clipboard copies the return value; @debounce clears the "copied" flash
+  // after 1.5s of no further copies (auto-cancelled on disconnect).
+  @clipboard("write")
+  private copy(text: string, tag: string) {
+    this.copied = tag;
+    this.clearCopied();
+    return text;
+  }
+  @debounce(1500) private clearCopied() { this.copied = ""; }
 
   private openNew = async () => {
     this.modalOpen = true;
     try {
       this.enroll = await this.enrollMut.call();
     } catch { this.enroll = null; }
+  };
+
+  private forget = async (a: AgentView) => {
+    const ok = await this.confirm.ask({
+      title: "forget agent",
+      danger: true,
+      confirmLabel: "Forget",
+      message: `Remove ${a.id} from the known-agents list. If it dials back in it'll reappear.`,
+      stats: [{ label: "agent", value: a.id }, ...(a.last_seen ? [{ label: "last seen", value: ago(a.last_seen) + " ago" }] : [])],
+    });
+    if (!ok) return;
+    try {
+      await this.forgetMut.call(a.id);
+      this.toast.ok(`forgot ${a.id}`);
+      this.load();
+    } catch (err: any) {
+      this.toast.error(`forget ${a.id} — ${err?.message ?? "failed"}`);
+    }
   };
 
   @mount
@@ -214,11 +251,18 @@ export class AgentsPage extends LoomElement {
 
           <div class="agrid">
             {this.agents.map((a) => (
-              <div class="acard">
+              <div class={"acard" + (a.online ? "" : " off")}>
                 <div class="ahead">
                   <span class={"adot" + (a.online ? "" : " off")}></span>
                   <span class="aid">{a.id}</span>
-                  <span class="aup">up {ago(a.connected_at)}</span>
+                  {a.online ? (
+                    <span class="aup">up {ago(a.connected_at)}</span>
+                  ) : (
+                    <>
+                      <span class="aup seen">{a.last_seen ? "seen " + ago(a.last_seen) + " ago" : "offline"}</span>
+                      <button class="afget" title="forget this agent" onClick={() => this.forget(a)}><loom-icon name="x" size={13}></loom-icon></button>
+                    </>
+                  )}
                 </div>
                 <div class="arows">
                   <div class="arow"><span class="ak">version</span><span class="av">{a.version || <span class="dim">—</span>}{a.revision ? <span class="dim"> · {shaShort(a.revision)}</span> : null}</span></div>
@@ -235,39 +279,36 @@ export class AgentsPage extends LoomElement {
 
           {this.loaded && this.agents.length === 0 && !this.error ? (
             <div class="setup">
-              <div class="lead">
-                <h2>Add a remote host</h2>
-                <p>A hope-agent runs on another machine and tunnels its Docker over this same port — no extra ports to open. Manage that host's stacks, images and tunnels right from here.</p>
+              <div class="hero">
+                <span class="t">Add a remote host</span>
+                <span class="sub">A hope-agent runs on another machine and tunnels its Docker over this same port — no extra ports to open. Manage that host's stacks, images and tunnels right from here.</span>
               </div>
 
-              <div class="step">
-                <div class="num">1</div>
-                <div class="sbody">
-                  <div class="stitle">Set a shared token on hope</div>
-                  <div class="sdesc">In hope's <code>config.toml</code>, set an <code>[agent]</code> token — a long random secret — then restart hope. This turns on the agent hub.</div>
+              <div class="panel">
+                <div class="ph"><span class="n">01</span> Set a shared token on hope</div>
+                <div class="pb">
+                  <p>In hope's <code>config.toml</code>, set an <code>[agent]</code> token — a long random secret — then restart hope. This turns on the agent hub.</p>
                   <div class="code"><pre>[agent]
 token = "a-long-random-secret"</pre></div>
                 </div>
               </div>
 
-              <div class="step">
-                <div class="num">2</div>
-                <div class="sbody">
-                  <div class="stitle">Run the agent on the remote host</div>
-                  <div class="sdesc">On the machine you want to add, run this. Replace <code>YOUR_AGENT_TOKEN</code> with the token from step 1 and pick a <code>--host-id</code>.</div>
+              <div class="panel">
+                <div class="ph"><span class="n">02</span> Run the agent on the remote host</div>
+                <div class="pb">
+                  <p>On the machine you want to add, run this. Replace <code>YOUR_AGENT_TOKEN</code> with the token from step 1 and pick a <code>--host-id</code>.</p>
                   <div class="code">
                     <button class={"cp" + (this.copied === "empty" ? " ok" : "")} onClick={() => this.copy(this.agentCmd, "empty")}><loom-icon name="copy" size={12}></loom-icon>{this.copied === "empty" ? "copied" : "copy"}</button>
                     <pre>{this.agentCmd}</pre>
                   </div>
-                  <div class="hint"><b>Docker socket is root-equivalent</b> — only enroll hosts you control. The token is the only thing gating enrollment; keep it secret.</div>
+                  <div class="note"><b>Docker socket is root-equivalent</b> — only enroll hosts you control. The token is the only thing gating enrollment; keep it secret.</div>
                 </div>
               </div>
 
-              <div class="step">
-                <div class="num">3</div>
-                <div class="sbody">
-                  <div class="stitle">It shows up here</div>
-                  <div class="sdesc">Once the agent dials in it appears on this page, and you can switch to it from the host picker in the top bar. This view refreshes automatically.</div>
+              <div class="panel">
+                <div class="ph"><span class="n">03</span> It shows up here</div>
+                <div class="pb">
+                  <p>Once the agent dials in it appears on this page, and you can switch to it from the host picker in the top bar. This view refreshes automatically.</p>
                 </div>
               </div>
             </div>

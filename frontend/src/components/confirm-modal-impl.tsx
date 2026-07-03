@@ -2,8 +2,9 @@
 // the <hope-confirm> stub (see confirm-modal.tsx) the first time a confirm is
 // shown. Exposes show(opts): Promise<boolean>; loom's @lazy queues calls made
 // before this chunk finishes loading and replays them here.
-import { LoomElement, styles, css, reactive, on } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/loom";
 import { theme } from "../styles";
+import { signalModal } from "../modal";
 import type { ConfirmOpts } from "../confirm";
 
 @styles(theme, css`
@@ -42,6 +43,9 @@ export default class ConfirmModalImpl extends LoomElement {
   @reactive accessor open = false;
   @reactive accessor opts: ConfirmOpts = { message: "" };
   private resolver: ((v: boolean) => void) | null = null;
+
+  @watch("open") private lockBody() { signalModal(this, this.open); }
+  @unmount private releaseBody() { signalModal(this, false); }
 
   // Called via the lazy stub. Returns a promise that settles on the user's choice.
   show(o: ConfirmOpts): Promise<boolean> {

@@ -3,7 +3,8 @@
 // rows, declare networks + volumes, optionally expose ports via a Cloudflare
 // tunnel). The same page is the stack editor: /deploy?edit=<project> seeds the
 // builder from the stack's stored spec (or reconstructs it from live containers).
-import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, on, query, queryAll, app } from "@toyz/loom";
+import { clipboard } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -138,6 +139,10 @@ export class DeployPage extends LoomElement {
   @reactive accessor editing = "";
   private keyc = 1;
 
+  // Live element refs (loom @query resolves against the shadow root).
+  @queryAll("hope-service-form") accessor serviceForms!: any;
+  @query("#composefile") accessor composeFileInput!: HTMLInputElement | null;
+
   private get router(): LoomRouter { return app.get(LoomRouter); }
 
   @mount
@@ -263,8 +268,7 @@ export class DeployPage extends LoomElement {
 
   // Read every service-form's current spec back (before a structural change or on submit).
   private collectServices(): ContainerSpec[] {
-    const forms = this.shadowRoot?.querySelectorAll("hope-service-form");
-    return Array.from(forms || []).map((el: any) => el.getSpec() as ContainerSpec);
+    return (this.serviceForms || []).map((el: any) => el.getSpec() as ContainerSpec);
   }
 
   private syncRows() {
@@ -393,7 +397,7 @@ export class DeployPage extends LoomElement {
   };
 
   private deployContainer = async () => {
-    const form = this.shadowRoot?.querySelector("hope-service-form") as any;
+    const form = this.serviceForms?.[0] as any;
     const spec: ContainerSpec = form ? form.getSpec() : { image: "" };
     if (!spec.image) { this.toast.error("image is required"); return; }
     if (!spec.name) { this.toast.error("container name is required"); return; }
@@ -441,12 +445,14 @@ export class DeployPage extends LoomElement {
 
   // Export renders the deployed stack (stored spec, or reconstructed from live)
   // to compose YAML. Only offered while editing an existing stack.
+  @clipboard("write") private copyCompose(content: string) { return content; }
+
   private doExport = async () => {
     const project = this.editing || this.project.trim();
     if (!project) { this.toast.error("stack name is required to export"); return; }
     try {
       const res = await this.rpc.call<ExportResult>("Deploy", "exportCompose", [project]);
-      await navigator.clipboard.writeText(res.content);
+      this.copyCompose(res.content);
       this.toast.ok("compose copied to clipboard");
     } catch (e: any) {
       this.toast.error("export failed: " + (e?.message || "error"));
@@ -505,7 +511,7 @@ export class DeployPage extends LoomElement {
               <div class="ib">
                 <div class="filerow">
                   <input id="composefile" type="file" accept=".yml,.yaml,text/yaml,text/plain" style="display:none" onChange={this.onFile} />
-                  <button class="ghost sm" onClick={() => (this.shadowRoot?.querySelector("#composefile") as HTMLInputElement)?.click()}><loom-icon name="download" size={13}></loom-icon> Choose a compose file</button>
+                  <button class="ghost sm" onClick={() => this.composeFileInput?.click()}><loom-icon name="download" size={13}></loom-icon> Choose a compose file</button>
                   <span class="or">or paste it below</span>
                 </div>
                 <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>

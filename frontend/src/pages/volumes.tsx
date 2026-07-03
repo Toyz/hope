@@ -39,7 +39,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
 
   @rpc(System, "volumes", { eager: false }) accessor singleQ!: ApiState<VolumeInfo[]>;
   @rpc(System, "fleetVolumes", { eager: false }) accessor fleetQ!: ApiState<FleetVolumesHost[]>;
-  @mutate(Deploy, "createVolume") accessor mkVol!: RpcMutator<[string, string], VolumeInfo>;
+  @mutate(Deploy, "createVolume") accessor mkVol!: RpcMutator<[string, string, string, string], VolumeInfo>;
 
   @reactive accessor filter: Filter = "all";
 
@@ -77,11 +77,17 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
       fields: [
         { key: "name", label: "name", placeholder: "my-data" },
         { key: "driver", label: "driver", type: "select", value: "local", options: [{ value: "local", label: "local" }] },
+        {
+          key: "options", label: "driver options", type: "kv", optional: true, addLabel: "option",
+          placeholder: "type=nfs\no=addr=10.0.0.5,rw\ndevice=:/exports/data",
+          hint: "local driver: type=nfs|cifs|tmpfs + o=… + device=… for network/tmpfs volumes",
+        },
+        { key: "labels", label: "labels", type: "kv", optional: true, addLabel: "label", placeholder: "team=platform" },
       ],
     });
     if (!v) return;
     try {
-      await this.mkVol.call(v.name.trim(), v.driver || "local");
+      await this.mkVol.call(v.name.trim(), v.driver || "local", v.options || "", v.labels || "");
       this.toast.ok("created volume " + v.name.trim());
       this.refresh();
     } catch (err: any) {
@@ -290,6 +296,13 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
           </div>
           <div class="dbody">
             <div class="drow"><span class="dk">mountpoint</span><span class="dv">{v.mountpoint || "—"}</span></div>
+            {v.scope ? <div class="drow"><span class="dk">scope</span><span class="dv">{v.scope}</span></div> : null}
+            {v.options && Object.keys(v.options).length ? (
+              <div class="drow top"><span class="dk">options</span><span class="dv"><hope-kvlist data={v.options}></hope-kvlist></span></div>
+            ) : null}
+            {v.labels && Object.keys(v.labels).length ? (
+              <div class="drow top"><span class="dk">labels</span><span class="dv"><hope-kvlist data={v.labels}></hope-kvlist></span></div>
+            ) : null}
             <div class="drow top"><span class="dk">mounted by</span>
               <span class="dv">
                 {v.used_by.length ? v.used_by.map((u) => (

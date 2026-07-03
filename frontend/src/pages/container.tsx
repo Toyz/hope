@@ -1,7 +1,7 @@
 // Container detail — identity, a live overview, stat gauges, the log terminal,
 // and raw inspect. Inspect drives the header/overview; logs + stats stream over
 // NDJSON and tear down on unmount.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -10,6 +10,8 @@ import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { bytes, innerPort } from "../format";
+import { redactCmd, redactInspect } from "../redact";
+import { signalModal } from "../modal";
 import { UNGROUPED, composeProject, composeService } from "../const";
 import { HopeTransport } from "../transport";
 import { Containers, System, Tunnels, Stacks } from "../contracts";
@@ -17,11 +19,13 @@ import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView } from "../contracts";
+import { ImageDetailService } from "../components/image-detail";
+import { NetworkDetailService } from "../components/network-detail";
+import type { LogFrame, StackSummary, ContainerSummary, ContainerOp, UpdatesResult, OpFrame, OpResult, TunnelView, ConnectorView, ZoneView, ContainerSpec, NetworkInfo, VolumeInfo, HostView, TopResult } from "../contracts";
 import { markClass } from "../styles";
 import "../components/service-form";
 
-type Tab = "logs" | "stats" | "inspect";
+type Tab = "logs" | "stats" | "processes" | "inspect";
 const MAX_LINES = 600;
 
 @route("/container/:id")
@@ -111,6 +115,7 @@ const MAX_LINES = 600;
   .ov .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ov .v.warn { color: var(--warn); }
   .ov .v.bad { color: var(--bad); }
+  .ov .v .mdim { color: var(--dim); font-weight: 400; }
   .ov .v.slink { color: var(--hi); cursor: pointer; }
   .ov .v.slink:hover { color: #fff; text-decoration: underline; }
   .ov .v .hlink { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; background: transparent; cursor: pointer;
@@ -154,6 +159,9 @@ const MAX_LINES = 600;
   .kv .k { flex: 0 0 92px; font: 600 9.5px/1.6 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
   .kv .v { flex: 1; min-width: 0; font: 13px/1.5 var(--mono); color: var(--hi); word-break: break-all; }
   .kv .v.dim { color: var(--mid); }
+  /* clickable value: quiet until hover, then brighten + underline (same as .nn.slink) */
+  .kv .v.link { cursor: pointer; }
+  .kv .v.link:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
 
   .netblk { border: 1px solid var(--line); margin-bottom: 22px; }
   .netlbl { display: flex; align-items: center; gap: 10px; font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
@@ -164,6 +172,11 @@ const MAX_LINES = 600;
   .netlbl .addr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
     font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 5px 9px; }
   .netlbl .addr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  /* .netrow is the public-routes row (the networks list uses .nettbl now) */
+  .netrow { display: flex; flex-wrap: wrap; gap: 9px 22px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .netrow:last-child { border-bottom: 0; }
+  .netrow .nf { font: 12.5px/1 var(--mono); color: var(--hi); }
+  .netrow .nf i { color: var(--dim); font-style: normal; margin-right: 7px; text-transform: uppercase; font-size: 9px; letter-spacing: .12em; }
   .netrow.trow { align-items: center; }
   .netrow.none { color: var(--dim); font: 12.5px/1.6 var(--mono); }
   .netrow .rhost { display: inline-flex; align-items: center; gap: 7px; color: var(--hi); text-decoration: none; font: 13px/1 var(--mono); min-width: 150px; }
@@ -173,13 +186,21 @@ const MAX_LINES = 600;
   .netrow .grow { flex: 1; }
   .netrow .rrm { display: inline-grid; place-items: center; width: 26px; height: 26px; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
   .netrow .rrm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-  .netrow { display: flex; flex-wrap: wrap; gap: 9px 24px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .netrow:last-child { border-bottom: 0; }
-  .netrow .nn { font: 600 13px/1 var(--mono); color: var(--hi); min-width: 150px; }
-  .netrow .nn.slink { cursor: pointer; }
-  .netrow .nn.slink:hover { color: #fff; text-decoration: underline; }
-  .netrow .nf { font: 12.5px/1 var(--mono); color: var(--hi); }
-  .netrow .nf i { color: var(--dim); font-style: normal; margin-right: 7px; text-transform: uppercase; font-size: 9px; letter-spacing: .12em; }
+  /* one <table> so columns share widths and align across every row (auto layout
+     sizes each column to its widest cell); a trailing spacer column eats the
+     slack so the data stays tight-left with full-width row dividers */
+  .nettbl { width: 100%; border-collapse: collapse; }
+  .nettbl th { text-align: left; white-space: nowrap; padding: 9px 30px 8px 0; border-bottom: 1px solid var(--line);
+    font: 600 8.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .nettbl td { white-space: nowrap; padding: 7px 30px 7px 0; border-bottom: 1px solid var(--line);
+    font: 400 12px/1.3 var(--mono); color: var(--mid); font-variant-numeric: tabular-nums; }
+  .nettbl tbody tr:last-child td { border-bottom: 0; }
+  .nettbl th:first-child, .nettbl td:first-child { padding-left: 16px; }
+  .nettbl td.nn { font: 600 12.5px/1.3 var(--mono); color: var(--hi); }
+  .nettbl td.nn.slink { cursor: pointer; }
+  .nettbl td.nn.slink:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
+  .nettbl td.al { color: var(--dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  .nettbl .sp { width: 100%; padding: 0; }
 
   .tabs { display: flex; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
   .tabs button {
@@ -189,8 +210,14 @@ const MAX_LINES = 600;
   }
   .tabs button:hover { color: var(--mid); }
   .tabs button.active { color: var(--hi); border-bottom-color: var(--hi); }
-  .tabs .wrapbtn { margin-left: auto; border-bottom-color: transparent; color: var(--dim); }
-  .tabs .wrapbtn:hover { color: var(--hi); }
+  /* right-aligned action controls — a bordered chip so they don't read as tabs */
+  .tabs .wrapbtn { align-self: center; margin-left: auto; margin-bottom: 0; padding: 6px 11px; border: 1px solid var(--line);
+    color: var(--dim); font-size: 10px; letter-spacing: .12em; }
+  .tabs .wrapbtn + .wrapbtn { margin-left: 8px; }
+  .tabs .wrapbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .tabs .wrapbtn:disabled { opacity: .5; cursor: default; background: transparent; border-color: var(--line); }
+  .tabs .wrapbtn.armed { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+  .tabs .wrapbtn.armed:hover { color: #06080d; background: var(--warn); border-color: var(--warn); }
 
   pre.logs { height: 62vh; }
   pre.logs.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -260,6 +287,18 @@ const MAX_LINES = 600;
   .pmuted { color: var(--dim); }
   .pempty { padding: 32px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 
+  /* processes (docker top) */
+  .procwrap { border: 1px solid var(--line); overflow: auto; max-height: 62vh; }
+  .proctable { width: 100%; border-collapse: collapse; }
+  .proctable th { position: sticky; top: 0; z-index: 1; text-align: left; white-space: nowrap; background: var(--panel);
+    padding: 10px 14px; border-bottom: 1px solid var(--line); font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .proctable td { padding: 9px 14px; border-bottom: 1px solid var(--line); font: 12.5px/1.5 var(--mono); color: var(--hi);
+    white-space: nowrap; vertical-align: top; }
+  .proctable td:last-child { white-space: normal; word-break: break-all; color: var(--mid); } /* CMD column wraps */
+  .proctable tr:last-child td { border-bottom: none; }
+  .proctable tbody tr:hover td { background: var(--raised); }
+  .proctable .pnone { text-align: center; color: var(--dim); white-space: normal; }
+
   .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
     overflow: hidden; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
   @keyframes efade { from { opacity: 0; } to { opacity: 1; } }
@@ -294,6 +333,8 @@ export class ContainerPage extends LoomElement {
   @inject(ProcService) accessor proc!: ProcService;
   @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ImageDetailService) accessor imageDetail!: ImageDetailService;
+  @inject(NetworkDetailService) accessor networkDetail!: NetworkDetailService;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -343,6 +384,10 @@ export class ContainerPage extends LoomElement {
   @reactive accessor blkW = "—";
   @reactive accessor pids = "—";
   @reactive accessor hasStats = false;
+  @reactive accessor procs: TopResult | null = null;
+  @reactive accessor procsLoading = false;
+  @reactive accessor procErr = "";
+  @reactive accessor revealSecrets = false; // unmask secrets in processes + inspect
   @reactive accessor error = "";
   @reactive accessor wrap = false;
   @reactive accessor inspectMode: "pretty" | "raw" = "pretty";
@@ -378,6 +423,13 @@ export class ContainerPage extends LoomElement {
 
   @reactive accessor editOpen = false;
   @reactive accessor editSpec: ContainerSpec | null = null;
+  @query("pre.logs") accessor logsPre!: HTMLElement | null;
+  @query(".editmodal hope-service-form") accessor editForm!: any;
+
+  // Lock body scroll while any full-screen dialog (edit / healthcheck) is open.
+  private syncBodyLock() { signalModal(this, this.editOpen || this.healthOpen); }
+  @watch("editOpen") private lockEdit() { this.syncBodyLock(); }
+  @watch("healthOpen") private lockHealth() { this.syncBodyLock(); }
   @reactive accessor editSeed = 0;
   @reactive accessor editNets: string[] = [];
   @reactive accessor editVols: string[] = [];
@@ -398,11 +450,6 @@ export class ContainerPage extends LoomElement {
     if (this.routeId) this.enter();
   }
 
-  // Lock background scroll while the edit modal is open.
-  @watch("editOpen")
-  private onEditOpen() {
-    document.body.style.overflow = this.editOpen ? "hidden" : "";
-  }
 
   // Any document click outside the open menus (their triggers stopPropagation)
   // closes them. Auto-unbinds on disconnect.
@@ -522,7 +569,7 @@ export class ContainerPage extends LoomElement {
   @unmount
   onUnmount() {
     this.ctrl.abort();
-    document.body.style.overflow = ""; // never leave scroll locked
+    signalModal(this, false); // never leave scroll locked on navigate-away
   }
 
   private ownName(): string {
@@ -613,7 +660,7 @@ export class ContainerPage extends LoomElement {
         const next = this.logLines.concat(stripAnsi(f.data).replace(/\n$/, ""));
         this.logLines = next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
         requestAnimationFrame(() => {
-          const el = this.shadowRoot?.querySelector("pre.logs") as HTMLElement | null;
+          const el = this.logsPre;
           if (el) el.scrollTop = el.scrollHeight;
         });
       }
@@ -679,6 +726,28 @@ export class ContainerPage extends LoomElement {
 
   private selectTab = (t: Tab) => {
     this.tab = t;
+    if (t === "processes") void this.loadProcs();
+  };
+
+  // The command column (docker top titles it CMD or COMMAND; it's the argv and
+  // the only secret-bearing one). Falls back to the last column.
+  private cmdColIdx(): number {
+    const titles = this.procs?.titles ?? [];
+    const i = titles.findIndex((t) => /^(cmd|command|args?)$/i.test(t.trim()));
+    return i === -1 ? titles.length - 1 : i;
+  }
+
+  private loadProcs = async () => {
+    this.procErr = "";
+    this.procsLoading = true;
+    try {
+      this.procs = await this.rpc.call<TopResult>("Containers", "top", [this.id]);
+    } catch (e: any) {
+      this.procs = null;
+      this.procErr = this.state() === "running" ? (e?.message ?? "failed to list processes") : "container is not running";
+    } finally {
+      this.procsLoading = false;
+    }
   };
 
   // ── edit container settings (recreate with a new spec) ──
@@ -701,7 +770,7 @@ export class ContainerPage extends LoomElement {
   };
 
   private saveEdit = async () => {
-    const form = this.shadowRoot?.querySelector(".editmodal hope-service-form") as any;
+    const form = this.editForm;
     if (!form) return;
     const spec: ContainerSpec = form.getSpec();
     if (!spec.image) return;
@@ -722,10 +791,12 @@ export class ContainerPage extends LoomElement {
   private logout = () => this.auth.logout();
 
   // Raw: syntax-highlighted JSON (a real DOM node so we can set innerHTML).
+  // Secrets (env, tokens) are masked unless the operator reveals them.
   private renderInspect() {
     const pre = document.createElement("pre");
     pre.className = "inspect";
-    pre.innerHTML = this.info ? highlightJson(this.info) : "Loading…";
+    const data = this.info && !this.revealSecrets ? redactInspect(this.info) : this.info;
+    pre.innerHTML = this.info ? highlightJson(data) : "Loading…";
     return pre;
   }
 
@@ -735,7 +806,7 @@ export class ContainerPage extends LoomElement {
   private renderPretty() {
     const i = this.info;
     if (!i || typeof i !== "object") return <div class="pempty">Loading…</div>;
-    const rows = flatten(i);
+    const rows = flatten(this.revealSecrets ? i : redactInspect(i));
     const q = this.inspectQuery.trim().toLowerCase();
     const filtered = q
       ? rows.filter(([k, v]) => k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q))
@@ -891,12 +962,16 @@ export class ContainerPage extends LoomElement {
   // The networks this container is attached to, with its address on each.
   private netList() {
     const nets = this.info?.NetworkSettings?.Networks ?? {};
+    // Docker auto-adds the container's own name and short id as endpoint
+    // aliases — noise, not real service aliases. Drop both so only the compose
+    // service name + user-defined aliases remain.
+    const cname = (this.info?.Name || "").replace(/^\//, "");
     return Object.entries<any>(nets).map(([name, n]) => ({
       name,
       ip: n?.IPAddress || n?.GlobalIPv6Address || "",
       gateway: n?.Gateway || n?.IPv6Gateway || "",
       mac: n?.MacAddress || "",
-      aliases: ((n?.Aliases as string[]) || []).filter((a) => a && !this.id.startsWith(a)),
+      aliases: ((n?.Aliases as string[]) || []).filter((a) => a && a !== cname && !this.id.startsWith(a)),
     }));
   }
 
@@ -986,7 +1061,14 @@ export class ContainerPage extends LoomElement {
           <div class="sub">{this.id.slice(0, 24)}</div>
 
           <div class="ov">
-            <div class="c"><span class="k">Uptime</span><span class="v">{uptime(this.info?.State?.StartedAt)}</span></div>
+            <div class="c"><span class="k">State</span><span class={"v" + (running ? "" : " bad")}>{this.state() || "—"}</span></div>
+            <div class="c"><span class="k">Uptime</span><span class="v">{running ? uptime(this.info?.State?.StartedAt) : "—"}</span></div>
+            {running ? (
+              <>
+                <div class="c"><span class="k">CPU</span><span class={"v" + (this.cpuBar >= 85 ? " bad" : this.cpuBar >= 60 ? " warn" : "")}>{this.cpu}</span></div>
+                <div class="c"><span class="k">Memory</span><span class={"v" + (this.memBar >= 90 ? " bad" : this.memBar >= 75 ? " warn" : "")}>{this.memUsed}<span class="mdim"> / {this.memLimit}</span></span></div>
+              </>
+            ) : null}
             <div class="c">
               <span class="k">Restarts</span>
               <span class={"v" + ((this.info?.RestartCount ?? 0) > 0 ? " warn" : "")}>{this.info?.RestartCount ?? 0}</span>
@@ -1014,7 +1096,13 @@ export class ContainerPage extends LoomElement {
           </div>
 
           <div class="kv">
-            <div class="r"><span class="k">Image</span><span class="v">{this.info?.Config?.Image ?? "—"}</span></div>
+            <div class="r"><span class="k">Image</span>
+              {this.info?.Config?.Image ? (
+                <span class="v link" onClick={() => this.imageDetail.open({ host: this.hostCtx.activeHost, ref: this.info!.Config!.Image! })}>{this.info.Config.Image}</span>
+              ) : (
+                <span class="v">—</span>
+              )}
+            </div>
             <div class="r"><span class="k">Ports</span><span class="v">{this.ports()}</span></div>
             <div class="r"><span class="k">Container</span><span class="v dim">{this.id}</span></div>
           </div>
@@ -1022,15 +1110,23 @@ export class ContainerPage extends LoomElement {
           {this.netList().length ? (
             <div class="netblk">
               <div class="netlbl">Networks</div>
-              {this.netList().map((n) => (
-                <div class="netrow">
-                  <span class="nn slink" title="manage networks" onClick={() => this.router.navigate("/networks")}>{n.name}</span>
-                  <span class="nf"><i>ip</i>{n.ip || "—"}</span>
-                  <span class="nf"><i>gateway</i>{n.gateway || "—"}</span>
-                  {n.aliases.length ? <span class="nf"><i>aliases</i>{n.aliases.join(", ")}</span> : null}
-                  {n.mac ? <span class="nf"><i>mac</i>{n.mac}</span> : null}
-                </div>
-              ))}
+              <table class="nettbl">
+                <thead>
+                  <tr><th>network</th><th>ip</th><th>gateway</th><th>mac</th><th>aliases</th><th class="sp"></th></tr>
+                </thead>
+                <tbody>
+                  {this.netList().map((n) => (
+                    <tr>
+                      <td class="nn slink" data-tip="inspect network" onClick={() => this.networkDetail.open({ host: this.hostCtx.activeHost, ref: n.name })}>{n.name}</td>
+                      <td>{n.ip || "—"}</td>
+                      <td>{n.gateway || "—"}</td>
+                      <td>{n.mac || "—"}</td>
+                      <td class="al" data-tip={n.aliases.length ? n.aliases.join(", ") : undefined}>{n.aliases.length ? n.aliases.join(", ") : "—"}</td>
+                      <td class="sp"></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
 
@@ -1061,11 +1157,17 @@ export class ContainerPage extends LoomElement {
           ) : null}
 
           <div class="tabs">
-            {(["logs", "stats", "inspect"] as Tab[]).map((t) => (
+            {(["logs", "stats", "processes", "inspect"] as Tab[]).map((t) => (
               <button class={this.tab === t ? "active" : ""} onClick={() => this.selectTab(t)}>{t}</button>
             ))}
             {this.tab === "logs" ? (
               <button class="wrapbtn" onClick={() => (this.wrap = !this.wrap)}>{this.wrap ? "no wrap" : "wrap"}</button>
+            ) : null}
+            {this.tab === "processes" || this.tab === "inspect" ? (
+              <button class={"wrapbtn" + (this.revealSecrets ? " armed" : "")} title={this.revealSecrets ? "hide secrets again" : "reveal secrets (env, tokens, passwords)"} onClick={() => (this.revealSecrets = !this.revealSecrets)}>{this.revealSecrets ? "hide secrets" : "reveal secrets"}</button>
+            ) : null}
+            {this.tab === "processes" ? (
+              <button class="wrapbtn" disabled={this.procsLoading} onClick={this.loadProcs}>{this.procsLoading ? "…" : "refresh"}</button>
             ) : null}
           </div>
 
@@ -1097,6 +1199,30 @@ export class ContainerPage extends LoomElement {
                 <div class="m"><i class="mk">PIDs</i><i class="mv">{this.pids}</i></div>
               </div>
             </div>
+          ) : null}
+
+          {this.tab === "processes" ? (
+            this.procErr ? (
+              <div class="pempty">{this.procErr}</div>
+            ) : !this.procs ? (
+              <div class="pempty">{this.procsLoading ? "Loading processes…" : "No process data."}</div>
+            ) : (
+              <div class="procwrap">
+                <table class="proctable">
+                  <thead><tr>{this.procs.titles.map((t) => <th>{t}</th>)}</tr></thead>
+                  <tbody>
+                    {this.procs.processes.length ? (
+                      this.procs.processes.map((row) => {
+                        const ci = this.cmdColIdx();
+                        return <tr>{row.map((cell, x) => <td>{x === ci && !this.revealSecrets ? redactCmd(cell) : cell}</td>)}</tr>;
+                      })
+                    ) : (
+                      <tr><td colSpan={this.procs.titles.length || 1} class="pnone">No running processes.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : null}
 
           {this.tab === "inspect" ? (
@@ -1142,6 +1268,7 @@ export class ContainerPage extends LoomElement {
 function mb(b: number): string {
   return (b / 1024 / 1024).toFixed(0) + " MB";
 }
+
 
 function uptime(startedAt?: string): string {
   if (!startedAt) return "—";

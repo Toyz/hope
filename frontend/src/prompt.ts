@@ -8,8 +8,9 @@ export type PromptOption = Option;
 export type PromptField = {
   key: string;
   label: string;
-  type?: "text" | "select" | "toggle";
+  type?: "text" | "textarea" | "select" | "toggle" | "kv";
   placeholder?: string;
+  addLabel?: string; // for type "kv": the "+ add" button label (e.g. "option", "label")
   hint?: string; // small helper line under the control (e.g. a toggle's meaning)
   value?: string;
   optional?: boolean; // required by default
