@@ -21,9 +21,10 @@ type Pair = { k: string; v: string };
   .hd { display: flex; align-items: center; margin-bottom: 8px; }
   .hd .grow { flex: 1; }
   .seg { display: inline-flex; }
-  .seg button { background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer;
-    font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 6px 9px; }
+  .seg button { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 1px solid var(--line);
+    color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 6px 9px; }
   .seg button + button { border-left: 0; }
+  .seg button loom-icon { color: var(--dim); }
   .seg button.on { color: var(--hi); background: var(--raised); border-color: var(--line2); }
 
   .rows { display: flex; flex-direction: column; gap: 7px; }
@@ -86,7 +87,7 @@ export class KvEditor extends LoomElement {
         <div class="hd">
           <span class="grow"></span>
           <div class="seg">
-            <button class={this.mode === "rows" ? "on" : ""} onClick={() => (this.mode = "rows")}>key → value</button>
+            <button class={this.mode === "rows" ? "on" : ""} onClick={() => (this.mode = "rows")}>key<loom-icon name="chevron-right" size={10}></loom-icon>value</button>
             <button class={this.mode === "text" ? "on" : ""} onClick={() => (this.mode = "text")}>raw</button>
           </div>
         </div>

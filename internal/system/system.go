@@ -39,6 +39,9 @@ type FeatureFlags struct {
 	// freshness cache, deploy specs and UI-added registries are NOT persisted
 	// across a restart, so the UI can warn.
 	StoreEnabled bool `json:"store_enabled"`
+	// StoreEphemeral is true when the db is enabled but sits on the container's
+	// rootfs (no volume mounted at its path) — it'll be lost on a recreate.
+	StoreEphemeral bool `json:"store_ephemeral"`
 }
 
 // Features returns the feature flags the UI needs at load. (Named Features, not
@@ -48,7 +51,7 @@ func (r *SystemRouter) Features(ctx *rpc.Context) (*FeatureFlags, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled()}, nil
+	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled(), StoreEphemeral: r.store.Ephemeral()}, nil
 }
 
 // AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run

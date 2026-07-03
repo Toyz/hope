@@ -331,6 +331,7 @@ export interface RegistryView {
 export interface Capabilities {
   api_enabled: boolean;
   store_enabled: boolean; // false = state db not mounted; persistence is off
+  store_ephemeral: boolean; // enabled but on the container rootfs (lost on recreate)
 }
 
 // AgentEnroll is the info the "add agent" modal needs (token is a secret).

@@ -248,6 +248,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor diskBusy = false;
   @reactive accessor cacheBusy = false;
   @reactive accessor storeOff = false; // state db not mounted → persistence warning
+  @reactive accessor storeEphemeral = false; // db on container rootfs → lost on recreate
   @reactive accessor updBusy = false;
   @reactive accessor fleetBusy = false;
 
@@ -303,7 +304,10 @@ export class DashboardPage extends LoomElement {
     }
     this.load();
     if (!this.fleetMode) this.loadHost(); // single-host strip; skipped in fleet view
-    void capabilities().then((c) => (this.storeOff = !c.store_enabled));
+    void capabilities().then((c) => {
+      this.storeOff = !c.store_enabled;
+      this.storeEphemeral = c.store_ephemeral;
+    });
   }
 
   // Host/fleet switched elsewhere — re-fetch in place (no reload).
@@ -364,12 +368,21 @@ export class DashboardPage extends LoomElement {
   // Persistence warning — shown in both the single-host and fleet dashboards
   // when no state db is mounted.
   private storeBanner() {
-    if (!this.storeOff) return null;
-    return (
-      <hope-alert tone="warn">
-        No state db mounted — some state (e.g. <b>UI-added registries</b>) won't persist across a restart. Mount a volume and set <code>[store] path</code> to keep it.
-      </hope-alert>
-    );
+    if (this.storeEphemeral) {
+      return (
+        <hope-alert tone="bad">
+          State db is on the container's filesystem, not a mounted volume — it will be <b>lost on a recreate</b>. Mount a volume at the <code>[store] path</code> directory.
+        </hope-alert>
+      );
+    }
+    if (this.storeOff) {
+      return (
+        <hope-alert tone="warn">
+          No state db mounted — some state (e.g. <b>UI-added registries</b>) won't persist across a restart. Mount a volume and set <code>[store] path</code> to keep it.
+        </hope-alert>
+      );
+    }
+    return null;
   }
 
   private hostStrip() {

@@ -126,6 +126,9 @@ func runServe(configPath string) error {
 	defer st.Close()
 	if st.Enabled() {
 		lg.Info("state db opened", "path", cfg.Store.Path)
+		if st.Ephemeral() {
+			lg.Warn("state db is on the container's filesystem, not a mounted volume — it will be LOST on a recreate; mount a volume at its directory", "path", cfg.Store.Path)
+		}
 	}
 
 	// hope is the fleet's registry-auth authority: config creds AND runtime creds
@@ -213,15 +216,13 @@ func runServe(configPath string) error {
 			lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
 		}
 		if cfg.Updates.Enabled {
-			cachePath := cfg.Updates.CachePath
-			cacheDst := cachePath
+			// The freshness cache persists in the state db (bucket "updates") when
+			// one is mounted; otherwise it's in-memory and rebuilt by the crawler.
 			if st.Enabled() {
-				// The state db supersedes the JSON cache file for the local host.
 				dock.SetUpdateCache(storeUpdCache{st}, "local")
-				cachePath, cacheDst = "", cfg.Store.Path
 			}
-			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cachePath)
-			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cacheDst)
+			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, "")
+			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "persisted", st.Enabled())
 		}
 		dock.StartDiskCrawler(ctx, time.Hour) // df is expensive: crawl hourly, serve cached
 	} else if cfg.Agent.Use == "" {
@@ -237,13 +238,9 @@ func runServe(configPath string) error {
 	authRouter, tokens := auth.NewAuthRouter(cfg.Auth)
 
 	// Deploy engine + spec store (write path: build/deploy/edit stacks, create
-	// networks/volumes). StateDir empty = specs aren't retained across recreate.
-	deployStore := deploy.NewStore(cfg.Deploy.StateDir, st)
-	if n, err := deployStore.MigrateFromDir(); err != nil {
-		lg.Warn("migrate stack specs into state db", "err", err)
-	} else if n > 0 {
-		lg.Info("migrated stack specs into state db", "count", n)
-	}
+	// networks/volumes). Specs live in the state db; no store mounted = not
+	// retained across a recreate (deploy still works; re-import to edit).
+	deployStore := deploy.NewStore(st)
 	deployEngine := deploy.NewEngine(hostSet, deployStore)
 
 	// Front the listener with the agent WebSocket endpoint when the hub is on,

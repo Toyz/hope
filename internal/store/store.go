@@ -27,8 +27,9 @@ var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistri
 
 // Store wraps a bbolt DB. A nil db is the no-op store (path was empty).
 type Store struct {
-	db  *bolt.DB
-	key [32]byte // AES-256 key derived from token_secret (see secret.go); zero until SetSecret
+	db        *bolt.DB
+	key       [32]byte // AES-256 key derived from token_secret (see secret.go); zero until SetSecret
+	ephemeral bool     // path is on the container's rootfs, not a mounted volume (lost on recreate)
 }
 
 // Open opens (or creates) the bolt file at path and ensures the buckets exist.
@@ -53,11 +54,16 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, ephemeral: onRootFS(path)}, nil
 }
 
 // Enabled reports whether the store is backed by a real file.
 func (s *Store) Enabled() bool { return s != nil && s.db != nil }
+
+// Ephemeral reports that the db lives on the container's rootfs rather than a
+// mounted volume — so it'll be lost on a container recreate despite being
+// "enabled". A common footgun: set [store] path but forget to mount the volume.
+func (s *Store) Ephemeral() bool { return s.Enabled() && s.ephemeral }
 
 // Close releases the file. Safe on a no-op store.
 func (s *Store) Close() error {

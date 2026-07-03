@@ -23,7 +23,6 @@ type Config struct {
 	Registries  []RegistryConfig  `mapstructure:"registry"`
 	Agent       AgentConfig       `mapstructure:"agent"`
 	Cloudflare  CloudflareConfig  `mapstructure:"cloudflare"`
-	Deploy      DeployConfig      `mapstructure:"deploy"`
 	Store       StoreConfig       `mapstructure:"store"`
 }
 
@@ -34,16 +33,6 @@ type Config struct {
 // (registry creds are stored encrypted with token_secret) — written 0600.
 type StoreConfig struct {
 	Path string `mapstructure:"path"`
-}
-
-// DeployConfig controls where hope retains the authored specs of stacks deployed
-// through it, so they can be reopened in the editor.
-type DeployConfig struct {
-	// StateDir is a writable directory where hope stores one JSON spec per
-	// deployed stack (keyed by host + project). Empty = specs aren't retained
-	// across a hope recreate (deploy still works). Mount it (e.g. "/data/stacks")
-	// to keep them. Files may contain secrets (env values) — written 0600.
-	StateDir string `mapstructure:"state_dir"`
 }
 
 // AgentConfig is the hub side: hope listens here for hope-agents dialing in
@@ -84,10 +73,6 @@ type UpdatesConfig struct {
 	// Interval between cluster-wide crawls. Mind Docker Hub anonymous rate
 	// limits; a few hours is sensible.
 	Interval time.Duration `mapstructure:"interval"`
-	// CachePath optionally persists the freshness cache to disk so it survives
-	// restarts. Empty = in-memory only. Mount this path to keep it across
-	// container recreates (e.g. "/data/updates.json").
-	CachePath string `mapstructure:"cache_path"`
 }
 
 // LogConfig configures the request logger.
