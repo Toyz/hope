@@ -203,8 +203,8 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
               <div class="grow"></div>
               <div class="selbar">
                 <span class="seln">{this.selected.length} selected</span>
-                <button class="pbtn danger" disabled={busy} onClick={this.removeSelected}>remove</button>
-                <button class="pbtn" onClick={this.clearSel}>clear</button>
+                <hope-button tone="danger" disabled={busy} onClick={this.removeSelected}>remove</hope-button>
+                <hope-button onClick={this.clearSel}>clear</hope-button>
               </div>
             </div>
           ) : null}

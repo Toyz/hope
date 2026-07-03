@@ -32,6 +32,7 @@ import "./components/alert"; // reusable inline banner (<hope-alert>)
 import "./components/table"; // site-standard data table (<hope-table>)
 import "./components/search"; // site-standard filter box (<hope-search>)
 import "./components/chip"; // site-standard square label (<hope-chip>)
+import "./components/button"; // site-standard action button (<hope-button>)
 import "./components/network-detail"; // shared network inspector modal (<hope-network-detail>)
 import "./app";
 import "./pages/login";

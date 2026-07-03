@@ -1158,9 +1158,9 @@ export class ContainerPage extends LoomElement {
               ) : null}
             </div>
             <div class="toolbar">
-              <button class="tbtn" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}><loom-icon name="play" size={13}></loom-icon>{this.cbusy === "start" ? "start…" : "start"}</button>
-              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}><loom-icon name="rotate" size={13}></loom-icon>{this.cbusy === "restart" ? "restart…" : "restart"}</button>
-              <button class="tbtn" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}><loom-icon name="redeploy" size={13}></loom-icon>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</button>
+              <hope-button icon="play" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}>{this.cbusy === "start" ? "start…" : "start"}</hope-button>
+              <hope-button icon="rotate" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}>{this.cbusy === "restart" ? "restart…" : "restart"}</hope-button>
+              <hope-button icon="redeploy" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</hope-button>
               <div class="more">
                 <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.actOpen = !this.actOpen; }}>···</button>
                 {this.actOpen ? (

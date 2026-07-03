@@ -222,8 +222,8 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
               {this.selected.length > 0 ? (
                 <div class="selbar">
                   <span class="seln">{this.selected.length} selected</span>
-                  <button class="pbtn danger" disabled={busy} onClick={this.removeSelected}>remove</button>
-                  <button class="pbtn" onClick={this.clearSel}>clear</button>
+                  <hope-button tone="danger" disabled={busy} onClick={this.removeSelected}>remove</hope-button>
+                  <hope-button onClick={this.clearSel}>clear</hope-button>
                 </div>
               ) : null}
             </div>
@@ -308,7 +308,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
           <div class="dacts">
             {v.used_by.length ? <span class="dnote">mounted — unmount its containers before removing</span> : null}
             <span class="grow"></span>
-            {v.used_by.length ? null : <button class="pbtn danger" onClick={() => this.del(v)}>remove</button>}
+            {v.used_by.length ? null : <hope-button tone="danger" onClick={() => this.del(v)}>remove</hope-button>}
           </div>
         </div>
       </div>

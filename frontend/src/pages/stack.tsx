@@ -1286,9 +1286,9 @@ export class StackPage extends LoomElement {
                       <button class="tbtn danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</button>
                     ) : (
                       <>
-                        <button class="tbtn" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}><loom-icon name="terminal" size={13}></loom-icon>logs</button>
-                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("restart")}><loom-icon name="rotate" size={13}></loom-icon>{this.busy === "stack:restart" ? "restart…" : "restart"}</button>
-                        <button class="tbtn" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}><loom-icon name="redeploy" size={13}></loom-icon>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</button>
+                        <hope-button icon="terminal" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</hope-button>
+                        <hope-button icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
+                        <hope-button icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
                         <div class="more">
                           <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
                           {this.menuOpen ? (

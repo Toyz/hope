@@ -824,21 +824,21 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                 <>
                   <span class="seln">{this.selected.length} selected</span>
                   <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
-                  {!this.fleetMode && this.selImages().some((i) => i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</button> : null}
-                  <button class="pbtn danger" onClick={this.removeSelected}>remove</button>
-                  <button class="pbtn" onClick={this.clearSel}>clear</button>
+                  {!this.fleetMode && this.selImages().some((i) => i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</hope-button> : null}
+                  <hope-button tone="danger" onClick={this.removeSelected}>remove</hope-button>
+                  <hope-button onClick={this.clearSel}>clear</hope-button>
                 </>
               ) : this.fleetMode ? (
                 <>
-                  {this.items().some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</button> : null}
-                  {dangling > 0 ? <button class="pbtn" onClick={() => this.pruneFleet(false)}>prune dangling · all</button> : null}
-                  {unused > 0 ? <button class="pbtn danger" onClick={() => this.pruneFleet(true)}>prune unused · all</button> : null}
+                  {this.items().some((i) => i.dangling && i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</hope-button> : null}
+                  {dangling > 0 ? <hope-button onClick={() => this.pruneFleet(false)}>prune dangling · all</hope-button> : null}
+                  {unused > 0 ? <hope-button tone="danger" onClick={() => this.pruneFleet(true)}>prune unused · all</hope-button> : null}
                 </>
               ) : (
                 <>
-                  {this.items().some((i) => i.dangling && i.used_by.length) ? <button class="pbtn warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</button> : null}
-                  {dangling > 0 ? <button class="pbtn" onClick={() => this.prune(false)}>prune dangling</button> : null}
-                  {unused > 0 ? <button class="pbtn danger" onClick={() => this.prune(true)}>prune unused</button> : null}
+                  {this.items().some((i) => i.dangling && i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button> : null}
+                  {dangling > 0 ? <hope-button onClick={() => this.prune(false)}>prune dangling</hope-button> : null}
+                  {unused > 0 ? <hope-button tone="danger" onClick={() => this.prune(true)}>prune unused</hope-button> : null}
                 </>
               )}
             </div>
