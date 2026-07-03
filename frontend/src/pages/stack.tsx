@@ -256,6 +256,7 @@ function aggMark(items: ContainerSummary[]): string {
   .rdx { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
   .rdx:hover { color: var(--hi); }
   .rdmsg { margin: 0; padding: 12px 18px 14px; font: 13px/1.6 var(--sans); color: var(--hi); }
+  .rdmsg.bad { color: var(--bad); }
   .rdbody { overflow: auto; border-top: 1px solid var(--line); }
   .rdrow { display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .rdrow:last-child { border-bottom: none; }
@@ -374,6 +375,9 @@ export class StackPage extends LoomElement {
   @reactive accessor pullExcluded: string[] = []; // services excluded from the pull
   @reactive accessor cloneOpen = false; // clone-to-hosts picker dialog
   @reactive accessor cloneSel: string[] = []; // target host ids for the clone
+  @reactive accessor cloneSpec: StackSpec | null = null; // fetched on open
+  @reactive accessor cloneBinds: string[] = []; // bind-mount targets that block the clone
+  @reactive accessor cloneLoading = false;
   @query(".logsbody") accessor logsBodyEl!: HTMLElement | null;
 
   // Lock body scroll while any of the stack's full-screen dialogs is open.
@@ -1599,30 +1603,41 @@ export class StackPage extends LoomElement {
   private cloneTargets(): HostView[] {
     return (this.hostsQ.data || []).filter((h) => h.connected && h.id !== this.host);
   }
-  private openClone = () => {
+  private openClone = async () => {
     this.menuOpen = false;
     this.hostsQ.refetch();
     this.cloneSel = [];
+    this.cloneSpec = null;
+    this.cloneBinds = [];
+    this.cloneLoading = true;
     this.cloneOpen = true;
+    try {
+      const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
+      // Bind mounts point at host paths that won't exist on another host — a
+      // clone with bind mounts is silently broken, so we block it.
+      const binds: string[] = [];
+      for (const svc of spec.services || []) for (const m of svc.mounts || []) if (m.type === "bind") binds.push(m.target || m.source);
+      this.cloneSpec = spec;
+      this.cloneBinds = binds;
+    } catch (e: any) {
+      this.toast.error("clone: could not read stack spec — " + (e?.message || "error"));
+      this.cloneOpen = false;
+    } finally {
+      this.cloneLoading = false;
+    }
   };
   private cloneToggle = (id: string) => {
     this.cloneSel = this.cloneSel.includes(id) ? this.cloneSel.filter((x) => x !== id) : [...this.cloneSel, id];
   };
 
-  // Clone this stack onto the selected hosts: pull its spec, drop the public
-  // routes (the source keeps them — two stacks can't claim one CF hostname), then
-  // deploy it host-by-host in the proc dialog.
+  // Clone this stack onto the selected hosts: use the spec fetched on open, drop
+  // the public routes (the source keeps them — two stacks can't claim one CF
+  // hostname), then deploy it host-by-host in the proc dialog.
   private doClone = async () => {
     const targets = this.cloneSel.slice();
-    if (!targets.length) return;
+    const spec = this.cloneSpec;
+    if (!targets.length || !spec || this.cloneBinds.length) return;
     this.cloneOpen = false;
-    let spec: StackSpec;
-    try {
-      spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
-    } catch (e: any) {
-      this.toast.error("clone: could not read stack spec — " + (e?.message || "error"));
-      return;
-    }
     (spec.services || []).forEach((svc) => { svc.tunnels = []; });
     const body = JSON.stringify(spec);
     await this.proc.run(`clone ${this.project} → ${targets.length} host${targets.length === 1 ? "" : "s"}`, async (emit, signal) => {
@@ -1705,27 +1720,35 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="rdx" onClick={() => (this.cloneOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
-          <p class="rdmsg">Deploys this stack's spec onto the checked hosts. Named volumes are created empty — data isn't copied — and bind-mount host paths must already exist on the target. Public routes stay on the source; add them per host after.</p>
-          <div class="rdbody">
-            {targets.length === 0 ? (
-              <div class="rdrow" style="cursor:default"><span class="rdname" style="color:var(--dim)">No other connected hosts.</span></div>
-            ) : targets.map((h) => {
-              const on = this.cloneSel.includes(h.id);
-              return (
-                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.cloneToggle(h.id)}>
-                  <span class={"ck" + (on ? " on" : "")}></span>
-                  <span class="rdname">{h.id}</span>
-                  <span class="grow"></span>
-                  <hope-chip size="sm" tone={h.kind === "local" ? "upd" : "ok"}>{h.kind}</hope-chip>
-                </div>
-              );
-            })}
-          </div>
+          {this.cloneBinds.length ? (
+            <p class="rdmsg bad">Can't clone — this stack has bind mounts ({this.cloneBinds.join(", ")}). Bind mounts point at host paths that won't exist on another host. Switch them to named volumes to make the stack portable.</p>
+          ) : (
+            <p class="rdmsg">Deploys this stack's spec onto the checked hosts. Named volumes are created empty — data isn't copied. Public routes stay on the source; add them per host after.</p>
+          )}
+          {this.cloneLoading ? (
+            <div class="rdbody"><div class="rdrow" style="cursor:default"><span class="rdname" style="color:var(--dim)">reading stack spec…</span></div></div>
+          ) : this.cloneBinds.length ? null : (
+            <div class="rdbody">
+              {targets.length === 0 ? (
+                <div class="rdrow" style="cursor:default"><span class="rdname" style="color:var(--dim)">No other connected hosts.</span></div>
+              ) : targets.map((h) => {
+                const on = this.cloneSel.includes(h.id);
+                return (
+                  <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.cloneToggle(h.id)}>
+                    <span class={"ck" + (on ? " on" : "")}></span>
+                    <span class="rdname">{h.id}</span>
+                    <span class="grow"></span>
+                    <hope-chip size="sm" tone={h.kind === "local" ? "upd" : "ok"}>{h.kind}</hope-chip>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div class="rdacts">
-            <span class="rdnote">{n} host{n === 1 ? "" : "s"}</span>
+            <span class="rdnote">{this.cloneBinds.length ? "blocked" : n + " host" + (n === 1 ? "" : "s")}</span>
             <span class="grow"></span>
-            <button class="tbtn" onClick={() => (this.cloneOpen = false)}>cancel</button>
-            <button class="tbtn updbtn" disabled={n === 0} onClick={this.doClone}>clone → {n}</button>
+            <button class="tbtn" onClick={() => (this.cloneOpen = false)}>{this.cloneBinds.length ? "close" : "cancel"}</button>
+            {this.cloneBinds.length ? null : <button class="tbtn updbtn" disabled={n === 0 || this.cloneLoading} onClick={this.doClone}>clone → {n}</button>}
           </div>
         </div>
       </div>
