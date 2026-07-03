@@ -585,6 +585,12 @@ func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any,
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// Refuse to remove an image a container still references — even with Force,
+	// which would only untag it (freeing nothing) while the container keeps
+	// running on the image ID. Callers must remove/redeploy the containers first.
+	if inUse, users, err := r.dock(ctx).ImageInUse(cctx, p.ID); err == nil && inUse {
+		return nil, rpc.BadRequest("image is in use by %d container(s); remove or redeploy them first", len(users))
+	}
 	if err := r.dock(ctx).RemoveImage(cctx, p.ID, p.Force); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}

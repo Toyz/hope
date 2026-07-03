@@ -920,9 +920,11 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                       )}
                     </td>
                     <td class="r">
-                      <button class="rm" title={i.in_use ? "force-remove (in use)" : "remove image"} onClick={(e: Event) => { e.stopPropagation(); this.removeImg(i); }}>
+                      {i.in_use ? null : (
+                      <button class="rm" title="remove image" onClick={(e: Event) => { e.stopPropagation(); this.removeImg(i); }}>
                         <loom-icon name="x" size={14}></loom-icon>
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))}

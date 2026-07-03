@@ -191,6 +191,28 @@ func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
 	return err
 }
 
+// ImageInUse reports whether any container (running or stopped) references the
+// image, and by whom. Used to refuse a (force-)remove of an in-use image at the
+// RPC layer — the UI hides that action, but the guard must live on the server.
+func (c *Client) ImageInUse(ctx context.Context, id string) (bool, []ImageUser, error) {
+	conts, err := c.sdk().ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return false, nil, err
+	}
+	var users []ImageUser
+	for _, ct := range conts {
+		if ct.ImageID != id {
+			continue
+		}
+		name := ""
+		if len(ct.Names) > 0 {
+			name = strings.TrimPrefix(ct.Names[0], "/")
+		}
+		users = append(users, ImageUser{ID: ct.ID, Name: name, Service: serviceLabel(ct.Labels), Project: projectLabel(ct.Labels)})
+	}
+	return len(users) > 0, users, nil
+}
+
 // PruneImagesStream removes unused images one at a time, emitting a line per
 // image (removed / skipped + reason) so the UI can show live progress and the
 // exact reason an image can't be deleted.
