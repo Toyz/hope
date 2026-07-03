@@ -370,17 +370,20 @@ export class StackPage extends LoomElement {
   @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
   @reactive accessor pullOpen = false; // pull-images picker dialog
   @reactive accessor pullExcluded: string[] = []; // services excluded from the pull
+  @reactive accessor cloneOpen = false; // clone-to-hosts picker dialog
+  @reactive accessor cloneSel: string[] = []; // target host ids for the clone
   @query(".logsbody") accessor logsBodyEl!: HTMLElement | null;
 
   // Lock body scroll while any of the stack's full-screen dialogs is open.
   private syncBodyLock() {
-    signalModal(this, !!this.composeText || !!this.tunnelModalSvc || this.rdOpen || this.stopOpen || this.pullOpen);
+    signalModal(this, !!this.composeText || !!this.tunnelModalSvc || this.rdOpen || this.stopOpen || this.pullOpen || this.cloneOpen);
   }
   @watch("composeText") private lockCompose() { this.syncBodyLock(); }
   @watch("tunnelModalSvc") private lockTunnel() { this.syncBodyLock(); }
   @watch("rdOpen") private lockRd() { this.syncBodyLock(); }
   @watch("stopOpen") private lockStop() { this.syncBodyLock(); }
   @watch("pullOpen") private lockPull() { this.syncBodyLock(); }
+  @watch("cloneOpen") private lockClone() { this.syncBodyLock(); }
 
   // The "(ungrouped)" project isn't a real compose stack — it's free-floating
   // containers, so compose-level actions (redeploy/pull/compose file) don't apply.
@@ -1289,6 +1292,7 @@ export class StackPage extends LoomElement {
                               <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                               <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
                               {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                              {this.isUngrouped ? null : <button class="mitem" onClick={this.openClone}><loom-icon name="copy" size={13}></loom-icon><span>clone to host…</span></button>}
                               {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
                             </div>
                           ) : null}
@@ -1435,6 +1439,7 @@ export class StackPage extends LoomElement {
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
         {this.pullOpen && s ? this.renderPull(s) : null}
+        {this.cloneOpen ? this.renderClone() : null}
         {this.tunnelModalSvc ? this.renderTunnelModal() : null}
       </div>
     );
@@ -1588,6 +1593,52 @@ export class StackPage extends LoomElement {
     this.pullExcluded = this.pullExcluded.includes(service) ? this.pullExcluded.filter((s) => s !== service) : [...this.pullExcluded, service];
   };
 
+  // Other connected hosts this stack can be cloned onto (never the source host).
+  private cloneTargets(): HostView[] {
+    return (this.hostsQ.data || []).filter((h) => h.connected && h.id !== this.host);
+  }
+  private openClone = () => {
+    this.menuOpen = false;
+    this.hostsQ.refetch();
+    this.cloneSel = [];
+    this.cloneOpen = true;
+  };
+  private cloneToggle = (id: string) => {
+    this.cloneSel = this.cloneSel.includes(id) ? this.cloneSel.filter((x) => x !== id) : [...this.cloneSel, id];
+  };
+
+  // Clone this stack onto the selected hosts: pull its spec, drop the public
+  // routes (the source keeps them — two stacks can't claim one CF hostname), then
+  // deploy it host-by-host in the proc dialog.
+  private doClone = async () => {
+    const targets = this.cloneSel.slice();
+    if (!targets.length) return;
+    this.cloneOpen = false;
+    let spec: StackSpec;
+    try {
+      spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
+    } catch (e: any) {
+      this.toast.error("clone: could not read stack spec — " + (e?.message || "error"));
+      return;
+    }
+    (spec.services || []).forEach((svc) => { svc.tunnels = []; });
+    const body = JSON.stringify(spec);
+    await this.proc.run(`clone ${this.project} → ${targets.length} host${targets.length === 1 ? "" : "s"}`, async (emit, signal) => {
+      let ok = true;
+      for (const host of targets) {
+        emit(`── ${host} ──`);
+        let sok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [body], signal, host)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        if (!sok) ok = false;
+      }
+      emit("done");
+      return ok;
+    });
+  };
+
   // Pull the latest images for the picked containers, streaming progress into
   // the processing dialog. Does not recreate anything.
   private runPull = async () => {
@@ -1633,6 +1684,46 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.pullOpen = false)}>cancel</button>
             <button class="tbtn updbtn" disabled={count === 0} onClick={this.runPull}>pull {count}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Clone picker: pick which other hosts to deploy this stack onto.
+  private renderClone() {
+    const targets = this.cloneTargets();
+    const n = this.cloneSel.length;
+    return (
+      <div class="rdmodal" onClick={() => (this.cloneOpen = false)}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name="copy" size={15} color="var(--upd)"></loom-icon>
+            <span class="rdt">clone {this.project}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.cloneOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <p class="rdmsg">Deploys this stack's spec onto the checked hosts. Public routes stay on the source (a hostname can't point at two hosts) — add them per host after.</p>
+          <div class="rdbody">
+            {targets.length === 0 ? (
+              <div class="rdrow" style="cursor:default"><span class="rdname" style="color:var(--dim)">No other connected hosts.</span></div>
+            ) : targets.map((h) => {
+              const on = this.cloneSel.includes(h.id);
+              return (
+                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.cloneToggle(h.id)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class="rdname">{h.id}</span>
+                  <span class="grow"></span>
+                  <hope-chip size="sm" tone={h.kind === "local" ? "upd" : "ok"}>{h.kind}</hope-chip>
+                </div>
+              );
+            })}
+          </div>
+          <div class="rdacts">
+            <span class="rdnote">{n} host{n === 1 ? "" : "s"}</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.cloneOpen = false)}>cancel</button>
+            <button class="tbtn updbtn" disabled={n === 0} onClick={this.doClone}>clone → {n}</button>
           </div>
         </div>
       </div>
