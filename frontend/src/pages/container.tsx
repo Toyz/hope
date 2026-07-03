@@ -1119,7 +1119,7 @@ export class ContainerPage extends LoomElement {
             <hope-panel label="Mounts" icon="box" flush={true}>
               <hope-table>
                 <table class="flat">
-                  <colgroup><col style="width:78px" /><col /><col style="width:26%" /><col style="width:22%" /><col style="width:82px" /><col style="width:56px" /></colgroup>
+                  <colgroup><col style="width:76px" /><col style="width:20%" /><col /><col style="width:24%" /><col style="width:80px" /><col style="width:54px" /></colgroup>
                   <thead><tr><th class="pl">Type</th><th>Name</th><th>Source</th><th>Mount point</th><th class="r">Size</th><th class="r">Access</th></tr></thead>
                   <tbody>
                     {this.mountList().map((m) => (
