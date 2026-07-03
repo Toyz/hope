@@ -2,12 +2,14 @@
 // bar (uppercase label, optional step number, right-aligned actions) and a body.
 // One definition so header bars don't drift across pages.
 //
-//   <hope-panel label="Public routes" n="02">
+//   <hope-panel label="Public routes" icon="link" n="02">
 //     <button slot="actions" ...>+ add tunnel</button>
 //     …body…
 //   </hope-panel>
 //
-// Add `flush` when the body manages its own padding (tables / full-bleed rows).
+// `icon` renders a loom-icon before the label; the "actions" slot is right-
+// aligned in the header. Add `flush` when the body manages its own padding
+// (tables / full-bleed rows).
 import { LoomElement, component, styles, css, prop } from "@toyz/loom";
 import { theme } from "../styles";
 
@@ -18,6 +20,7 @@ import { theme } from "../styles";
   .ph { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line);
     font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
   .ph .n { color: var(--dim); }
+  .ph loom-icon { color: var(--upd); flex: none; }
   .ph .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ph .grow { flex: 1; }
   .pb { padding: 16px; }
@@ -28,6 +31,7 @@ import { theme } from "../styles";
 export class HopePanel extends LoomElement {
   @prop accessor label = "";
   @prop accessor n = "";
+  @prop accessor icon = "";
   @prop accessor flush = false;
 
   update() {
@@ -35,6 +39,7 @@ export class HopePanel extends LoomElement {
       <div class="panel">
         <div class="ph">
           {this.n ? <span class="n">{this.n}</span> : null}
+          {this.icon ? <loom-icon name={this.icon} size={13}></loom-icon> : null}
           {this.label ? <span class="lbl">{this.label}</span> : null}
           <span class="grow"></span>
           <slot name="actions"></slot>

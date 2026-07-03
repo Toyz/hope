@@ -46,11 +46,7 @@ interface ResDecl { name: string; driver: string; }
   .tab:hover { color: var(--hi); border-color: var(--line2); }
   .tab.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
 
-  .panel { border: 1px solid var(--line); background: var(--panel); }
-  .phead { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-  .phead .t { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--hi); }
-  .phead .grow { flex: 1; }
-  .pbody { padding: 18px; }
+  /* section cards use <hope-panel>; body content below is slotted (light DOM) */
 
   .f { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
   label { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
@@ -478,17 +474,14 @@ export class DeployPage extends LoomElement {
 
   private renderContainer() {
     return (
-      <div class="panel">
-        <div class="phead"><span class="t">One-off container</span></div>
-        <div class="pbody">
-          <p class="sub">Create a single container on the active host. For a grouped, editable app, use the Stack tab.</p>
-          <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
-          <div class="foot">
-            <span class="grow"></span>
-            <button class="go" onClick={this.deployContainer}>Deploy container</button>
-          </div>
+      <hope-panel label="One-off container">
+        <p class="sub">Create a single container on the active host. For a grouped, editable app, use the Stack tab.</p>
+        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
+        <div class="foot">
+          <span class="grow"></span>
+          <button class="go" onClick={this.deployContainer}>Deploy container</button>
         </div>
-      </div>
+      </hope-panel>
     );
   }
 
@@ -540,33 +533,27 @@ export class DeployPage extends LoomElement {
         ))}
         <button class="add" onClick={this.addService}><loom-icon name="plus" size={12}></loom-icon> add service</button>
 
-        <div class="panel" style="margin-top:22px">
-          <div class="phead"><span class="t">stack networks</span></div>
-          <div class="pbody">
-            {this.netDecls.map((n, i) => (
-              <div class="resrow">
-                <input type="text" placeholder="network name" value={n.name} onInput={(e: any) => (this.netDecls = patch(this.netDecls, i, { name: e.target.value }))} />
-                <div class="drv"><hope-select options={[{ value: "", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }]} value={n.driver} onSelect={(e: any) => (this.netDecls = patch(this.netDecls, i, { driver: e.detail }))}></hope-select></div>
-                <button class="xbtn" onClick={() => (this.netDecls = this.netDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
-              </div>
-            ))}
-            <button class="add" onClick={() => (this.netDecls = [...this.netDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> network</button>
-          </div>
-        </div>
+        <hope-panel label="stack networks" style="margin-top:22px">
+          {this.netDecls.map((n, i) => (
+            <div class="resrow">
+              <input type="text" placeholder="network name" value={n.name} onInput={(e: any) => (this.netDecls = patch(this.netDecls, i, { name: e.target.value }))} />
+              <div class="drv"><hope-select options={[{ value: "", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }]} value={n.driver} onSelect={(e: any) => (this.netDecls = patch(this.netDecls, i, { driver: e.detail }))}></hope-select></div>
+              <button class="xbtn" onClick={() => (this.netDecls = this.netDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
+            </div>
+          ))}
+          <button class="add" onClick={() => (this.netDecls = [...this.netDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> network</button>
+        </hope-panel>
 
-        <div class="panel" style="margin-top:14px">
-          <div class="phead"><span class="t">stack volumes</span></div>
-          <div class="pbody">
-            {this.volDecls.map((v, i) => (
-              <div class="resrow">
-                <input type="text" placeholder="volume name" value={v.name} onInput={(e: any) => (this.volDecls = patch(this.volDecls, i, { name: e.target.value }))} />
-                <div class="drv"><hope-select options={[{ value: "", label: "local" }]} value={v.driver} placeholder="local" onSelect={(e: any) => (this.volDecls = patch(this.volDecls, i, { driver: e.detail }))}></hope-select></div>
-                <button class="xbtn" onClick={() => (this.volDecls = this.volDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
-              </div>
-            ))}
-            <button class="add" onClick={() => (this.volDecls = [...this.volDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> volume</button>
-          </div>
-        </div>
+        <hope-panel label="stack volumes" style="margin-top:14px">
+          {this.volDecls.map((v, i) => (
+            <div class="resrow">
+              <input type="text" placeholder="volume name" value={v.name} onInput={(e: any) => (this.volDecls = patch(this.volDecls, i, { name: e.target.value }))} />
+              <div class="drv"><hope-select options={[{ value: "", label: "local" }]} value={v.driver} placeholder="local" onSelect={(e: any) => (this.volDecls = patch(this.volDecls, i, { driver: e.detail }))}></hope-select></div>
+              <button class="xbtn" onClick={() => (this.volDecls = this.volDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
+            </div>
+          ))}
+          <button class="add" onClick={() => (this.volDecls = [...this.volDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> volume</button>
+        </hope-panel>
 
         <div class="foot">
           {this.editing ? <button class="ghost" onClick={this.doExport}>Copy as compose</button> : null}
