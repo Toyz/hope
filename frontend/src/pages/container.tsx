@@ -263,6 +263,32 @@ const MAX_LINES = 600;
   .editmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px;
     overflow: hidden; background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
   @keyframes efade { from { opacity: 0; } to { opacity: 1; } }
+
+  /* clone-to-hosts dialog */
+  .clmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: efade .12s ease both; }
+  .clbox { width: 560px; max-width: 100%; max-height: 82vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line2); }
+  .clhead { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .clhead loom-icon { color: var(--upd); }
+  .clhead .clt { font: 600 14px/1 var(--mono); color: var(--hi); }
+  .clx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .clx:hover { color: var(--hi); }
+  .clmsg { margin: 0; padding: 12px 16px 14px; font: 13px/1.6 var(--sans); color: var(--hi); }
+  .clmsg.bad { color: var(--bad); }
+  .clbody { overflow-y: auto; border-top: 1px solid var(--line); }
+  .clrow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .clrow:last-child { border-bottom: 0; }
+  .clrow:hover { background: var(--raised); }
+  .clrow.on { background: color-mix(in srgb, var(--upd) 8%, transparent); }
+  .clname { font: 600 13px/1 var(--mono); color: var(--hi); }
+  .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); }
+  .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
+  .clacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .clacts .tbtn.go { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .clacts .tbtn.go:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
+  .clacts .tbtn:disabled { opacity: .4; cursor: not-allowed; }
   .ebox { width: 760px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column;
     background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);
     animation: epop .14s cubic-bezier(.2, .8, .3, 1) both; }
@@ -385,13 +411,116 @@ export class ContainerPage extends LoomElement {
 
   @reactive accessor editOpen = false;
   @reactive accessor editSpec: ContainerSpec | null = null;
+  @reactive accessor cloneOpen = false; // clone-to-hosts dialog
+  @reactive accessor cloneSel: string[] = [];
+  @reactive accessor cloneSpec: ContainerSpec | null = null;
+  @reactive accessor cloneBinds: string[] = [];
+  @reactive accessor cloneLoading = false;
   @query("pre.logs") accessor logsPre!: HTMLElement | null;
   @query(".editmodal hope-service-form") accessor editForm!: any;
 
-  // Lock body scroll while any full-screen dialog (edit / healthcheck) is open.
-  private syncBodyLock() { signalModal(this, this.editOpen || this.healthOpen); }
+  // Lock body scroll while any full-screen dialog (edit / healthcheck / clone) is open.
+  private syncBodyLock() { signalModal(this, this.editOpen || this.healthOpen || this.cloneOpen); }
   @watch("editOpen") private lockEdit() { this.syncBodyLock(); }
   @watch("healthOpen") private lockHealth() { this.syncBodyLock(); }
+  @watch("cloneOpen") private lockClone() { this.syncBodyLock(); }
+
+  private cloneTargets(): HostView[] {
+    return (this.hostsQ.data || []).filter((h) => h.connected && h.id !== this.host);
+  }
+  private openClone = async () => {
+    this.actOpen = false;
+    this.hostsQ.refetch();
+    this.cloneSel = [];
+    this.cloneSpec = null;
+    this.cloneBinds = [];
+    this.cloneLoading = true;
+    this.cloneOpen = true;
+    try {
+      const spec = await this.rpc.call<ContainerSpec>("Containers", "spec", [this.id]);
+      const binds = (spec.mounts || []).filter((m) => m.type === "bind").map((m) => m.target || m.source);
+      this.cloneSpec = spec;
+      this.cloneBinds = binds;
+    } catch (e: any) {
+      this.toast.error("clone: could not read container spec — " + (e?.message || "error"));
+      this.cloneOpen = false;
+    } finally {
+      this.cloneLoading = false;
+    }
+  };
+  private cloneToggle = (id: string) => {
+    this.cloneSel = this.cloneSel.includes(id) ? this.cloneSel.filter((x) => x !== id) : [...this.cloneSel, id];
+  };
+  // Clone this container onto the selected hosts (bind mounts block it — host
+  // paths won't exist there; public routes stay on the source).
+  private doClone = async () => {
+    const targets = this.cloneSel.slice();
+    const spec = this.cloneSpec;
+    if (!targets.length || !spec || this.cloneBinds.length) return;
+    this.cloneOpen = false;
+    spec.tunnels = [];
+    const body = JSON.stringify(spec);
+    await this.proc.run(`clone ${this.service()} → ${targets.length} host${targets.length === 1 ? "" : "s"}`, async (emit, signal) => {
+      let ok = true;
+      for (const host of targets) {
+        emit(`── ${host} ──`);
+        let sok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "deployContainer", [body], signal, host)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        if (!sok) ok = false;
+      }
+      emit("done");
+      return ok;
+    });
+  };
+  private renderClone() {
+    const targets = this.cloneTargets();
+    const n = this.cloneSel.length;
+    const blocked = this.cloneBinds.length > 0;
+    return (
+      <div class="clmodal" onClick={() => (this.cloneOpen = false)}>
+        <div class="clbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="clhead">
+            <loom-icon name="copy" size={15}></loom-icon>
+            <span class="clt">clone {this.service()}</span>
+            <span class="grow"></span>
+            <button class="clx" onClick={() => (this.cloneOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          {blocked ? (
+            <p class="clmsg bad">Can't clone — this container has bind mounts ({this.cloneBinds.join(", ")}). Bind mounts point at host paths that won't exist on another host. Switch them to named volumes to make it portable.</p>
+          ) : (
+            <p class="clmsg">Deploys this container's spec onto the checked hosts. Named volumes are created empty — data isn't copied. Public routes stay on the source.</p>
+          )}
+          {this.cloneLoading ? (
+            <div class="clbody"><div class="clrow" style="cursor:default"><span class="clname" style="color:var(--dim)">reading spec…</span></div></div>
+          ) : blocked ? null : (
+            <div class="clbody">
+              {targets.length === 0 ? (
+                <div class="clrow" style="cursor:default"><span class="clname" style="color:var(--dim)">No other connected hosts.</span></div>
+              ) : targets.map((h) => {
+                const on = this.cloneSel.includes(h.id);
+                return (
+                  <div class={"clrow" + (on ? " on" : "")} onClick={() => this.cloneToggle(h.id)}>
+                    <span class={"ck" + (on ? " on" : "")}></span>
+                    <span class="clname">{h.id}</span>
+                    <span class="grow"></span>
+                    <hope-chip size="sm" tone={h.kind === "local" ? "upd" : "ok"}>{h.kind}</hope-chip>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div class="clacts">
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.cloneOpen = false)}>{blocked ? "close" : "cancel"}</button>
+            {blocked ? null : <button class="tbtn go" disabled={n === 0 || this.cloneLoading} onClick={this.doClone}>clone → {n}</button>}
+          </div>
+        </div>
+      </div>
+    );
+  }
   @reactive accessor editSeed = 0;
   @reactive accessor editNets: string[] = [];
   @reactive accessor editVols: string[] = [];
@@ -1037,6 +1166,7 @@ export class ContainerPage extends LoomElement {
                 {this.actOpen ? (
                   <div class="menu">
                     <button class="mitem" disabled={!!this.cbusy} onClick={() => this.containerOp("pull")}><loom-icon name="download" size={13}></loom-icon><span>pull image</span></button>
+                    <button class="mitem" onClick={this.openClone}><loom-icon name="copy" size={13}></loom-icon><span>clone to host…</span></button>
                     <button class="mitem danger" disabled={!!this.cbusy || !running} onClick={() => this.containerOp("stop")}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
                     <button class="mitem danger" disabled={!!this.cbusy || !running} onClick={() => this.containerOp("kill")}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
                   </div>
@@ -1241,6 +1371,7 @@ export class ContainerPage extends LoomElement {
           ) : null}
         </main>
         {this.healthOpen ? this.renderHealthModal() : null}
+        {this.cloneOpen ? this.renderClone() : null}
         {this.editOpen ? (
           <div class="editmodal" onClick={() => (this.editOpen = false)}>
             <div class="ebox" onClick={(e: Event) => e.stopPropagation()}>
