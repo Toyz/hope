@@ -1,7 +1,7 @@
 // App-wide bus events (loom EventBus). Emitting one of these lets any mounted
 // component react without a page reload — @on(HostChanged) in a LoomElement
 // subscribes on connect and auto-unsubscribes on disconnect.
-import { LoomEvent } from "@toyz/loom";
+import { LoomEvent, bus } from "@toyz/loom";
 
 // Fired when the active Docker host or the fleet (all-hosts) view flag changes.
 // Pages re-fetch in place; the host picker refreshes its label.
@@ -21,6 +21,22 @@ export class HostChanged extends LoomEvent {
 export class Refreshing extends LoomEvent {
   constructor(public active: boolean) {
     super();
+  }
+}
+
+// Bracket an async refresh with Refreshing(true)…Refreshing(false) on the bus,
+// holding the "done" for a minimum beat so a fast refetch still shows a spin.
+// Anything that refreshes (the shared control, the dashboard's check, …) wraps
+// its work in this so every refresh control spins for the real duration.
+const REFRESH_MIN_BEAT = 550;
+export async function withRefresh<T>(fn: () => Promise<T> | T): Promise<T> {
+  const t0 = performance.now();
+  bus.emit(new Refreshing(true));
+  try {
+    return await fn();
+  } finally {
+    const wait = Math.max(0, REFRESH_MIN_BEAT - (performance.now() - t0));
+    setTimeout(() => bus.emit(new Refreshing(false)), wait);
   }
 }
 

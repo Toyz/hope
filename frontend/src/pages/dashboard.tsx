@@ -11,7 +11,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
-import { HostChanged } from "../events";
+import { HostChanged, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
 import { capabilities } from "../caps";
 import { ProcService } from "../proc";
@@ -386,7 +386,7 @@ export class DashboardPage extends LoomElement {
 
   // Force an image-freshness recrawl on every host (fleet "check" button), then
   // refetch the fleet view.
-  private refreshFleet = async () => {
+  private refreshFleet = () => withRefresh(async () => {
     this.fleetBusy = true;
     try {
       await this.forceFleet.call();
@@ -396,7 +396,7 @@ export class DashboardPage extends LoomElement {
     } finally {
       this.fleetBusy = false;
     }
-  };
+  });
 
   // Reusable stat strip (the .hostbar look), shared by the single-host host
   // strip and the fleet summary so the markup isn't copy-pasted.
@@ -495,7 +495,7 @@ export class DashboardPage extends LoomElement {
   }
 
   // Force an immediate cluster-wide image-freshness recrawl, then refetch.
-  private refreshUpdates = async () => {
+  private refreshUpdates = () => withRefresh(async () => {
     this.updBusy = true;
     try {
       await this.forceUpd.call();
@@ -505,7 +505,7 @@ export class DashboardPage extends LoomElement {
     } finally {
       this.updBusy = false;
     }
-  };
+  });
 
   private refreshDisk = async () => {
     this.diskBusy = true;
