@@ -53,20 +53,15 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .acard .av .dim { color: var(--dim); }
   .acard .av .warnv { color: var(--warn); }
 
-  /* empty state mirrors the API page: hero + numbered panel cards */
+  /* empty state mirrors the API page: hero + numbered <hope-panel> cards */
   .setup { max-width: 940px; margin: 0 auto; }
   .setup .hero { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 22px; }
   .setup .hero .t { display: block; font: 700 30px/1 var(--mono); letter-spacing: .06em; color: var(--hi); margin-bottom: 10px; }
   .setup .hero .sub { display: block; max-width: 680px; font: 13px/1.6 var(--mono); color: var(--dim); }
   .setup .hero .sub code { color: var(--mid); }
-  .setup .panel { border: 1px solid var(--line); background: var(--panel); margin-bottom: 14px; }
-  .setup .ph { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line);
-    font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
-  .setup .ph .n { color: var(--dim); }
-  .setup .pb { padding: 16px; }
-  .setup .pb p { font: 12.5px/1.7 var(--mono); color: var(--mid); margin: 0 0 12px; }
-  .setup .pb p:last-child { margin-bottom: 0; }
-  .setup .pb p code { color: var(--upd); }
+  .setup p { font: 12.5px/1.7 var(--mono); color: var(--mid); margin: 0 0 12px; }
+  .setup p:last-child { margin-bottom: 0; }
+  .setup p code { color: var(--upd); }
   .setup .code { position: relative; background: var(--ink); border: 1px solid var(--line); }
   .setup .code pre { margin: 0; padding: 14px 15px; overflow-x: auto; font: 12px/1.7 var(--mono); color: var(--hi); white-space: pre; }
   .setup .code .cp { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px;
@@ -284,33 +279,24 @@ export class AgentsPage extends LoomElement {
                 <span class="sub">A hope-agent runs on another machine and tunnels its Docker over this same port — no extra ports to open. Manage that host's stacks, images and tunnels right from here.</span>
               </div>
 
-              <div class="panel">
-                <div class="ph"><span class="n">01</span> Set a shared token on hope</div>
-                <div class="pb">
-                  <p>In hope's <code>config.toml</code>, set an <code>[agent]</code> token — a long random secret — then restart hope. This turns on the agent hub.</p>
-                  <div class="code"><pre>[agent]
+              <hope-panel n="01" label="Set a shared token on hope">
+                <p>In hope's <code>config.toml</code>, set an <code>[agent]</code> token — a long random secret — then restart hope. This turns on the agent hub.</p>
+                <div class="code"><pre>[agent]
 token = "a-long-random-secret"</pre></div>
-                </div>
-              </div>
+              </hope-panel>
 
-              <div class="panel">
-                <div class="ph"><span class="n">02</span> Run the agent on the remote host</div>
-                <div class="pb">
-                  <p>On the machine you want to add, run this. Replace <code>YOUR_AGENT_TOKEN</code> with the token from step 1 and pick a <code>--host-id</code>.</p>
-                  <div class="code">
-                    <button class={"cp" + (this.copied === "empty" ? " ok" : "")} onClick={() => this.copy(this.agentCmd, "empty")}><loom-icon name="copy" size={12}></loom-icon>{this.copied === "empty" ? "copied" : "copy"}</button>
-                    <pre>{this.agentCmd}</pre>
-                  </div>
-                  <div class="note"><b>Docker socket is root-equivalent</b> — only enroll hosts you control. The token is the only thing gating enrollment; keep it secret.</div>
+              <hope-panel n="02" label="Run the agent on the remote host">
+                <p>On the machine you want to add, run this. Replace <code>YOUR_AGENT_TOKEN</code> with the token from step 1 and pick a <code>--host-id</code>.</p>
+                <div class="code">
+                  <button class={"cp" + (this.copied === "empty" ? " ok" : "")} onClick={() => this.copy(this.agentCmd, "empty")}><loom-icon name="copy" size={12}></loom-icon>{this.copied === "empty" ? "copied" : "copy"}</button>
+                  <pre>{this.agentCmd}</pre>
                 </div>
-              </div>
+                <div class="note"><b>Docker socket is root-equivalent</b> — only enroll hosts you control. The token is the only thing gating enrollment; keep it secret.</div>
+              </hope-panel>
 
-              <div class="panel">
-                <div class="ph"><span class="n">03</span> It shows up here</div>
-                <div class="pb">
-                  <p>Once the agent dials in it appears on this page, and you can switch to it from the host picker in the top bar. This view refreshes automatically.</p>
-                </div>
-              </div>
+              <hope-panel n="03" label="It shows up here">
+                <p>Once the agent dials in it appears on this page, and you can switch to it from the host picker in the top bar. This view refreshes automatically.</p>
+              </hope-panel>
             </div>
           ) : null}
         </main>
