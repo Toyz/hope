@@ -11,6 +11,48 @@ import (
 	"github.com/docker/docker/api/types/image"
 )
 
+// ImageLayer is one entry of an image's build history (`docker history`): the
+// instruction that created the layer, its size, and age. Layers are returned
+// newest-first (as the daemon reports them).
+type ImageLayer struct {
+	ID        string   `json:"id"`         // layer image id, or "<missing>" for squashed base layers
+	Created   int64    `json:"created"`    // unix seconds
+	CreatedBy string   `json:"created_by"` // the Dockerfile instruction that built it
+	Size      int64    `json:"size"`       // bytes this layer adds
+	Comment   string   `json:"comment"`
+	Tags      []string `json:"tags"`
+	Empty     bool     `json:"empty"` // a metadata-only layer (0 bytes, e.g. ENV/LABEL/CMD)
+}
+
+// History returns an image's layer history (`docker history`) — how it was built,
+// layer by layer, with per-layer size. Newest layer first.
+func (c *Client) History(ctx context.Context, id string) ([]ImageLayer, error) {
+	hist, err := c.sdk().ImageHistory(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ImageLayer, 0, len(hist))
+	for _, h := range hist {
+		out = append(out, ImageLayer{
+			ID:        h.ID,
+			Created:   h.Created,
+			CreatedBy: h.CreatedBy,
+			Size:      h.Size,
+			Comment:   h.Comment,
+			Tags:      h.Tags,
+			Empty:     h.Size == 0,
+		})
+	}
+	return out, nil
+}
+
+// TopResult is a container's live process list (the `docker top` equivalent):
+// the ps column titles and one row of cells per process.
+type TopResult struct {
+	Titles    []string   `json:"titles"`
+	Processes [][]string `json:"processes"`
+}
+
 // ImageUser identifies a container (and its stack) that references an image.
 type ImageUser struct {
 	ID      string `json:"id"`
@@ -27,7 +69,9 @@ type ImageInfo struct {
 	Created  int64       `json:"created"` // unix seconds
 	Dangling bool        `json:"dangling"`
 	InUse    bool        `json:"in_use"`
-	UsedBy   []ImageUser `json:"used_by"` // containers referencing this image
+	UsedBy   []ImageUser `json:"used_by"`           // containers referencing this image
+	Registry string      `json:"registry"`          // where it came from: registry host (docker.io, ghcr.io, ...)
+	Digests  []string    `json:"digests,omitempty"` // repo@sha256 refs (the pulled-from source)
 }
 
 // Images lists local top-level images, tagging each with whether a container
@@ -74,10 +118,64 @@ func (c *Client) Images(ctx context.Context) ([]ImageInfo, error) {
 			Dangling: dangling,
 			InUse:    len(users) > 0,
 			UsedBy:   users,
+			Registry: imageRegistry(tags, im.RepoDigests),
+			Digests:  im.RepoDigests,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Size > out[j].Size })
 	return out, nil
+}
+
+// imageRegistry reports where an image came from — the registry host — derived
+// from its primary tag, else its first repo digest. Empty for a dangling image
+// with no digest (nothing to point at).
+func imageRegistry(tags, digests []string) string {
+	if len(tags) > 0 {
+		return registryHostFromImage(tags[0])
+	}
+	if len(digests) > 0 {
+		return registryHostFromImage(digests[0])
+	}
+	return ""
+}
+
+// ImageByRef finds a single local image by id (full or short), an exact tag, or a
+// repo digest — for the shared image-detail modal opened from anywhere a
+// container's image is shown. Returns (nil, nil) when nothing matches.
+func (c *Client) ImageByRef(ctx context.Context, ref string) (*ImageInfo, error) {
+	imgs, err := c.Images(ctx)
+	if err != nil {
+		return nil, err
+	}
+	short := shortImageID(ref)
+	for i := range imgs {
+		im := &imgs[i]
+		if im.ID == ref || shortImageID(im.ID) == short || strings.HasPrefix(strings.TrimPrefix(im.ID, "sha256:"), strings.TrimPrefix(ref, "sha256:")) {
+			return im, nil
+		}
+		for _, t := range im.Tags {
+			if t == ref {
+				return im, nil
+			}
+		}
+		for _, d := range im.Digests {
+			if d == ref {
+				return im, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// Top returns a container's running processes (the `docker top` equivalent):
+// the daemon runs ps in the container's PID namespace and returns the columns +
+// rows. Works over the agent tunnel like every other call.
+func (c *Client) Top(ctx context.Context, id string) (TopResult, error) {
+	body, err := c.sdk().ContainerTop(ctx, id, nil)
+	if err != nil {
+		return TopResult{}, err
+	}
+	return TopResult{Titles: body.Titles, Processes: body.Processes}, nil
 }
 
 // PruneResult reports the outcome of an image prune.

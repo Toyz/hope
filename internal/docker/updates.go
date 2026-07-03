@@ -113,9 +113,25 @@ func (c *Client) ProjectUpdates(ctx context.Context, project string) ([]ImageUpd
 	return out, nil
 }
 
+// UpdateCacheStore is an optional key/value backend for the freshness cache (the
+// embedded state db). When set it supersedes the JSON file path, so the cache
+// lives in hope.db instead of a separate mounted file.
+type UpdateCacheStore interface {
+	Get(key string) []byte
+	Put(key string, value []byte) error
+}
+
+// SetUpdateCache routes freshness-cache persistence through a key/value store
+// (the state db) under the given key, instead of a JSON file. Call before
+// StartUpdateCrawler.
+func (c *Client) SetUpdateCache(store UpdateCacheStore, key string) {
+	c.updStore = store
+	c.updKey = key
+}
+
 // StartUpdateCrawler loads any persisted cache, runs an immediate crawl, then
-// re-crawls every `every`. cachePath (if non-empty) persists the cache across
-// restarts — mount it to survive container recreates.
+// re-crawls every `every`. cachePath (if non-empty, and no state-db backend is
+// set) persists the cache across restarts — mount it to survive recreates.
 func (c *Client) StartUpdateCrawler(ctx context.Context, every time.Duration, cachePath string) {
 	c.updPath = cachePath
 	c.loadUpdateCache()
@@ -193,12 +209,17 @@ type persistedRef struct {
 // loadUpdateCache hydrates the cache from disk so the dashboard has data
 // immediately after a restart, before the first crawl completes.
 func (c *Client) loadUpdateCache() {
-	if c.updPath == "" {
-		return
+	var data []byte
+	if c.updStore != nil {
+		data = c.updStore.Get(c.updKey)
+	} else if c.updPath != "" {
+		var err error
+		if data, err = os.ReadFile(c.updPath); err != nil {
+			return // first run / not mounted yet
+		}
 	}
-	data, err := os.ReadFile(c.updPath)
-	if err != nil {
-		return // first run / not mounted yet
+	if len(data) == 0 {
+		return
 	}
 	var pc persistedCache
 	if err := json.Unmarshal(data, &pc); err != nil {
@@ -216,7 +237,7 @@ func (c *Client) loadUpdateCache() {
 
 // saveUpdateCache writes the cache to disk (best-effort) via a temp file rename.
 func (c *Client) saveUpdateCache() {
-	if c.updPath == "" {
+	if c.updStore == nil && c.updPath == "" {
 		return
 	}
 	c.updMu.RLock()
@@ -228,6 +249,10 @@ func (c *Client) saveUpdateCache() {
 
 	data, err := json.Marshal(pc)
 	if err != nil {
+		return
+	}
+	if c.updStore != nil {
+		_ = c.updStore.Put(c.updKey, data)
 		return
 	}
 	if dir := filepath.Dir(c.updPath); dir != "" {

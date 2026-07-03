@@ -27,12 +27,13 @@ import (
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/accessauth"
-	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/hosttarget"
 	"github.com/toyz/hope/internal/plugins/introspectfilter"
+	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/logstream"
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
+	"github.com/toyz/hope/internal/store"
 	"github.com/toyz/hope/internal/system"
 	"github.com/toyz/hope/internal/tunnels"
 	"github.com/toyz/hope/internal/version"
@@ -70,6 +71,28 @@ func wsPathOr(p string) string {
 	return p
 }
 
+// storeUpdCache adapts the state db to docker's UpdateCacheStore so the local
+// host's freshness cache lives in hope.db (bucket "updates") instead of a file.
+type storeUpdCache struct{ st *store.Store }
+
+func (a storeUpdCache) Get(key string) []byte          { return a.st.Get(store.BucketUpdates, key) }
+func (a storeUpdCache) Put(key string, v []byte) error { return a.st.Put(store.BucketUpdates, key, v) }
+
+// agentRecord flattens a live agent host into the persisted roster record.
+func agentRecord(host *agent.Host, seen time.Time) store.AgentRecord {
+	return store.AgentRecord{
+		ID:          host.ID,
+		Remote:      host.Remote,
+		Version:     host.Info.Version,
+		Revision:    host.Info.Revision,
+		GoVersion:   host.Info.GoVersion,
+		Platform:    host.Info.Platform,
+		BuildTime:   host.Info.BuildTime,
+		ContainerID: host.Info.ContainerID,
+		LastSeen:    seen,
+	}
+}
+
 func runServe(configPath string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -90,6 +113,38 @@ func runServe(configPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Optional embedded state db (bbolt). Empty path = a no-op store: every call
+	// succeeds and persists nothing, so the rest of the wiring never branches on
+	// whether it's configured. It holds the agent roster, freshness cache, deploy
+	// specs, and UI-added registry creds (encrypted with token_secret) — mount it
+	// (e.g. "/data/hope.db") to retain them across a restart.
+	st, err := store.Open(cfg.Store.Path)
+	if err != nil {
+		fatal("open state db", "path", cfg.Store.Path, "err", err)
+	}
+	st.SetSecret(cfg.Auth.TokenSecret)
+	defer st.Close()
+	if st.Enabled() {
+		lg.Info("state db opened", "path", cfg.Store.Path)
+	}
+
+	// hope is the fleet's registry-auth authority: config creds AND runtime creds
+	// (added in the UI, persisted encrypted in the db) apply to the local daemon
+	// AND every connecting agent. applyRegistries re-reads the db each call so an
+	// agent that connects after a runtime add still gets the current set.
+	applyRegistries := func(d *docker.Client) {
+		for _, r := range cfg.Registries {
+			d.AddRegistryCreds(r.Server, r.Username, r.Password, docker.RegistrySourceConfig)
+		}
+		regs, err := st.Registries()
+		if err != nil {
+			lg.Warn("load stored registries", "err", err)
+		}
+		for _, r := range regs {
+			d.AddRegistryCreds(r.Server, r.Username, r.Password, docker.RegistrySourceDB)
+		}
+	}
+
 	// Remote-host hub: accept hope-agents dialing in and route their Docker over
 	// the tunnel (the host switcher is built on this registry). Setting a token
 	// enables the WebSocket endpoint on hope's main port (no extra port — it
@@ -106,13 +161,22 @@ func runServe(configPath string) error {
 		// per-host and in-memory (no shared on-disk path across hosts).
 		hub.OnConnect(func(sctx context.Context, host *agent.Host) {
 			d := host.Docker
-			for _, r := range cfg.Registries {
-				d.AddRegistryCreds(r.Server, r.Username, r.Password)
-			}
+			applyRegistries(d) // config + db creds — hope auths registries for every agent
 			if cfg.Updates.Enabled {
 				d.StartUpdateCrawler(sctx, cfg.Updates.Interval, "")
 			}
 			d.StartDiskCrawler(sctx, time.Hour)
+			// Persist the roster so the Agents page can show this host (last seen,
+			// build info) even after a hope restart while it's disconnected. No-op
+			// when no state db is mounted.
+			rec := agentRecord(host, time.Now())
+			if err := st.PutAgent(rec); err != nil {
+				lg.Warn("persist agent record", "host", host.ID, "err", err)
+			}
+			go func() { // stamp last-seen when the session drops
+				<-sctx.Done()
+				_ = st.PutAgent(agentRecord(host, time.Now()))
+			}()
 			lg.Info("agent background jobs started", "host", host.ID)
 		})
 		if cfg.Agent.Listen != "" {
@@ -141,10 +205,7 @@ func runServe(configPath string) error {
 	localUp := dock.Ping(ctx) == nil
 	if localUp {
 		// Local daemon reachable: wire its registry auth + background crawlers.
-		for _, r := range cfg.Registries {
-			dock.AddRegistryCreds(r.Server, r.Username, r.Password)
-			lg.Info("registry credentials loaded", "server", r.Server, "user", r.Username)
-		}
+		applyRegistries(dock)
 		dock.StartCredWatcher(ctx, 30*time.Second)
 		if regs := dock.AuthedRegistries(); len(regs) > 0 {
 			lg.Info("registry auth ready", "registries", strings.Join(regs, ","))
@@ -152,8 +213,15 @@ func runServe(configPath string) error {
 			lg.Warn("no registry credentials — pulls will be anonymous and rate-limited; mount a docker config.json or set [[registry]]")
 		}
 		if cfg.Updates.Enabled {
-			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cfg.Updates.CachePath)
-			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cfg.Updates.CachePath)
+			cachePath := cfg.Updates.CachePath
+			cacheDst := cachePath
+			if st.Enabled() {
+				// The state db supersedes the JSON cache file for the local host.
+				dock.SetUpdateCache(storeUpdCache{st}, "local")
+				cachePath, cacheDst = "", cfg.Store.Path
+			}
+			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, cachePath)
+			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "cache", cacheDst)
 		}
 		dock.StartDiskCrawler(ctx, time.Hour) // df is expensive: crawl hourly, serve cached
 	} else if cfg.Agent.Use == "" {
@@ -170,7 +238,12 @@ func runServe(configPath string) error {
 
 	// Deploy engine + spec store (write path: build/deploy/edit stacks, create
 	// networks/volumes). StateDir empty = specs aren't retained across recreate.
-	deployStore := deploy.NewStore(cfg.Deploy.StateDir)
+	deployStore := deploy.NewStore(cfg.Deploy.StateDir, st)
+	if n, err := deployStore.MigrateFromDir(); err != nil {
+		lg.Warn("migrate stack specs into state db", "err", err)
+	} else if n > 0 {
+		lg.Info("migrated stack specs into state db", "count", n)
+	}
 	deployEngine := deploy.NewEngine(hostSet, deployStore)
 
 	// Front the listener with the agent WebSocket endpoint when the hub is on,
@@ -188,7 +261,7 @@ func runServe(configPath string) error {
 	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
-	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled))
+	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, st, dock))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip

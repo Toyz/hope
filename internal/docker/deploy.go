@@ -120,6 +120,7 @@ func (c *Client) CreateNetwork(ctx context.Context, spec stackspec.NetworkSpec) 
 		Internal:   spec.Internal,
 		Attachable: spec.Attachable,
 		EnableIPv6: &spec.IPv6,
+		Options:    spec.Options,
 		Labels:     WithManaged(spec.Labels),
 	}
 	if spec.Subnet != "" || spec.Gateway != "" {

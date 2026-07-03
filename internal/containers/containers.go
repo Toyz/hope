@@ -50,6 +50,21 @@ func (r *ContainersRouter) Inspect(ctx *rpc.Context, p *IDParams) (any, error) {
 	return info, nil
 }
 
+// Top returns the container's live process list (docker top) for the processes
+// view. Only valid for a running container; a stopped one errors.
+func (r *ContainersRouter) Top(ctx *rpc.Context, p *IDParams) (*docker.TopResult, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	top, err := r.dock(cctx).Top(cctx, p.ID)
+	if err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return &top, nil
+}
+
 // Spec reconstructs a container's editable settings (image, ports, env, mounts,
 // networks, labels…) from its live inspect — the seed for the edit form.
 func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.ContainerSpec, error) {

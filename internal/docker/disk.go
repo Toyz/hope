@@ -36,6 +36,20 @@ func (c *Client) crawlDisk(ctx context.Context) {
 	c.duMu.Unlock()
 }
 
+// PruneBuildCache clears the builder cache (the layer/step cache from image
+// builds — often the biggest reclaimable chunk, and invisible to image prune).
+// Returns bytes reclaimed.
+func (c *Client) PruneBuildCache(ctx context.Context) (uint64, error) {
+	rep, err := c.sdk().BuildCachePrune(ctx, types.BuildCachePruneOptions{All: true})
+	if err != nil {
+		return 0, err
+	}
+	if rep == nil {
+		return 0, nil
+	}
+	return rep.SpaceReclaimed, nil
+}
+
 // DiskUsageCached returns the last crawled disk usage and when it was taken.
 func (c *Client) DiskUsageCached() (any, time.Time) {
 	c.duMu.RLock()

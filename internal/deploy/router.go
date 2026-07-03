@@ -118,7 +118,9 @@ func (r *DeployRouter) ExportCompose(ctx *rpc.Context, p *ProjectParams) (*Expor
 
 // ── resource creation ───────────────────────────────────────────────────────
 
-// CreateNetworkParams describes a network to create.
+// CreateNetworkParams describes a network to create. Options/Labels are raw
+// "KEY=VALUE" lines (one per line) — driver options (--opt: parent, mtu,
+// encrypted…) and labels — parsed server-side.
 type CreateNetworkParams struct {
 	Name       string `sov:"name,0,required" json:"name"`
 	Driver     string `sov:"driver,1" json:"driver"`
@@ -127,6 +129,8 @@ type CreateNetworkParams struct {
 	Internal   bool   `sov:"internal,4" json:"internal"`
 	Attachable bool   `sov:"attachable,5" json:"attachable"`
 	IPv6       bool   `sov:"ipv6,6" json:"ipv6"`
+	Options    string `sov:"options,7" json:"options"`
+	Labels     string `sov:"labels,8" json:"labels"`
 }
 
 // CreateNetwork creates a standalone network and returns its listing view.
@@ -140,6 +144,7 @@ func (r *DeployRouter) CreateNetwork(ctx *rpc.Context, p *CreateNetworkParams) (
 	spec := stackspec.NetworkSpec{
 		Name: p.Name, Driver: p.Driver, Subnet: p.Subnet, Gateway: p.Gateway,
 		Internal: p.Internal, Attachable: p.Attachable, IPv6: p.IPv6,
+		Options: parseKV(p.Options), Labels: parseKV(p.Labels),
 	}
 	if _, err := r.dock(ctx).CreateNetwork(ctx, spec); err != nil {
 		return nil, rpc.Internal("%v", err)
@@ -147,10 +152,13 @@ func (r *DeployRouter) CreateNetwork(ctx *rpc.Context, p *CreateNetworkParams) (
 	return r.findNetwork(ctx, p.Name), nil
 }
 
-// CreateVolumeParams describes a volume to create.
+// CreateVolumeParams describes a volume to create. Options/Labels are raw
+// "KEY=VALUE" lines — driver options (--opt: type=nfs, o=…, device=…) and labels.
 type CreateVolumeParams struct {
-	Name   string `sov:"name,0,required" json:"name"`
-	Driver string `sov:"driver,1" json:"driver"`
+	Name    string `sov:"name,0,required" json:"name"`
+	Driver  string `sov:"driver,1" json:"driver"`
+	Options string `sov:"options,2" json:"options"`
+	Labels  string `sov:"labels,3" json:"labels"`
 }
 
 // CreateVolume creates a standalone named volume and returns its listing view.
@@ -161,10 +169,35 @@ func (r *DeployRouter) CreateVolume(ctx *rpc.Context, p *CreateVolumeParams) (*d
 	if strings.TrimSpace(p.Name) == "" {
 		return nil, rpc.BadRequest("volume name is required")
 	}
-	if _, err := r.dock(ctx).CreateVolume(ctx, stackspec.VolumeSpec{Name: p.Name, Driver: p.Driver}); err != nil {
+	spec := stackspec.VolumeSpec{Name: p.Name, Driver: p.Driver, Options: parseKV(p.Options), Labels: parseKV(p.Labels)}
+	if _, err := r.dock(ctx).CreateVolume(ctx, spec); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	return r.findVolume(ctx, p.Name), nil
+}
+
+// parseKV turns "KEY=VALUE" lines (one per line, blanks and #comments skipped)
+// into a map — for driver options and labels entered as free text. Returns nil
+// when empty so an omitted field stays absent in the spec.
+func parseKV(s string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if k = strings.TrimSpace(k); k != "" {
+			out[k] = strings.TrimSpace(v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (r *DeployRouter) findNetwork(ctx *rpc.Context, name string) *docker.NetworkInfo {

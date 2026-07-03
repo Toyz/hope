@@ -78,17 +78,20 @@ type Client struct {
 	// Registry auth. authMu guards `auths` (rebuilt by the cred watcher when
 	// config.json changes). regCreds are the explicit [[registry]] credentials,
 	// re-applied over the file's on every reload so config always wins.
-	authMu   sync.RWMutex
-	auths    map[string]string // registry host -> X-Registry-Auth header
-	authPath string            // resolved config.json path (for the watcher)
-	authSum  [sha256.Size]byte // last seen config.json checksum
-	regCreds []regCred
+	authMu      sync.RWMutex
+	auths       map[string]string // registry host -> X-Registry-Auth header (merged, effective)
+	configAuths map[string]string // registry host -> header, config.json only (for source tagging)
+	authPath    string            // resolved config.json path (for the watcher)
+	authSum     [sha256.Size]byte // last seen config.json checksum
+	regCreds    []regCred
 
 	// Cluster-wide image-freshness cache, filled by the background crawler.
 	updMu    sync.RWMutex
 	updByRef map[string]refStatus
 	updAt    time.Time
-	updPath  string // optional on-disk persistence (empty = memory only)
+	updPath  string           // optional on-disk JSON persistence (empty = memory only)
+	updStore UpdateCacheStore // optional k/v persistence (state db); wins over updPath
+	updKey   string           // this host's key in updStore
 
 	// Docker disk-usage cache (df is expensive, so it's crawled, not live).
 	duMu    sync.RWMutex

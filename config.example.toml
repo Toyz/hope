@@ -62,6 +62,22 @@ roots = []
 color = true
 json = false
 
+[store]
+# Optional embedded state database (bbolt — a single pure-Go file, no external
+# service). One mounted file unifies the state hope keeps: the connected-agent
+# roster (so the Agents page shows hosts as known/last-seen across a restart),
+# the image-freshness cache, deploy stack specs, and — the headline — registry
+# credentials you add from the UI (Images page -> "registries"). Empty = disabled
+# (everything still works; that state just isn't retained). Mount a volume and
+# point this at it, e.g.:
+#   volumes: ["hope-data:/data"]   ->   path = "/data/hope.db"
+# When set, it SUPERSEDES [updates] cache_path and [deploy] state_dir (their
+# existing files are migrated in on first boot and then left as a rollback copy).
+# SECURITY: the file is secret-bearing — UI-added registry passwords are stored
+# ENCRYPTED with auth.token_secret (a leaked hope.db is not plaintext creds) —
+# and hope writes it 0600. Keep it on a private volume alongside config.toml.
+path = ""
+
 [updates]
 # Background crawler that checks each container's image against its registry
 # (a manifest lookup — never pulls layers) to power the dashboard "updates"
@@ -71,6 +87,7 @@ interval = "6h"
 # Persist the cache to disk so it survives restarts. Empty = in-memory only.
 # Mount this path to keep it across container recreates, e.g.:
 #   volumes: ["hope-data:/data"]   ->   cache_path = "/data/updates.json"
+# Ignored when [store] path is set (the state db holds the cache instead).
 cache_path = ""
 
 [deploy]
@@ -81,6 +98,8 @@ cache_path = ""
 # keep them, e.g.:
 #   volumes: ["hope-data:/data"]   ->   state_dir = "/data/stacks"
 # These files can contain secrets (compose env values) — hope writes them 0600.
+# When [store] path is set, specs live in the state db instead and any existing
+# files here are migrated in on first boot (then left untouched as a backup).
 state_dir = ""
 
 [agent]

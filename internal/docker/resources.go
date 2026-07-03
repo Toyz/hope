@@ -32,18 +32,22 @@ type NetworkInfo struct {
 	Subnet     string            `json:"subnet"`  // first IPAM pool
 	Gateway    string            `json:"gateway"` // first IPAM gateway
 	Options    map[string]string `json:"options"`
+	Labels     map[string]string `json:"labels,omitempty"`
 	Created    int64             `json:"created"` // unix seconds
 	UsedBy     []ResourceUser    `json:"used_by"`
 }
 
 // VolumeInfo is a Docker volume plus the containers mounting it.
 type VolumeInfo struct {
-	Name       string         `json:"name"`
-	Driver     string         `json:"driver"`
-	Mountpoint string         `json:"mountpoint"`
-	CreatedAt  string         `json:"created_at"`
-	Size       int64          `json:"size"` // bytes; -1 when the daemon didn't compute it
-	UsedBy     []ResourceUser `json:"used_by"`
+	Name       string            `json:"name"`
+	Driver     string            `json:"driver"`
+	Mountpoint string            `json:"mountpoint"`
+	CreatedAt  string            `json:"created_at"`
+	Scope      string            `json:"scope,omitempty"`
+	Size       int64             `json:"size"` // bytes; -1 when the daemon didn't compute it
+	Options    map[string]string `json:"options,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	UsedBy     []ResourceUser    `json:"used_by"`
 }
 
 // userFrom builds a ResourceUser from a container summary.
@@ -96,6 +100,7 @@ func (c *Client) Networks(ctx context.Context) ([]NetworkInfo, error) {
 			Subnet:     subnet,
 			Gateway:    gateway,
 			Options:    n.Options,
+			Labels:     n.Labels,
 			Created:    n.Created.Unix(),
 			UsedBy:     users,
 		})
@@ -107,6 +112,23 @@ func (c *Client) Networks(ctx context.Context) ([]NetworkInfo, error) {
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// NetworkByRef finds a single network by id (full or short) or exact name, with
+// its attached-container mapping — for the shared network-detail modal opened
+// from anywhere a network is shown. Returns (nil, nil) when nothing matches.
+func (c *Client) NetworkByRef(ctx context.Context, ref string) (*NetworkInfo, error) {
+	nets, err := c.Networks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range nets {
+		n := &nets[i]
+		if n.ID == ref || n.Name == ref || (len(ref) >= 8 && strings.HasPrefix(n.ID, ref)) {
+			return n, nil
+		}
+	}
+	return nil, nil
 }
 
 // RemoveNetwork deletes a network by id.
@@ -165,7 +187,10 @@ func (c *Client) Volumes(ctx context.Context) ([]VolumeInfo, error) {
 			Driver:     v.Driver,
 			Mountpoint: v.Mountpoint,
 			CreatedAt:  v.CreatedAt,
+			Scope:      v.Scope,
 			Size:       sz,
+			Options:    v.Options,
+			Labels:     v.Labels,
 			UsedBy:     users,
 		})
 	}

@@ -90,6 +90,7 @@ type NetworkSpec struct {
 	Internal   bool              `json:"internal,omitempty"`
 	Attachable bool              `json:"attachable,omitempty"`
 	IPv6       bool              `json:"ipv6,omitempty"`
+	Options    map[string]string `json:"options,omitempty"` // driver options (--opt): parent, mtu, encrypted…
 	External   bool              `json:"external,omitempty"` // don't create; must pre-exist
 	Labels     map[string]string `json:"labels,omitempty"`
 }

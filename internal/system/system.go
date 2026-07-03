@@ -10,6 +10,7 @@ import (
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
+	"github.com/toyz/hope/internal/store"
 )
 
 // SystemRouter surfaces daemon-level diagnostics for the active host.
@@ -17,14 +18,17 @@ type SystemRouter struct {
 	hosts       *hosts.Set
 	agentToken  string // shared enrollment secret (empty = hub disabled)
 	agentWSPath string
-	apiEnabled  bool // static API keys configured -> headless RPC + explorer link
+	apiEnabled  bool           // static API keys configured -> headless RPC + explorer link
+	store       *store.Store   // persisted registry creds (no-op when unmounted)
+	localDock   *docker.Client // local daemon — the canonical registry-auth view
 }
 
 // NewSystemRouter wires the router to the host set (active-host aware). The agent
 // token + ws path power the "add an agent" enrollment helper; apiEnabled toggles
-// the API explorer link.
-func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled bool) *SystemRouter {
-	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled}
+// the API explorer link. st persists UI-added registry creds; localDock is the
+// canonical client for listing them (registries are applied fleet-wide).
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled bool, st *store.Store, localDock *docker.Client) *SystemRouter {
+	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, store: st, localDock: localDock}
 }
 
 // FeatureFlags reports which optional features are on, so the UI can show/hide
@@ -282,6 +286,40 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 	return imgs, nil
 }
 
+// Image returns the detail for a single image on the active host, looked up by
+// id / tag / digest — powers the shared image-detail modal opened from anywhere
+// a container's image is shown.
+func (r *SystemRouter) Image(ctx *rpc.Context, p *IDParam) (*docker.ImageInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	im, err := r.dock(ctx).ImageByRef(cctx, p.ID)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	if im == nil {
+		return nil, rpc.BadRequest("image %q not found on this host", p.ID)
+	}
+	return im, nil
+}
+
+// ImageHistory returns an image's build history (layers + per-layer size) for
+// the image-detail modal's layers view, on the active host.
+func (r *SystemRouter) ImageHistory(ctx *rpc.Context, p *IDParam) ([]docker.ImageLayer, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	layers, err := r.dock(ctx).History(cctx, p.ID)
+	if err != nil {
+		return nil, rpc.BadRequest("%v", err)
+	}
+	return layers, nil
+}
+
 // FleetNetworksHost / FleetVolumesHost are one host's resources for the
 // cross-fleet networks/volumes views.
 type FleetNetworksHost struct {
@@ -376,18 +414,22 @@ type AgentView struct {
 	Running       int    `json:"running"`
 	Images        int    `json:"images"`
 	Online        bool   `json:"online"`
+	LastSeen      string `json:"last_seen,omitempty"` // when last connected (for offline/known agents)
 }
 
 // Agents lists every connected agent with its build info, daemon version, and
-// container/image counts (each daemon queried concurrently).
+// container/image counts (each daemon queried concurrently), plus any known-but-
+// disconnected agents from the persisted roster (Online=false, last seen shown).
 func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
 	hs := r.hosts.AgentHosts()
 	out := make([]AgentView, len(hs))
+	online := make(map[string]bool, len(hs))
 	var wg sync.WaitGroup
 	for i, h := range hs {
+		online[h.ID] = true
 		out[i] = AgentView{
 			ID: h.ID, Remote: h.Remote, ConnectedAt: stamp(h.ConnectedAt),
 			Version: h.Info.Version, Revision: h.Info.Revision, GoVersion: h.Info.GoVersion,
@@ -409,7 +451,39 @@ func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
 		}(i, h.Docker)
 	}
 	wg.Wait()
+	// Fold in known agents that aren't currently connected (from the state db).
+	if known, err := r.store.Agents(); err == nil {
+		for _, rec := range known {
+			if online[rec.ID] {
+				continue
+			}
+			out = append(out, AgentView{
+				ID: rec.ID, Remote: rec.Remote,
+				Version: rec.Version, Revision: rec.Revision, GoVersion: rec.GoVersion,
+				Platform: rec.Platform, BuildTime: rec.BuildTime,
+				Online: false, LastSeen: stamp(rec.LastSeen),
+			})
+		}
+	}
 	return out, nil
+}
+
+// ForgetAgent removes a known-but-offline agent from the persisted roster (the
+// operator decommissioned it). Rejected while the agent is connected — a live
+// host would just be re-persisted on its next heartbeat.
+func (r *SystemRouter) ForgetAgent(ctx *rpc.Context, p *IDParam) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	for _, h := range r.hosts.AgentHosts() {
+		if h.ID == p.ID {
+			return nil, rpc.BadRequest("%q is online — can't forget a connected host", p.ID)
+		}
+	}
+	if err := r.store.DeleteAgent(p.ID); err != nil {
+		return nil, rpc.Internal("forget agent: %v", err)
+	}
+	return map[string]bool{"ok": true}, nil
 }
 
 // Networks lists the active host's Docker networks with the containers attached
@@ -445,6 +519,24 @@ func (r *SystemRouter) Volumes(ctx *rpc.Context) ([]docker.VolumeInfo, error) {
 // IDParam targets a resource by id/name.
 type IDParam struct {
 	ID string `sov:"id,0,required" json:"id"`
+}
+
+// Network returns one network's detail (by id or name) on the active host — for
+// the shared network-detail modal opened from a container's networks list.
+func (r *SystemRouter) Network(ctx *rpc.Context, p *IDParam) (*docker.NetworkInfo, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	n, err := r.dock(ctx).NetworkByRef(cctx, p.ID)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	if n == nil {
+		return nil, rpc.BadRequest("network %q not found on this host", p.ID)
+	}
+	return n, nil
 }
 
 // RemoveNetwork deletes a network on the active host.
@@ -511,6 +603,22 @@ func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.Pr
 	return &res, nil
 }
 
+// PruneBuildCache clears the builder cache on the active host and returns the
+// bytes reclaimed — the build cache is invisible to image prune and often the
+// biggest reclaimable chunk.
+func (r *SystemRouter) PruneBuildCache(ctx *rpc.Context) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	reclaimed, err := r.dock(ctx).PruneBuildCache(cctx)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return map[string]any{"ok": true, "reclaimed": reclaimed}, nil
+}
+
 // DiskResult wraps a disk-usage snapshot with the time it was taken.
 type DiskResult struct {
 	Usage     any    `json:"usage"`
@@ -539,6 +647,97 @@ func (r *SystemRouter) RefreshDiskUsage(ctx *rpc.Context) (*DiskResult, error) {
 		return nil, rpc.Internal("%v", err)
 	}
 	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
+}
+
+// RegistryView is one known registry for the UI. The password is never sent;
+// has_password only reports that one is stored. source is "config" (read-only,
+// from config.json / [[registry]]) or "db" (added here, editable/removable).
+type RegistryView struct {
+	Server      string `json:"server"`
+	Username    string `json:"username"`
+	HasPassword bool   `json:"has_password"`
+	Source      string `json:"source"`
+	Editable    bool   `json:"editable"`
+}
+
+// Registries lists every registry hope has credentials for (config + runtime),
+// credential-free, for the registries manager. hope is the fleet's registry-auth
+// authority, so this list is applied to the local daemon and every agent alike.
+func (r *SystemRouter) Registries(ctx *rpc.Context) ([]RegistryView, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	out := []RegistryView{}
+	for _, e := range r.localDock.RegistryList() {
+		out = append(out, RegistryView{
+			Server:      e.Server,
+			Username:    e.Username,
+			HasPassword: e.HasPassword,
+			Source:      string(e.Source),
+			Editable:    e.Source == docker.RegistrySourceDB,
+		})
+	}
+	return out, nil
+}
+
+// AddRegistryParams is a new/updated runtime registry credential.
+type AddRegistryParams struct {
+	Server   string `sov:"server,0,required" json:"server"`
+	Username string `sov:"username,1,required" json:"username"`
+	Password string `sov:"password,2,required" json:"password"`
+}
+
+// AddRegistry stores a registry credential (encrypted) and applies it live to
+// the local daemon and every connected agent. Config-defined registries are
+// read-only and rejected. With no state db mounted the cred still applies for
+// the session but isn't retained across a restart.
+func (r *SystemRouter) AddRegistry(ctx *rpc.Context, p *AddRegistryParams) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	if r.localDock.IsConfigRegistry(p.Server) {
+		return nil, rpc.BadRequest("%q is defined in config and can't be edited here", p.Server)
+	}
+	if err := r.store.PutRegistry(p.Server, p.Username, p.Password); err != nil {
+		return nil, rpc.Internal("persist registry: %v", err)
+	}
+	for _, d := range r.fleetDockers() {
+		d.AddRegistryCreds(p.Server, p.Username, p.Password, docker.RegistrySourceDB)
+	}
+	return map[string]any{"ok": true, "persisted": r.store.Enabled()}, nil
+}
+
+// RemoveRegistry deletes a runtime registry credential from the db and from the
+// live auth map on every host. Config-defined registries are rejected.
+func (r *SystemRouter) RemoveRegistry(ctx *rpc.Context, p *IDParam) (any, error) {
+	if _, err := rpc.RequireSubject(ctx); err != nil {
+		return nil, err
+	}
+	if r.localDock.IsConfigRegistry(p.ID) {
+		return nil, rpc.BadRequest("%q is defined in config and can't be removed here", p.ID)
+	}
+	if err := r.store.DeleteRegistry(p.ID); err != nil {
+		return nil, rpc.Internal("delete registry: %v", err)
+	}
+	for _, d := range r.fleetDockers() {
+		d.RemoveRegistryCreds(p.ID)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+// fleetDockers returns the local daemon plus every connected agent's client, so
+// a registry change is applied everywhere hope pulls images.
+func (r *SystemRouter) fleetDockers() []*docker.Client {
+	ds := []*docker.Client{}
+	if r.localDock != nil {
+		ds = append(ds, r.localDock)
+	}
+	for _, h := range r.hosts.AgentHosts() {
+		if h.Docker != nil {
+			ds = append(ds, h.Docker)
+		}
+	}
+	return ds
 }
 
 func stamp(t time.Time) string {

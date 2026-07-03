@@ -9,6 +9,11 @@
 # compose .env (interpolated secrets: tokens, CF service token)
 /.env
 
+# embedded state db (bbolt) — holds encrypted registry creds + stack specs; a
+# stray local copy must never be committed
+*.db
+/data/
+
 # air build output
 /tmp/
 
