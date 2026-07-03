@@ -10,10 +10,15 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
+
+// DefaultDBFile is the db filename used when [store] path points at a directory.
+const DefaultDBFile = "hope.db"
 
 // Bucket names.
 const (
@@ -38,6 +43,13 @@ type Store struct {
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return &Store{}, nil
+	}
+	// A common setup is to mount a volume at e.g. /data and point [store] path at
+	// the mount itself. If path is an existing directory, put the db file inside
+	// it rather than trying to open the directory as a bolt file (which errors
+	// with "is a directory").
+	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		path = filepath.Join(path, DefaultDBFile)
 	}
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second})
 	if err != nil {
