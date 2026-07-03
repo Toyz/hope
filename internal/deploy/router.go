@@ -26,7 +26,7 @@ func NewDeployRouter(hs *hosts.Set, store *Store) *DeployRouter {
 }
 
 func (r *DeployRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
-func (r *DeployRouter) hostID() string       { return r.hosts.ActiveID() }
+func (r *DeployRouter) hostID() string                          { return r.hosts.ActiveID() }
 
 // ── import / export / edit ──────────────────────────────────────────────────
 
@@ -39,16 +39,13 @@ type ImportComposeParams struct {
 
 // ImportResult is a parsed spec plus any non-fatal warnings (unsupported keys).
 type ImportResult struct {
-	Spec     *stackspec.StackSpec  `json:"spec"`
-	Warnings []stackspec.Warning   `json:"warnings"`
+	Spec     *stackspec.StackSpec `json:"spec"`
+	Warnings []stackspec.Warning  `json:"warnings"`
 }
 
 // ImportCompose parses a compose file into a StackSpec so the builder can
 // prefill from it. Pure: it creates nothing.
 func (r *DeployRouter) ImportCompose(ctx *rpc.Context, p *ImportComposeParams) (*ImportResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(p.Compose) == "" {
 		return nil, rpc.BadRequest("compose text is required")
 	}
@@ -72,9 +69,6 @@ type ProjectParams struct {
 // hope deployed it, otherwise one reconstructed from the live containers (so any
 // stack can be adopted and edited).
 func (r *DeployRouter) EditSpec(ctx *rpc.Context, p *ProjectParams) (*stackspec.StackSpec, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if p.Project == "" {
 		return nil, rpc.BadRequest("project required")
 	}
@@ -96,9 +90,6 @@ type ExportResult struct {
 
 // ExportCompose renders a stack's spec (stored or reconstructed) to compose YAML.
 func (r *DeployRouter) ExportCompose(ctx *rpc.Context, p *ProjectParams) (*ExportResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if p.Project == "" {
 		return nil, rpc.BadRequest("project required")
 	}
@@ -135,9 +126,6 @@ type CreateNetworkParams struct {
 
 // CreateNetwork creates a standalone network and returns its listing view.
 func (r *DeployRouter) CreateNetwork(ctx *rpc.Context, p *CreateNetworkParams) (*docker.NetworkInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(p.Name) == "" {
 		return nil, rpc.BadRequest("network name is required")
 	}
@@ -163,9 +151,6 @@ type CreateVolumeParams struct {
 
 // CreateVolume creates a standalone named volume and returns its listing view.
 func (r *DeployRouter) CreateVolume(ctx *rpc.Context, p *CreateVolumeParams) (*docker.VolumeInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if strings.TrimSpace(p.Name) == "" {
 		return nil, rpc.BadRequest("volume name is required")
 	}

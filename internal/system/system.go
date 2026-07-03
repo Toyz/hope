@@ -48,9 +48,6 @@ type FeatureFlags struct {
 // Capabilities — "Capabilities" is a reserved sov marker method, so it would be
 // skipped at registration and 404 as an RPC endpoint.)
 func (r *SystemRouter) Features(ctx *rpc.Context) (*FeatureFlags, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled(), StoreEphemeral: r.store.Ephemeral()}, nil
 }
 
@@ -66,9 +63,6 @@ type AgentEnrollInfo struct {
 // AgentEnroll returns the shared token + ws path so the UI can render a complete
 // enrollment command (the connect host is derived client-side from the URL).
 func (r *SystemRouter) AgentEnroll(ctx *rpc.Context) (*AgentEnrollInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	path := r.agentWSPath
 	if path == "" {
 		path = "/agent/connect"
@@ -82,9 +76,6 @@ func (r *SystemRouter) dock(ctx context.Context) *docker.Client { return r.hosts
 // Hosts lists every selectable host (local + connected agents) with the active
 // one flagged, for the host switcher.
 func (r *SystemRouter) Hosts(ctx *rpc.Context) ([]hosts.HostView, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	return r.hosts.List(), nil
 }
 
@@ -106,18 +97,12 @@ type FleetHost struct {
 // doesn't stall the rest; a host that errors is returned offline with its
 // message rather than failing the whole call.
 func (r *SystemRouter) Fleet(ctx *rpc.Context) ([]FleetHost, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	return r.collectFleet(ctx, false), nil
 }
 
 // RefreshFleetUpdates forces an immediate image-freshness recrawl on every host
 // (the fleet "check" button), then returns the fresh overview.
 func (r *SystemRouter) RefreshFleetUpdates(ctx *rpc.Context) ([]FleetHost, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	return r.collectFleet(ctx, true), nil
 }
 
@@ -173,9 +158,6 @@ type SetActiveHostParams struct {
 // SetActiveHost switches the active host. Subsequent calls (stacks, containers,
 // logs, ...) operate on it. "local" selects the local daemon.
 func (r *SystemRouter) SetActiveHost(ctx *rpc.Context, p *SetActiveHostParams) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if err := r.hosts.SetActive(p.ID); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
@@ -184,9 +166,6 @@ func (r *SystemRouter) SetActiveHost(ctx *rpc.Context, p *SetActiveHostParams) (
 
 // Info returns daemon info (version, counts, resources).
 func (r *SystemRouter) Info(ctx *rpc.Context) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	info, err := r.dock(ctx).Info(ctx)
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
@@ -204,9 +183,6 @@ type UpdatesResult struct {
 // Updates returns the cached cluster-wide image-freshness report (filled by the
 // background crawler) so the dashboard can flag containers running stale images.
 func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	return r.collectUpdates(cctx)
@@ -215,9 +191,6 @@ func (r *SystemRouter) Updates(ctx *rpc.Context) (*UpdatesResult, error) {
 // RefreshUpdates runs an immediate cluster-wide crawl (user-triggered from the
 // dashboard "updates" refresh) then returns the fresh report.
 func (r *SystemRouter) RefreshUpdates(ctx *rpc.Context) (*UpdatesResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	r.dock(ctx).RefreshUpdates(cctx)
@@ -250,9 +223,6 @@ type FleetImagesHost struct {
 // FleetImages lists every host's images for the "all hosts" images view. Hosts
 // are queried concurrently; one that errors is returned offline with its message.
 func (r *SystemRouter) FleetImages(ctx *rpc.Context) ([]FleetImagesHost, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	hcs := r.hosts.All()
 	out := make([]FleetImagesHost, len(hcs))
 	var wg sync.WaitGroup
@@ -281,9 +251,6 @@ func (r *SystemRouter) FleetImages(ctx *rpc.Context) ([]FleetImagesHost, error) 
 
 // Images lists the local images for the images page.
 func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	imgs, err := r.dock(ctx).Images(cctx)
@@ -297,9 +264,6 @@ func (r *SystemRouter) Images(ctx *rpc.Context) ([]docker.ImageInfo, error) {
 // id / tag / digest — powers the shared image-detail modal opened from anywhere
 // a container's image is shown.
 func (r *SystemRouter) Image(ctx *rpc.Context, p *IDParam) (*docker.ImageInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	im, err := r.dock(ctx).ImageByRef(cctx, p.ID)
@@ -315,9 +279,6 @@ func (r *SystemRouter) Image(ctx *rpc.Context, p *IDParam) (*docker.ImageInfo, e
 // ImageHistory returns an image's build history (layers + per-layer size) for
 // the image-detail modal's layers view, on the active host.
 func (r *SystemRouter) ImageHistory(ctx *rpc.Context, p *IDParam) ([]docker.ImageLayer, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	layers, err := r.dock(ctx).History(cctx, p.ID)
@@ -346,9 +307,6 @@ type FleetVolumesHost struct {
 
 // FleetNetworks lists every host's networks (all-hosts networks view).
 func (r *SystemRouter) FleetNetworks(ctx *rpc.Context) ([]FleetNetworksHost, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	hcs := r.hosts.All()
 	out := make([]FleetNetworksHost, len(hcs))
 	var wg sync.WaitGroup
@@ -377,9 +335,6 @@ func (r *SystemRouter) FleetNetworks(ctx *rpc.Context) ([]FleetNetworksHost, err
 
 // FleetVolumes lists every host's volumes (all-hosts volumes view).
 func (r *SystemRouter) FleetVolumes(ctx *rpc.Context) ([]FleetVolumesHost, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	hcs := r.hosts.All()
 	out := make([]FleetVolumesHost, len(hcs))
 	var wg sync.WaitGroup
@@ -428,9 +383,6 @@ type AgentView struct {
 // container/image counts (each daemon queried concurrently), plus any known-but-
 // disconnected agents from the persisted roster (Online=false, last seen shown).
 func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	hs := r.hosts.AgentHosts()
 	out := make([]AgentView, len(hs))
 	online := make(map[string]bool, len(hs))
@@ -479,9 +431,6 @@ func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
 // operator decommissioned it). Rejected while the agent is connected — a live
 // host would just be re-persisted on its next heartbeat.
 func (r *SystemRouter) ForgetAgent(ctx *rpc.Context, p *IDParam) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	for _, h := range r.hosts.AgentHosts() {
 		if h.ID == p.ID {
 			return nil, rpc.BadRequest("%q is online — can't forget a connected host", p.ID)
@@ -496,9 +445,6 @@ func (r *SystemRouter) ForgetAgent(ctx *rpc.Context, p *IDParam) (any, error) {
 // Networks lists the active host's Docker networks with the containers attached
 // to each (the reverse "who's on this network" mapping).
 func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	nets, err := r.dock(ctx).Networks(cctx)
@@ -511,9 +457,6 @@ func (r *SystemRouter) Networks(ctx *rpc.Context) ([]docker.NetworkInfo, error) 
 // Volumes lists the active host's Docker volumes with the containers mounting
 // each (the reverse mapping).
 func (r *SystemRouter) Volumes(ctx *rpc.Context) ([]docker.VolumeInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	vols, err := r.dock(ctx).Volumes(cctx)
@@ -531,9 +474,6 @@ type IDParam struct {
 // Network returns one network's detail (by id or name) on the active host — for
 // the shared network-detail modal opened from a container's networks list.
 func (r *SystemRouter) Network(ctx *rpc.Context, p *IDParam) (*docker.NetworkInfo, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	n, err := r.dock(ctx).NetworkByRef(cctx, p.ID)
@@ -548,9 +488,6 @@ func (r *SystemRouter) Network(ctx *rpc.Context, p *IDParam) (*docker.NetworkInf
 
 // RemoveNetwork deletes a network on the active host.
 func (r *SystemRouter) RemoveNetwork(ctx *rpc.Context, p *IDParam) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := r.dock(ctx).RemoveNetwork(cctx, p.ID); err != nil {
@@ -561,9 +498,6 @@ func (r *SystemRouter) RemoveNetwork(ctx *rpc.Context, p *IDParam) (any, error) 
 
 // RemoveVolume deletes a volume on the active host (force-removes if referenced).
 func (r *SystemRouter) RemoveVolume(ctx *rpc.Context, p *IDParam) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := r.dock(ctx).RemoveVolume(cctx, p.ID, true); err != nil {
@@ -580,9 +514,6 @@ type ImageRemoveParams struct {
 
 // RemoveImage deletes a single local image.
 func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	// Refuse to remove an image a container still references — even with Force,
@@ -604,9 +535,6 @@ type PruneParams struct {
 
 // PruneImages removes unused images (dangling-only, or all unused).
 func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.PruneResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	res, err := r.dock(ctx).PruneImages(cctx, p.All)
@@ -620,9 +548,6 @@ func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.Pr
 // bytes reclaimed — the build cache is invisible to image prune and often the
 // biggest reclaimable chunk.
 func (r *SystemRouter) PruneBuildCache(ctx *rpc.Context) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	reclaimed, err := r.dock(ctx).PruneBuildCache(cctx)
@@ -641,18 +566,12 @@ type DiskResult struct {
 // DiskUsage returns the cached disk-usage snapshot (crawled hourly — df is too
 // expensive to run on every dashboard load).
 func (r *SystemRouter) DiskUsage(ctx *rpc.Context) (*DiskResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	du, at := r.dock(ctx).DiskUsageCached()
 	return &DiskResult{Usage: du, CheckedAt: stamp(at)}, nil
 }
 
 // RefreshDiskUsage runs a live df (user-triggered) and updates the cache.
 func (r *SystemRouter) RefreshDiskUsage(ctx *rpc.Context) (*DiskResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	du, at, err := r.dock(ctx).RefreshDiskUsage(cctx)
@@ -677,9 +596,6 @@ type RegistryView struct {
 // credential-free, for the registries manager. hope is the fleet's registry-auth
 // authority, so this list is applied to the local daemon and every agent alike.
 func (r *SystemRouter) Registries(ctx *rpc.Context) ([]RegistryView, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	out := []RegistryView{}
 	for _, e := range r.localDock.RegistryList() {
 		out = append(out, RegistryView{
@@ -705,9 +621,6 @@ type AddRegistryParams struct {
 // read-only and rejected. With no state db mounted the cred still applies for
 // the session but isn't retained across a restart.
 func (r *SystemRouter) AddRegistry(ctx *rpc.Context, p *AddRegistryParams) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if r.localDock.IsConfigRegistry(p.Server) {
 		return nil, rpc.BadRequest("%q is defined in config and can't be edited here", p.Server)
 	}
@@ -723,9 +636,6 @@ func (r *SystemRouter) AddRegistry(ctx *rpc.Context, p *AddRegistryParams) (any,
 // RemoveRegistry deletes a runtime registry credential from the db and from the
 // live auth map on every host. Config-defined registries are rejected.
 func (r *SystemRouter) RemoveRegistry(ctx *rpc.Context, p *IDParam) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if r.localDock.IsConfigRegistry(p.ID) {
 		return nil, rpc.BadRequest("%q is defined in config and can't be removed here", p.ID)
 	}

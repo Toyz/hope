@@ -40,9 +40,6 @@ type CtrResult struct {
 
 // Inspect returns the full raw docker inspect JSON for a container.
 func (r *ContainersRouter) Inspect(ctx *rpc.Context, p *IDParams) (any, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	info, err := r.dock(ctx).Inspect(ctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
@@ -53,9 +50,6 @@ func (r *ContainersRouter) Inspect(ctx *rpc.Context, p *IDParams) (any, error) {
 // Top returns the container's live process list (docker top) for the processes
 // view. Only valid for a running container; a stopped one errors.
 func (r *ContainersRouter) Top(ctx *rpc.Context, p *IDParams) (*docker.TopResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	top, err := r.dock(cctx).Top(cctx, p.ID)
@@ -68,9 +62,6 @@ func (r *ContainersRouter) Top(ctx *rpc.Context, p *IDParams) (*docker.TopResult
 // Spec reconstructs a container's editable settings (image, ports, env, mounts,
 // networks, labels…) from its live inspect — the seed for the edit form.
 func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.ContainerSpec, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	spec, err := r.dock(ctx).ContainerSpecOf(ctx, p.ID)
 	if err != nil {
 		return nil, rpc.NotFound("%v", err)
@@ -106,9 +97,6 @@ func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*CtrResult, er
 
 // Pull pulls the latest image for this one container (not the whole stack).
 func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}
@@ -128,9 +116,6 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, erro
 // Redeploy pulls this container's image then recreates it on the new image,
 // preserving its config/networks/labels.
 func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}
@@ -151,9 +136,6 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, 
 }
 
 func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, fn func(context.Context, string) error) (*CtrResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}

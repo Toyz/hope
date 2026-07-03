@@ -255,7 +255,8 @@ func runServe(configPath string) error {
 		gw = sov.New()
 	}
 	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
-	gw.RegisterAuth(authRouter) // binds AuthService → bearer verification
+	gw.RegisterAuth(authRouter)               // binds AuthService → bearer verification
+	gw.RegisterAuthz(auth.NewAuthzRouter())   // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, st, dock))

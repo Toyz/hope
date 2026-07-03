@@ -41,9 +41,6 @@ func (r *TunnelsRouter) dock(ctx context.Context) *docker.Client { return r.host
 
 // enabled gates every method: without a Cloudflare client the domain is off.
 func (r *TunnelsRouter) enabled(ctx *rpc.Context) error {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return err
-	}
 	if r.cf == nil {
 		return rpc.BadRequest("cloudflare integration is disabled (set [cloudflare] in config)")
 	}

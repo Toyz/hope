@@ -56,9 +56,6 @@ type ComposeFileResult struct {
 
 // List returns every compose stack grouped from running/stopped containers.
 func (r *StacksRouter) List(ctx *rpc.Context) ([]docker.StackSummary, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	return r.dock(ctx).Stacks(ctx)
 }
 
@@ -158,9 +155,6 @@ func (r *StacksRouter) Updates(ctx *rpc.Context, p *ProjectParams) ([]docker.Ima
 // ComposeFile returns the stack's compose file text — only available when hope
 // can read the file (ComposeAvailable). Hidden in the UI otherwise.
 func (r *StacksRouter) ComposeFile(ctx *rpc.Context, p *ProjectParams) (*ComposeFileResult, error) {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return nil, err
-	}
 	ref, err := r.resolve(ctx, p.Project)
 	if err != nil {
 		return nil, err
@@ -209,9 +203,6 @@ func (r *StacksRouter) pull(ctx context.Context, project string) (*StackResult, 
 
 // gate enforces auth and a non-empty project name.
 func (r *StacksRouter) gate(ctx *rpc.Context, p *ProjectParams) error {
-	if _, err := rpc.RequireSubject(ctx); err != nil {
-		return err
-	}
 	if p.Project == "" {
 		return rpc.BadRequest("project required")
 	}
