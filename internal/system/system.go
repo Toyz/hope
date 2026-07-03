@@ -35,6 +35,10 @@ func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled b
 // affordances (e.g. the API explorer link).
 type FeatureFlags struct {
 	APIEnabled bool `json:"api_enabled"`
+	// StoreEnabled is true when the embedded state db is mounted. False = agents,
+	// freshness cache, deploy specs and UI-added registries are NOT persisted
+	// across a restart, so the UI can warn.
+	StoreEnabled bool `json:"store_enabled"`
 }
 
 // Features returns the feature flags the UI needs at load. (Named Features, not
@@ -44,7 +48,7 @@ func (r *SystemRouter) Features(ctx *rpc.Context) (*FeatureFlags, error) {
 	if _, err := rpc.RequireSubject(ctx); err != nil {
 		return nil, err
 	}
-	return &FeatureFlags{APIEnabled: r.apiEnabled}, nil
+	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled()}, nil
 }
 
 // AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run

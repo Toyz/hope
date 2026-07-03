@@ -330,6 +330,7 @@ export interface RegistryView {
 // Capabilities are the optional-feature flags the UI reads at load.
 export interface Capabilities {
   api_enabled: boolean;
+  store_enabled: boolean; // false = state db not mounted; persistence is off
 }
 
 // AgentEnroll is the info the "add agent" modal needs (token is a secret).

@@ -13,6 +13,7 @@ import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { HostChanged } from "../events";
 import { UNGROUPED } from "../const";
+import { capabilities } from "../caps";
 import { ProcService } from "../proc";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
@@ -246,6 +247,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor query = "";
   @reactive accessor diskBusy = false;
   @reactive accessor cacheBusy = false;
+  @reactive accessor storeOff = false; // state db not mounted → persistence warning
   @reactive accessor updBusy = false;
   @reactive accessor fleetBusy = false;
 
@@ -301,6 +303,7 @@ export class DashboardPage extends LoomElement {
     }
     this.load();
     if (!this.fleetMode) this.loadHost(); // single-host strip; skipped in fleet view
+    void capabilities().then((c) => (this.storeOff = !c.store_enabled));
   }
 
   // Host/fleet switched elsewhere — re-fetch in place (no reload).
@@ -383,6 +386,13 @@ export class DashboardPage extends LoomElement {
           ) : gb(dt.cache),
         },
       );
+    }
+    if (this.storeOff) {
+      cells.push({
+        k: "persistence",
+        v: <span data-tip="No state db mounted. Mount a volume and set [store] path so agents, registries, the freshness cache and deploy specs survive a restart.">off</span>,
+        cls: "warn",
+      });
     }
     return this.statStrip(
       cells,

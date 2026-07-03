@@ -15,5 +15,5 @@ export function capabilities(): Promise<Capabilities> {
     cached = rpc.call<Capabilities>("System", "features", []);
     cached.catch(() => { cached = null; }); // don't cache a failure — retry next time
   }
-  return cached.catch(() => ({ api_enabled: false }));
+  return cached.catch(() => ({ api_enabled: false, store_enabled: false }));
 }
