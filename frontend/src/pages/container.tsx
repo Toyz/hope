@@ -305,6 +305,7 @@ export class ContainerPage extends LoomElement {
   @rpc(Containers, "inspect", { fn: (el: any): [string] => [el.id], eager: true }) accessor infoQ!: ApiState<any>;
   @rpc(Stacks, "list", { eager: true }) accessor stacksQ!: ApiState<StackSummary[]>;
   @rpc(System, "updates", { eager: true }) accessor updatesQ!: ApiState<UpdatesResult>;
+  @rpc(System, "volumes", { eager: true }) accessor volsQ!: ApiState<VolumeInfo[]>;
   @rpc(System, "hosts", { eager: true }) accessor hostsQ!: ApiState<HostView[]>;
   @rpc(Tunnels, "tunnels", { eager: true }) accessor tunnelsQ!: ApiState<TunnelView[]>;
   @rpc(Tunnels, "connectors", { eager: true }) accessor connectorsQ!: ApiState<ConnectorView[]>;
@@ -936,6 +937,26 @@ export class ContainerPage extends LoomElement {
     }));
   }
 
+  // Volumes + bind mounts attached to the container, from docker inspect. Named
+  // volumes get their on-disk size correlated from the volumes list (docker df).
+  private mountList() {
+    const mounts = (this.info?.Mounts as any[]) ?? [];
+    const sizes = new Map((this.volsQ.data || []).map((v) => [v.name, v.size]));
+    return mounts.map((m) => {
+      const type = (m.Type || "").toLowerCase(); // volume | bind | tmpfs
+      const name = m.Name || "";
+      const size = type === "volume" ? sizes.get(name) ?? -1 : -1;
+      return {
+        type,
+        name,
+        source: m.Source || "", // host path (bind) / volume data dir
+        dest: m.Destination || "", // mount point inside the container
+        rw: m.RW !== false,
+        size, // bytes; -1 = unknown / not a named volume
+      };
+    });
+  }
+
   update() {
     const running = this.state() === "running";
     return (
@@ -1082,6 +1103,28 @@ export class ContainerPage extends LoomElement {
                         <td class="num">{n.gateway || "—"}</td>
                         <td class="num">{n.mac || "—"}</td>
                         <td class="dim">{n.aliases.length ? n.aliases.join(", ") : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </hope-table>
+            </hope-panel>
+          ) : null}
+
+          {this.mountList().length ? (
+            <hope-panel label="Mounts" icon="box" flush={true}>
+              <hope-table>
+                <table class="flat">
+                  <colgroup><col style="width:88px" /><col /><col style="width:30%" /><col style="width:86px" /><col style="width:64px" /></colgroup>
+                  <thead><tr><th class="pl">Type</th><th>Source</th><th>Mount point</th><th class="r">Size</th><th class="r">Access</th></tr></thead>
+                  <tbody>
+                    {this.mountList().map((m) => (
+                      <tr>
+                        <td class="pl dim">{m.type || "—"}</td>
+                        <td class="cmd">{m.type === "volume" ? (m.name || m.source || "—") : (m.source || "—")}</td>
+                        <td class="num">{m.dest || "—"}</td>
+                        <td class="r num">{m.size >= 0 ? bytes(m.size) : "—"}</td>
+                        <td class="r">{m.rw ? <span class="dim">rw</span> : <span style="color:var(--warn)">ro</span>}</td>
                       </tr>
                     ))}
                   </tbody>
