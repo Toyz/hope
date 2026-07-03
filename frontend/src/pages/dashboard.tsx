@@ -223,6 +223,53 @@ interface HostSec {
 
   .empty { padding: 44px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
 
+  /* the bar's updates indicator is now a button that opens the bulk picker */
+  .upind { display: inline-flex; align-items: center; gap: 7px; height: 100%; padding: 0 16px;
+    background: transparent; border: 0; cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--upd); }
+  .upind loom-icon { color: var(--upd); }
+  .upind:hover { background: var(--raised); }
+
+  /* bulk-update picker modal */
+  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .ubox { width: 620px; max-width: 100%; max-height: 82vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line2); }
+  .uhead { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .uhead loom-icon { color: var(--upd); }
+  .uhead .ut { font: 600 14px/1 var(--mono); color: var(--hi); }
+  .uhead .usub { font: 11px/1 var(--mono); color: var(--dim); }
+  .uhead .grow { flex: 1; }
+  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .dx:hover { color: var(--hi); }
+  .usela { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+    font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
+  .usela:hover { color: var(--hi); }
+  .ulist { overflow-y: auto; }
+  .brow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .brow:last-child { border-bottom: 0; }
+  .brow:hover { background: var(--raised); }
+  .brow.on { background: color-mix(in srgb, var(--upd) 8%, transparent); }
+  .brow .uname { display: flex; align-items: center; gap: 0; font: 600 13px/1 var(--mono); color: var(--hi); flex: none; min-width: 130px; }
+  .brow .usvcs { flex: 1; display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+  .brow .usvcs .svc { font: 12px/1.3 var(--mono); color: var(--dim); }
+  .brow .usvcs .svc b { color: var(--mid); font-weight: 600; }
+  .brow .usvcs .more { color: var(--faint); }
+  .brow .ucnt { font: 600 12px/1 var(--mono); color: var(--upd); font-variant-numeric: tabular-nums; }
+  .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
+  .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
+  .uacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .uacts .grow { flex: 1; }
+  .pbtn { display: inline-flex; align-items: center; gap: 7px; font: 600 11px/1 var(--mono); letter-spacing: .04em;
+    color: var(--mid); background: transparent; border: 1px solid var(--line); padding: 9px 13px; cursor: pointer; }
+  .pbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  .pbtn.go { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
+  .pbtn.go:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
+  .pbtn.go loom-icon { color: currentColor; }
+  .pbtn:disabled { opacity: .4; cursor: not-allowed; }
+
   @media (max-width: 720px) {
     .bar .grow + .s, .bar .k { display: none; }
     .row { grid-template-columns: 7px 1fr auto 14px; }
@@ -251,6 +298,9 @@ export class DashboardPage extends LoomElement {
   @reactive accessor fleetBusy = false;
   // Collapsed host groups (by host id), persisted so the fleet layout sticks.
   @persist("hope.dash.collapsed") accessor collapsed: string[] = [];
+  // Bulk-update picker: open state + selected group keys (host|project).
+  @reactive accessor updModalOpen = false;
+  @reactive accessor updSel: string[] = [];
 
   private toggleHost = (id: string) => {
     this.collapsed = this.collapsed.includes(id)
@@ -689,6 +739,95 @@ export class DashboardPage extends LoomElement {
     });
   };
 
+  // Every stack with an update, for the bulk picker (host carried in fleet mode).
+  private allUpdateGroups(): Array<{ project: string; host?: string; services: { service: string; count: number }[]; count: number }> {
+    return this.fleetMode
+      ? this.fleetUpdateGroups(this.fleet ?? [])
+      : this.updateGroups().filter((g) => g.project !== UNGROUPED).map((g) => ({ ...g, host: undefined }));
+  }
+  private updKey = (g: { project: string; host?: string }) => (g.host ? g.host + "|" : "") + g.project;
+
+  // Open the bulk picker. With a host, pre-select just that host's stacks (from
+  // clicking a host section's update chip); without, select everything.
+  private openUpdModal = (host?: string) => {
+    const groups = this.allUpdateGroups();
+    this.updSel = groups.filter((g) => !host || g.host === host).map(this.updKey);
+    this.updModalOpen = true;
+  };
+  private toggleUpd = (key: string) => {
+    this.updSel = this.updSel.includes(key) ? this.updSel.filter((k) => k !== key) : [...this.updSel, key];
+  };
+
+  // Pull latest + recreate the outdated containers of every selected stack, one
+  // after another in a single proc dialog so the whole sweep streams in one place.
+  private bulkUpdate = async () => {
+    const groups = this.allUpdateGroups().filter((g) => this.updSel.includes(this.updKey(g)));
+    if (!groups.length) return;
+    this.updModalOpen = false;
+    let ok = true;
+    await this.proc.run(`update ${groups.length} stack${groups.length === 1 ? "" : "s"}`, async (emit, signal) => {
+      for (const g of groups) {
+        emit(`── ${g.host ? g.host + " / " : ""}${g.project} ──`);
+        let sok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeployStack", [g.project, "true", "false"], signal, g.host)) {
+          if (f.type === "log" && f.data) emit(f.data);
+          else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+        }
+        if (!sok) ok = false;
+      }
+      emit("done");
+      return ok;
+    });
+    this.fleetMode ? this.refreshFleet() : this.refreshUpdates();
+  };
+
+  private renderUpdModal() {
+    const groups = this.allUpdateGroups();
+    const sel = this.updSel;
+    const allOn = groups.length > 0 && groups.every((g) => sel.includes(this.updKey(g)));
+    return (
+      <div class="dmodal" onClick={() => (this.updModalOpen = false)}>
+        <div class="ubox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="uhead">
+            <loom-icon name="download" size={15}></loom-icon>
+            <span class="ut">Update stacks</span>
+            <span class="usub">{groups.length} with newer images</span>
+            <span class="grow"></span>
+            <button class="dx" onClick={() => (this.updModalOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <div class="usela" onClick={() => (this.updSel = allOn ? [] : groups.map(this.updKey))}>
+            <span class={"ck" + (allOn ? " on" : "")}></span>
+            <span>{allOn ? "deselect all" : "select all"}</span>
+          </div>
+          <div class="ulist">
+            {groups.map((g) => {
+              const key = this.updKey(g);
+              const on = sel.includes(key);
+              return (
+                <div class={"brow" + (on ? " on" : "")} onClick={() => this.toggleUpd(key)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class="uname">{g.host ? <hope-chip host={true}>{g.host}</hope-chip> : null}{g.project}</span>
+                  <span class="usvcs">
+                    {g.services.slice(0, 6).map((s) => <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>)}
+                    {g.services.length > 6 ? <span class="svc more">+{g.services.length - 6}</span> : null}
+                  </span>
+                  <span class="ucnt">{g.count}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div class="uacts">
+            <span class="grow"></span>
+            <button class="pbtn" onClick={() => (this.updModalOpen = false)}>cancel</button>
+            <button class="pbtn go" disabled={sel.length === 0} onClick={this.bulkUpdate}>
+              <loom-icon name="download" size={12}></loom-icon>update {sel.length}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // segs renders a stack's containers as a thin heat-bar (one cell per
   // container, colored by state) — texture + density on each tile.
   private segs(s: StackSummary, outIds: Set<string>) {
@@ -789,7 +928,7 @@ export class DashboardPage extends LoomElement {
           {h.online ? (
             <>
               {h.issues > 0 ? <hope-chip tone={h.loops > 0 ? "bad" : "warn"} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
-              {h.outdated > 0 ? <hope-chip tone="upd" size="sm">{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
+              {h.outdated > 0 ? <hope-chip tone="upd" size="sm" style="cursor:pointer" title="update this host's outdated stacks" onClick={(e: Event) => { e.stopPropagation(); this.openUpdModal(h.id); }}>{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
               <span class="n">{h.up}<span class="t">/{h.tot}</span></span>
             </>
           ) : (
@@ -836,7 +975,11 @@ export class DashboardPage extends LoomElement {
             {vText}
           </div>
           {updC > 0 ? (
-            <div class="s upd"><loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span></div>
+            <div class="s act">
+              <button class="upind" title="review and update outdated stacks" onClick={() => this.openUpdModal()}>
+                <loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span>
+              </button>
+            </div>
           ) : null}
           <div class="s act">
             <button class="upcheck" disabled={busy} title="check every image for updates now" onClick={refresh}>
@@ -937,6 +1080,7 @@ export class DashboardPage extends LoomElement {
             <div class="empty">{multi ? "No stacks across the fleet." : "No containers on this daemon."}</div>
           ) : null}
         </main>
+        {this.updModalOpen ? this.renderUpdModal() : null}
       </div>
     );
   }
