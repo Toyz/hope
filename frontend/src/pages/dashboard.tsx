@@ -94,9 +94,13 @@ interface HostSec {
 
   /* cross-fleet overview ("all hosts") */
   .fleetsec { margin-bottom: 26px; }
-  .fleetsec .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .fleetsec .hdot.local { background: var(--upd); }
-  .fleetsec .hdot.agent { background: var(--ok); }
+  .fleetsec .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); }
+  /* the dot reports the host's worst state, not its kind */
+  .fleetsec .hdot.ok { background: var(--ok); }
+  .fleetsec .hdot.warn { background: var(--warn); }
+  .fleetsec .hdot.bad { background: var(--bad); }
+  .fleetsec .hdot.upd { background: var(--upd); }
+  .fleetsec .hdot.off { background: var(--bad); opacity: .5; }
   .fleetsec .khint { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
   .fleetsec .head.hhead { cursor: pointer; }
   .fleetsec .head .caret { color: var(--dim); flex: none; transition: transform .12s ease; }
@@ -905,6 +909,17 @@ export class DashboardPage extends LoomElement {
 
   // One host's stacks. Single host → just the grid (no header). Fleet → a
   // collapsible section headed by the host id + its vitals.
+  // The host dot reports its worst state, worst-first: unreachable, a crash loop,
+  // a degraded stack, an available update, else healthy. (It used to be tinted by
+  // host kind, so an agent showed green even with issues.)
+  private hostDotTone(h: HostSec): string {
+    if (!h.online) return "off";
+    if (h.loops > 0) return "bad";
+    if (h.issues > 0) return "warn";
+    if (h.outdated > 0) return "upd";
+    return "ok";
+  }
+
   private hostGroup(h: HostSec, multi: boolean) {
     const open = (project: string) => (multi ? this.goCross(h.id, project) : this.go(project));
     const grid = !h.online ? (
@@ -922,7 +937,7 @@ export class DashboardPage extends LoomElement {
       <section class="fleetsec" data-host={h.id}>
         <div class={"head hhead" + (collapsed ? " collapsed" : "")} onClick={() => this.toggleHost(h.id)}>
           <loom-icon class="caret" name="chevron-right" size={14}></loom-icon>
-          <span class={"hdot " + h.kind}></span>
+          <span class={"hdot " + this.hostDotTone(h)}></span>
           <span class="label">{h.id}</span>
           <span class="khint">{h.kind}</span>
           <span class="rule"></span>
