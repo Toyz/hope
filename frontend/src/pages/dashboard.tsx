@@ -20,7 +20,7 @@ import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { System, Stacks } from "../contracts";
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
-import { stackSeverity, severityRank, markClass, severityMark, type Severity } from "../styles";
+import { stackSeverity, severityRank, markClass, severityMark, severityTone, healthLabel, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -123,6 +123,31 @@ interface HostSec {
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
 
   main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
+
+  /* single-host title header (mock-style) */
+  .hhead { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
+  .hhead .hdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--dim); }
+  .hhead .hdot.ok { background: var(--ok); } .hhead .hdot.warn { background: var(--warn); }
+  .hhead .hdot.bad { background: var(--bad); } .hhead .hdot.upd { background: var(--upd); }
+  .hhead .hdot.off { background: var(--bad); opacity: .5; }
+  .hhead h1 { margin: 0; font: 700 18px/1 var(--mono); letter-spacing: .01em; color: var(--hi); }
+  .hhead .hmeta { margin-left: 6px; color: var(--dim); font: 500 11px/1 var(--mono); }
+
+  /* single-host stacks table */
+  table.stx { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  table.stx thead th { text-align: left; padding: 12px 14px; color: var(--dim); font: 600 9.5px/1 var(--mono);
+    letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  table.stx th.r, table.stx td.r { text-align: right; }
+  table.stx tbody td { padding: 0 14px; height: 46px; border-bottom: 1px solid var(--line); color: var(--mid); font: 13px/1.3 var(--mono); }
+  table.stx tbody tr { cursor: pointer; }
+  table.stx tbody tr:hover td { background: var(--raised); }
+  table.stx td.nm .s { display: flex; align-items: center; gap: 10px; color: var(--hi); }
+  table.stx td.num .t { color: var(--dim); }
+  table.stx td.chev { width: 40px; text-align: right; color: var(--dim); }
+  table.stx tbody tr:hover td.chev { color: var(--hi); }
+  .uchip { display: inline-flex; align-items: center; gap: 5px; color: var(--upd); font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .uchip loom-icon { color: var(--upd); }
+  .dash { color: var(--faint); }
 
   /* docker host strip */
   .hostbar { display: flex; flex-wrap: wrap; align-items: stretch; border: 1px solid var(--line);
@@ -420,6 +445,52 @@ export class DashboardPage extends LoomElement {
         </div>
         {this.segs(s, opts.outIds)}
       </div>
+    );
+  }
+
+  // Mock-style host title: a health dot + hostname + a state chip + the daemon
+  // line. Sits above the stat strip on the single-host dashboard.
+  private hostHeader(h0: HostSec) {
+    const info = this.host;
+    const dot = this.hostDotTone(h0);
+    const label = !h0.online ? "offline" : h0.loops > 0 ? "restarting" : h0.issues > 0 ? "degraded" : h0.outdated > 0 ? "updates" : "healthy";
+    const os = info ? `${info.OperatingSystem || info.OSType || ""}${info.Architecture ? " · " + info.Architecture : ""}` : "";
+    return (
+      <div class="hhead">
+        <span class={"hdot " + dot}></span>
+        <h1>{(info && info.Name) || this.hostCtx.token || "host"}</h1>
+        <hope-chip tone={this.attnTone(h0.loops, h0.issues)}>{label}</hope-chip>
+        {info ? <span class="hmeta">docker {info.ServerVersion || "—"}{os ? " · " + os : ""}</span> : null}
+      </div>
+    );
+  }
+
+  // The host's stacks as a clean instrument table (single-host view). Each row is
+  // a stack; click opens it. Replaces the tile grid to match the explorer mocks.
+  private stackTable(h: HostSec) {
+    if (!h || h.ranked.length === 0) {
+      return this.loaded && !this.query ? <div class="empty">No containers on this daemon.</div> : null;
+    }
+    return (
+      <table class="stx">
+        <thead>
+          <tr><th>stack</th><th>state</th><th class="r">containers</th><th>updates</th><th></th></tr>
+        </thead>
+        <tbody>
+          {h.ranked.map((s) => {
+            const hasUpd = h.updProjects.has(s.project);
+            return (
+              <tr onClick={() => this.go(s.project)}>
+                <td class="nm"><span class="s"><span class={"mark " + severityMark(s.sev, hasUpd)}></span>{s.project}</span></td>
+                <td><hope-chip tone={severityTone(s.sev)} size="sm">{healthLabel(s.sev)}</hope-chip></td>
+                <td class="r num">{s.running}<span class="t">/{s.total}</span></td>
+                <td>{hasUpd ? <span class="uchip"><loom-icon name="download" size={11}></loom-icon>update</span> : <span class="dash">—</span>}</td>
+                <td class="chev"><loom-icon name="chevron-right" size={14}></loom-icon></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     );
   }
 
@@ -1009,6 +1080,7 @@ export class DashboardPage extends LoomElement {
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
           {this.storeBanner()}
+          {!multi && secs.length ? this.hostHeader(secs[0]) : null}
           {multi
             ? this.statStrip([
                 { k: "hosts", v: <>{online}<i class="t">/{secs.length}</i></> },
@@ -1024,25 +1096,6 @@ export class DashboardPage extends LoomElement {
 
           {stackC > 0 || this.query ? (
             <hope-search placeholder="Search stacks and services…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
-          ) : null}
-
-          {/* the per-stack density ribbon is a single-host view; in fleet mode the
-              summary strip + per-host sections carry the same signal without a
-              long, host-blind strip. */}
-          {!multi && allStacks.length > 0 ? (
-            <div class="ribbon">
-              {allStacks.map((x) => {
-                const hasUpd = x.sec.updProjects.has(x.s.project);
-                const cls = (x.s.sev === "ok" || x.s.sev === "down") && hasUpd ? "upd" : x.s.sev;
-                return (
-                  <i
-                    class={cls}
-                    data-tip={`${x.s.project}   ${x.s.running}/${x.s.total}${x.s.restarting ? "   ⟳ restarting" : ""}${hasUpd ? "   ↑ update" : ""}`}
-                    onClick={() => this.go(x.s.project)}
-                  ></i>
-                );
-              })}
-            </div>
           ) : null}
 
           {issues.length > 0 ? (
@@ -1075,10 +1128,10 @@ export class DashboardPage extends LoomElement {
             </section>
           ) : null}
 
-          {secs.map((h) => this.hostGroup(h, multi))}
+          {multi ? secs.map((h) => this.hostGroup(h, true)) : this.stackTable(secs[0])}
 
-          {this.loaded && stackC === 0 && !this.query && !this.error ? (
-            <div class="empty">{multi ? "No stacks across the fleet." : "No containers on this daemon."}</div>
+          {this.loaded && stackC === 0 && !this.query && multi && !this.error ? (
+            <div class="empty">No stacks across the fleet.</div>
           ) : null}
         </main>
         {this.updModalOpen ? this.renderUpdModal() : null}
