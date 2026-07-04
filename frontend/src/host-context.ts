@@ -20,6 +20,12 @@ export class HostContext {
   // Reactive so a component reading activeHost/fleet in update() re-renders when
   // the host changes.
   @reactive private accessor _host = "";
+  // A transient, page-scoped target override. The fleet view has no host in the
+  // URL, but a page like deploy still acts on ONE host; it sets this so the
+  // transport targets that host transparently — no per-call threading. Cleared on
+  // any navigation, so it never leaks to another page (and can't reintroduce the
+  // hidden-host divergence the URL model exists to prevent).
+  @reactive private accessor _override = "";
   // The last real host seen — the default a host-less URL redirects to. Persisted
   // so a fresh tab lands on the host you last used rather than always local.
   @persist("hope.host") private accessor _lastHost = "";
@@ -34,6 +40,7 @@ export class HostContext {
   }
 
   private sync(host: string) {
+    this._override = ""; // a navigation supersedes any page-scoped target
     if (host && host !== FLEET) this._lastHost = host;
     if (host === this._host) return;
     this._host = host;
@@ -45,8 +52,10 @@ export class HostContext {
     return this._host;
   }
 
-  /** The host RPC targets: "" for the default/active host or the fleet view. */
+  /** The host RPC targets — the transport reads this and sets X-Hope-Host. A
+   *  page-scoped override wins (the deploy fleet selector), else the URL host. */
   get activeHost(): string {
+    if (this._override) return this._override;
     return this._host === FLEET ? "" : this._host;
   }
   set activeHost(v: string) {
@@ -65,6 +74,18 @@ export class HostContext {
   /** The host a host-less URL should resolve to (last used, else local). */
   defaultHost(): string {
     return this._lastHost || "local";
+  }
+
+  /** Set the page-scoped target the transport should use (deploy in the fleet
+   *  view picks one host). Reactive, so the transport and any reader see it; the
+   *  owning page drives its own refetch (no bus event, to avoid double-loads). */
+  setTarget(id: string) {
+    this._override = id;
+  }
+
+  /** Drop the page-scoped target (on leaving the page). */
+  clearTarget() {
+    this._override = "";
   }
 
   // Navigate the current page to a different host, keeping the page + its params.

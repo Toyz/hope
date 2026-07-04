@@ -3,7 +3,7 @@
 // rows, declare networks + volumes, optionally expose ports via a Cloudflare
 // tunnel). The same page is the stack editor: /deploy?edit=<project> seeds the
 // builder from the stack's stored spec (or reconstructs it from live containers).
-import { LoomElement, component, styles, css, reactive, mount, on, query, queryAll, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, on, query, queryAll, app } from "@toyz/loom";
 import { clipboard } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
@@ -41,6 +41,12 @@ interface ResDecl { name: string; driver: string; }
   .bar .act button:hover { color: var(--hi); background: var(--raised); }
 
   main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
+  .dtarget { display: flex; align-items: center; gap: 9px; margin-bottom: 18px; padding: 10px 12px;
+    border: 1px solid var(--line); background: var(--raised); color: var(--dim); }
+  .dtarget loom-icon { color: var(--upd); }
+  .dtarget .lbl { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+  .dtarget select { margin-left: auto; padding: 6px 10px; background: var(--ink); color: var(--hi);
+    border: 1px solid var(--line2); font: 600 12px/1 var(--mono); cursor: pointer; }
   .tabs { display: flex; gap: 2px; margin-bottom: 22px; }
   .tab { padding: 9px 16px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer;
     font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
@@ -132,31 +138,49 @@ export class DeployPage extends LoomElement {
   @mount
   async onMount() {
     if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
-    // Deploy always targets ONE concrete host; there is no "all" deploy. If we
-    // arrived in the fleet view, pin to a real host so it's in the URL — then
-    // activeHost is real and the transport sends X-Hope-Host like every page. Pick
-    // the target with the host switcher (it re-navigates to /deploy/<host>).
-    if (this.hostCtx.fleet) { this.router.navigate(withHost(this.hostCtx.defaultHost(), "/deploy")); return; }
     const editProject = this.intent.take() || new URLSearchParams(location.search).get("edit");
     // Render the builder immediately with one empty row (new deploy) so it doesn't
     // pop in after the async host/resource loads resolve.
     if (!editProject && this.rows.length === 0) this.rows = [{ key: this.keyc++, initial: { image: "" } }];
-    await Promise.all([this.loadHost(), this.loadConnectors(), this.loadResources()]);
+    // Resolve the target host FIRST (sets the transport's target in the fleet view)
+    // so the host-scoped loads below all hit the right host.
+    await this.loadHost();
+    await Promise.all([this.loadConnectors(), this.loadResources()]);
     if (editProject) await this.loadEdit(editProject);
   }
 
+  @unmount
+  onUnmount() {
+    this.hostCtx.clearTarget(); // don't leak the deploy target to the next page
+  }
+
   private async loadHost() {
-    // The URL pins the deploy target (/deploy/:host); onMount redirected away from
-    // the fleet view, so the token is always a concrete host here.
-    this.host = this.hostCtx.token;
     try {
       this.hostList = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
-    } catch { /* keep this.host from the URL */ }
+    } catch { this.hostList = []; }
+    if (!this.inFleet()) {
+      this.host = this.hostCtx.token; // pinned by /deploy/:host — transport uses it
+      return;
+    }
+    // Fleet view: no host in the URL, so deploy picks a target and sets it as the
+    // transport's ambient target (no per-call threading). Keep the current choice
+    // if still connected, else default to the first connected host.
+    const ids = this.hostList.filter((h) => h.connected).map((h) => h.id);
+    if (!this.host || !ids.includes(this.host)) this.host = ids[0] || this.hostCtx.defaultHost();
+    this.hostCtx.setTarget(this.host);
   }
 
   private inFleet(): boolean {
     return this.hostCtx.fleet;
   }
+
+  // Fleet host selector changed — retarget the transport and refresh the pickers.
+  private pickTarget = async (id: string) => {
+    if (!id || id === this.host) return;
+    this.host = id;
+    this.hostCtx.setTarget(id);
+    await Promise.all([this.loadConnectors(), this.loadResources()]);
+  };
 
   // Active host switched elsewhere — refresh the host-scoped pickers in place.
   @on(HostChanged)
@@ -167,13 +191,12 @@ export class DeployPage extends LoomElement {
     this.loadResources();
   }
 
-  // Deploy targets the one host pinned in the URL. onMount already redirects away
-  // from the fleet view, so this is just a backstop: if we're somehow still in
-  // "all hosts", bounce to a concrete host instead of deploying to an ambiguous
-  // target. The host is chosen with the host switcher, which re-navigates here.
-  private async ensureTargetHost(): Promise<boolean> {
-    if (!this.inFleet()) return true;
-    this.router.navigate(withHost(this.hostCtx.defaultHost(), "/deploy"));
+  // A deploy needs one target. Off the fleet view the URL pins it; on the fleet
+  // view loadHost + the selector set it (this.host) and point the transport there.
+  // Guard against an empty target (no connected hosts) so we never deploy nowhere.
+  private ensureTargetHost(): boolean {
+    if (this.host) return true;
+    this.toast.error("no target host — connect a host first");
     return false;
   }
 
@@ -298,7 +321,7 @@ export class DeployPage extends LoomElement {
     const spec = this.buildStackSpec();
     const bad = this.validStack(spec);
     if (bad) { this.toast.error(bad); return; }
-    if (!(await this.ensureTargetHost())) return;
+    if (!this.ensureTargetHost()) return;
     let success = false;
     await this.proc.run((this.editing ? "apply " : "deploy ") + spec.name, async (emit, signal) => {
       let ok = true;
@@ -376,7 +399,7 @@ export class DeployPage extends LoomElement {
     const spec: ContainerSpec = form ? form.getSpec() : { image: "" };
     if (!spec.image) { this.toast.error("image is required"); return; }
     if (!spec.name) { this.toast.error("container name is required"); return; }
-    if (!(await this.ensureTargetHost())) return;
+    if (!this.ensureTargetHost()) return;
     let success = false;
     await this.proc.run("deploy " + spec.name, async (emit, signal) => {
       let ok = true;
@@ -438,6 +461,17 @@ export class DeployPage extends LoomElement {
       <div>
         {appBar("deploy")}
         <main>
+          {this.inFleet() ? (
+            <div class="dtarget">
+              <loom-icon name="server" size={13}></loom-icon>
+              <span class="lbl">deploy to</span>
+              <select value={this.host} onChange={(e: any) => this.pickTarget(e.target.value)}>
+                {this.hostList.filter((h) => h.connected).map((h) => (
+                  <option value={h.id} selected={h.id === this.host}>{h.kind === "local" ? "local" : h.id}{h.kind === "local" ? "" : " · agent"}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {this.editing ? null : (
             <div class="tabs">
               <button class={"tab" + (this.tab === "stack" ? " on" : "")} onClick={() => (this.tab = "stack")}>Stack</button>
