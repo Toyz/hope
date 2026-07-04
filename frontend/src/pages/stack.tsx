@@ -962,6 +962,7 @@ export class StackPage extends LoomElement {
   private async streamLogs(method: string, args: string[], signal: AbortSignal) {
     try {
       for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", method, args, signal)) {
+        if (f.type === "ping") continue; // keepalive — no log payload
         const line = (f.source ? `${f.source}  ` : "") + stripAnsi(f.data).replace(/\n$/, "");
         const next = this.logsLines.concat(line);
         this.logsLines = next.length > 800 ? next.slice(next.length - 800) : next;

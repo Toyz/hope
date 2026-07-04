@@ -125,9 +125,10 @@ export interface PruneResult {
   reclaimed: number;
 }
 
-// NDJSON stream frames.
+// NDJSON stream frames. "ping" is a periodic keepalive (no payload) the UI skips,
+// so a container that logs nothing doesn't let the follow stream idle out.
 export interface LogFrame {
-  type: "stdout" | "stderr";
+  type: "stdout" | "stderr" | "ping";
   data: string;
   source?: string; // set on multiplexed stack/service streams
 }

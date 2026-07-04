@@ -749,6 +749,7 @@ export class ContainerPage extends LoomElement {
   private async runLogs(signal: AbortSignal) {
     try {
       for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", "logs", [this.id], signal)) {
+        if (f.type === "ping") continue; // keepalive — no log payload
         const next = this.logLines.concat(stripAnsi(f.data).replace(/\n$/, ""));
         this.logLines = next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
         requestAnimationFrame(() => {

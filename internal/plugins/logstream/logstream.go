@@ -314,9 +314,11 @@ func (p *Plugin) authenticate(req *gateway.Request) (string, error) {
 }
 
 // logFrame is one NDJSON line of container log output. Source is set only for
-// multiplexed (stack/service) streams to tag which container emitted the line.
+// multiplexed (stack/service) streams to tag which container emitted the line. A
+// "ping" frame carries no data and is a keepalive the UI ignores — a container
+// that logs nothing for a while would otherwise let the follow stream idle out.
 type logFrame struct {
-	Type   string `json:"type"` // "stdout" | "stderr"
+	Type   string `json:"type"` // "stdout" | "stderr" | "ping"
 	Data   string `json:"data"`
 	Source string `json:"source,omitempty"`
 }
@@ -335,14 +337,34 @@ func (p *Plugin) streamLogs(ctx context.Context, id string) *gateway.Response {
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		defer reader.Close()
 		enc := json.NewEncoder(w)
-		// Demux the multiplexed log stream into stdout/stderr framers; each
-		// demuxed chunk becomes one NDJSON frame.
-		_, err := stdcopy.StdCopy(
-			framer{enc: enc, kind: "stdout"},
-			framer{enc: enc, kind: "stderr"},
-			reader,
-		)
-		return err
+		// StdCopy runs in a goroutine so the main loop can emit keepalive pings
+		// while a quiet container produces no log lines; a mutex serializes the two
+		// writers so their NDJSON frames never interleave.
+		var mu sync.Mutex
+		done := make(chan error, 1)
+		go func() {
+			_, err := stdcopy.StdCopy(
+				framer{enc: enc, kind: "stdout", mu: &mu},
+				framer{enc: enc, kind: "stderr", mu: &mu},
+				reader,
+			)
+			done <- err
+		}()
+		ticker := time.NewTicker(keepAlive)
+		defer ticker.Stop()
+		for {
+			select {
+			case err := <-done:
+				return err
+			case <-ticker.C:
+				mu.Lock()
+				e := enc.Encode(logFrame{Type: "ping"})
+				mu.Unlock()
+				if e != nil {
+					return e // client gone
+				}
+			}
+		}
 	}))
 }
 
@@ -403,14 +425,28 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 		}
 		go func() { wg.Wait(); close(frames) }()
 
+		// One writer (this loop) drains the fan-in channel, so no mutex is needed;
+		// a ticker interleaves keepalive pings when every container is quiet.
 		enc := json.NewEncoder(w)
-		for f := range frames {
-			if err := enc.Encode(f); err != nil {
-				cancel() // client gone — stop the readers
-				return err
+		ticker := time.NewTicker(keepAlive)
+		defer ticker.Stop()
+		for {
+			select {
+			case f, ok := <-frames:
+				if !ok {
+					return nil // all readers finished
+				}
+				if err := enc.Encode(f); err != nil {
+					cancel() // client gone — stop the readers
+					return err
+				}
+			case <-ticker.C:
+				if err := enc.Encode(logFrame{Type: "ping"}); err != nil {
+					cancel()
+					return err
+				}
 			}
 		}
-		return nil
 	}))
 }
 
@@ -433,13 +469,17 @@ func (f *chanFramer) Write(p []byte) (int, error) {
 }
 
 // framer turns each Write into one NDJSON logFrame line. json.Encoder.Encode
-// appends a newline, giving NDJSON framing for free.
+// appends a newline, giving NDJSON framing for free. mu serializes against the
+// keepalive-ping writer sharing the same encoder.
 type framer struct {
 	enc  *json.Encoder
 	kind string
+	mu   *sync.Mutex
 }
 
 func (f framer) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if err := f.enc.Encode(logFrame{Type: f.kind, Data: string(p)}); err != nil {
 		return 0, err
 	}
