@@ -11,6 +11,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { withHost } from "../host-url";
 import { HostChanged, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
 import { capabilities } from "../caps";
@@ -42,7 +43,7 @@ interface HostSec {
   outIds: Set<string>;
 }
 
-@route("/")
+@route("/host/:host")
 @component("hope-dashboard")
 @styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
@@ -375,13 +376,10 @@ export class DashboardPage extends LoomElement {
     if (!this.fleetMode) this.loadHost();
   }
 
-  // Switch the active host to `host`, then open one of its stacks (used from the
-  // fleet overview where each stack belongs to a specific host).
+  // Open one of a host's stacks from the fleet overview — the host rides in the
+  // target URL, so the stack page loads (and acts) against exactly that host.
   private goCross = (host: string, project: string) => {
-    // Point the ambient target at the host (transport reads it); keep the fleet
-    // flag so "back" returns to the all-hosts overview.
-    this.hostCtx.activeHost = host;
-    this.router.navigate(`/stack/${encodeURIComponent(project)}`);
+    this.router.navigate(withHost(host, `/stack/${encodeURIComponent(project)}`));
   };
 
   // Force an image-freshness recrawl on every host (fleet "check" button), then
@@ -700,7 +698,7 @@ export class DashboardPage extends LoomElement {
   }
 
   private openContainer(id: string) {
-    this.router.navigate(`/container/${encodeURIComponent(id)}`);
+    this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(id)}`));
   }
 
   // Projects with at least one outdated container (respects the loose flag).
@@ -729,7 +727,7 @@ export class DashboardPage extends LoomElement {
   }
 
   private go(p: string) {
-    this.router.navigate(`/stack/${encodeURIComponent(p)}`);
+    this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(p)}`));
   }
 
 

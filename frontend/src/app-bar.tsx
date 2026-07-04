@@ -9,6 +9,7 @@ import { app } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "./auth-store";
 import { HostContext } from "./host-context";
+import { withHost } from "./host-url";
 
 // active: the <hope-nav> active key. actions: page-specific action cells (each a
 // `<div class="s act">…</div>`, nulls allowed) placed before Exit. hostSwitch:
@@ -27,7 +28,7 @@ export function appBar(
   return (
     <div class="bar">
       <div class="s">
-        <span class="back" onClick={() => router.navigate("/")}>
+        <span class="back" onClick={() => router.navigate(withHost(hostCtx.token, "/"))}>
           <loom-icon name="chevron-left" size={13}></loom-icon> {hostCtx.fleet ? "all hosts" : "fleet"}
         </span>
       </div>

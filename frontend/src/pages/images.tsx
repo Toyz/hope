@@ -82,7 +82,7 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
   },
 ];
 
-@route("/images")
+@route("/images/:host")
 @component("hope-images")
 @styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }

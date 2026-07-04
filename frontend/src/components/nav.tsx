@@ -6,6 +6,8 @@ import { LoomElement, component, styles, css, reactive, mount, on, app } from "@
 import { media } from "@toyz/loom/element";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { capabilities } from "../caps";
+import { HostContext } from "../host-context";
+import { HOST_PAGES, withHost } from "../host-url";
 import { theme } from "../styles";
 
 const ITEMS: [string, string][] = [
@@ -91,10 +93,14 @@ export class HopeNav extends LoomElement {
   }
 
   // /rpc/* is a server route (sov's explorer UI); everything else is an SPA route.
+  // Host-scoped destinations carry the current host token so switching pages stays
+  // on the same host (or the fleet view), never silently jumping to the default.
   private go(path: string) {
     this.open = false;
-    if (path.startsWith("/rpc/")) location.href = path;
-    else this.router.navigate(path);
+    if (path.startsWith("/rpc/")) { location.href = path; return; }
+    const token = app.has(HostContext) ? app.get(HostContext).token : "";
+    const hostScoped = HOST_PAGES.has(path.split("/")[1] ?? "");
+    this.router.navigate(hostScoped && token ? withHost(token, path) : path);
   }
 
   private items(): [string, string][] {

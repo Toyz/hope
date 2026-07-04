@@ -18,6 +18,7 @@ import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, Co
 import { markClass, stackSeverity, severityMark, healthLabel, severityTone } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
+import { withHost } from "../host-url";
 import { innerPort } from "../format";
 import { UNGROUPED } from "../const";
 import { stripAnsi } from "./container";
@@ -67,7 +68,7 @@ function aggMark(items: ContainerSummary[]): string {
   return severityMark(stackSeverity(running, items.length, restarting));
 }
 
-@route("/stack/:project")
+@route("/stack/:host/:project")
 @component("hope-stack")
 @styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
@@ -988,7 +989,7 @@ export class StackPage extends LoomElement {
   }
 
   private openContainer(id: string) {
-    this.router.navigate(`/container/${encodeURIComponent(id)}`);
+    this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(id)}`));
   }
 
   // Point-in-time CPU/memory snapshot of the stack's running containers.
@@ -1060,7 +1061,7 @@ export class StackPage extends LoomElement {
   // module, not a query string (loom's router strips query strings on navigate).
   private editStack = () => {
     this.intent.edit = this.project;
-    this.router.navigate("/deploy");
+    this.router.navigate(withHost(this.hostCtx.token, "/deploy"));
   };
 
   // applyStackEdit streams an applyStack over the mutated spec through the
@@ -1128,7 +1129,7 @@ export class StackPage extends LoomElement {
       }
     });
     this.busy = "";
-    if (success) this.router.navigate("/");
+    if (success) this.router.navigate(withHost(this.hostCtx.token, "/"));
   };
 
   // removeContainer stops and deletes a single container — used for loose
@@ -1253,7 +1254,7 @@ export class StackPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s"><loom-link to="/" class="back"><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
+          <div class="s"><loom-link to={withHost(this.hostCtx.token, "/")} class="back"><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
           {this.host && this.host !== "local" ? (
             <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}

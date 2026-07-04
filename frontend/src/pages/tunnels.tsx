@@ -10,6 +10,7 @@ import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { withHost } from "../host-url";
 import { HostChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
@@ -24,7 +25,7 @@ import { resourceStyles } from "./resource-styles";
 
 const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "—");
 
-@route("/tunnels")
+@route("/tunnels/:host")
 @component("hope-tunnels")
 @styles(css`
   ${resourceStyles}
@@ -368,17 +369,18 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  // Jump to the stack (or container) a route targets.
+  // Jump to the stack (or container) a route targets, on that route's host.
   private openTarget = (t: TunnelView) => {
+    const host = t.host || this.activeHostId();
     if (t.project) {
-      this.router.navigate(`/stack/${encodeURIComponent(t.project)}`);
+      this.router.navigate(withHost(host, `/stack/${encodeURIComponent(t.project)}`));
       return;
     }
     if (t.container) {
       for (const s of this.stacks) {
         const c = s.containers.find((x) => x.name === t.container);
         if (c) {
-          this.router.navigate(`/container/${encodeURIComponent(c.id)}`);
+          this.router.navigate(withHost(host, `/container/${encodeURIComponent(c.id)}`));
           return;
         }
       }

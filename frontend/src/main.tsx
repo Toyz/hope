@@ -36,6 +36,7 @@ import "./components/button"; // site-standard action button (<hope-button>)
 import "./components/refresh"; // shared bus-driven refresh control (<hope-refresh>)
 import "./components/network-detail"; // shared network inspector modal (<hope-network-detail>)
 import "./app";
+import "./host-boot"; // host-redirect catch-all (must load so the "*" route + guard register)
 import "./pages/login";
 import "./pages/dashboard";
 import "./pages/stack";

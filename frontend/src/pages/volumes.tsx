@@ -9,6 +9,7 @@ import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
+import { withHost } from "../host-url";
 import { System, Deploy } from "../contracts";
 import type { VolumeInfo, FleetVolumesHost } from "../contracts";
 import { resourceStyles } from "./resource-styles";
@@ -29,7 +30,7 @@ const agoStr = (iso: string) => {
 
 type Filter = "all" | "mounted" | "unused";
 
-@route("/volumes")
+@route("/volumes/:host")
 @component("hope-volumes")
 @styles(css`
   ${resourceStyles}
@@ -130,13 +131,14 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
   };
 
   private openUser = (u: { id: string; project: string }) => {
-    // In the all-hosts view the item lives on a specific host — point the
-    // ambient target there so the stack/container page loads against it.
-    const host = this.detail?.host;
+    // In the all-hosts view the item lives on a specific host — carry that host
+    // in the target URL so the stack/container page loads against it.
+    const host = this.detail?.host || this.hostCtx.token;
     this.detail = null;
-    if (host) this.hostCtx.activeHost = host;
-    if (u.project) this.router.navigate(`/stack/${encodeURIComponent(u.project)}`);
-    else this.router.navigate(`/container/${encodeURIComponent(u.id)}`);
+    const base = u.project
+      ? `/stack/${encodeURIComponent(u.project)}`
+      : `/container/${encodeURIComponent(u.id)}`;
+    this.router.navigate(withHost(host, base));
   };
 
   private del = async (v: VolumeInfo & { host?: string }) => {

@@ -9,6 +9,7 @@ import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
+import { withHost } from "../host-url";
 import { bytes, innerPort } from "../format";
 import { redactCmd, redactInspect } from "../redact";
 import { signalModal } from "../modal";
@@ -28,7 +29,7 @@ import "../components/service-form";
 type Tab = "logs" | "stats" | "processes" | "inspect";
 const MAX_LINES = 600;
 
-@route("/container/:id")
+@route("/container/:host/:id")
 @component("hope-container")
 @styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
@@ -610,7 +611,7 @@ export class ContainerPage extends LoomElement {
       // Recreate gives the container a new id — hop to it.
       const newId = await this.findRecreated();
       if (newId && newId !== this.id) {
-        this.router.navigate(`/container/${encodeURIComponent(newId)}`);
+        this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(newId)}`));
         return;
       }
       this.infoQ.refetch();
@@ -737,7 +738,7 @@ export class ContainerPage extends LoomElement {
 
   private openSibling(id: string) {
     this.dropOpen = false;
-    if (id !== this.id) this.router.navigate(`/container/${encodeURIComponent(id)}`);
+    if (id !== this.id) this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(id)}`));
   }
 
   private currentNumber(): number {
@@ -1096,7 +1097,7 @@ export class ContainerPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s">
-            <span class="back" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.stackId())}`)}>
+            <span class="back" onClick={() => this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(this.stackId())}`))}>
               <loom-icon name="chevron-left" size={13}></loom-icon> back
             </span>
           </div>
@@ -1105,9 +1106,9 @@ export class ContainerPage extends LoomElement {
           ) : null}
           <div class="s">
             <span class="crumb">
-              <span class="p" onClick={() => this.router.navigate("/")}>{this.fleetBack ? "all hosts" : "fleet"}</span>
+              <span class="p" onClick={() => this.router.navigate(withHost(this.hostCtx.token, "/"))}>{this.fleetBack ? "all hosts" : "fleet"}</span>
               <span class="sep"> / </span>
-              <span class="p" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.stackId())}`)}>
+              <span class="p" onClick={() => this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(this.stackId())}`))}>
                 {this.project() || "ungrouped"}
               </span>
               <span class="sep"> / </span>
@@ -1204,7 +1205,7 @@ export class ContainerPage extends LoomElement {
             {this.project() ? (
               <div class="c">
                 <span class="k">Stack</span>
-                <span class="v slink" onClick={() => this.router.navigate(`/stack/${encodeURIComponent(this.project())}`)}>
+                <span class="v slink" onClick={() => this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(this.project())}`))}>
                   {this.project()} <loom-icon name="chevron-right" size={12}></loom-icon>
                 </span>
               </div>

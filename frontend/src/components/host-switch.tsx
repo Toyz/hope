@@ -7,6 +7,7 @@ import { LoomElement, component, styles, css, reactive, mount, on } from "@toyz/
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
+import { HostChanged } from "../events";
 import type { HostView } from "../contracts";
 import { theme } from "../styles";
 
@@ -57,9 +58,19 @@ export class HostSwitch extends LoomElement {
   @reactive accessor hosts: HostView[] = [];
   @reactive accessor open = false;
   @reactive accessor busy = false;
+  // Mirror of the URL host token. hostCtx.token is another service's reactive, so
+  // reading it in update() isn't tracked here — mirror it into our own reactive on
+  // HostChanged so the label re-renders immediately when the host switches.
+  @reactive accessor tok = "";
+
+  @on(HostChanged)
+  private onHostChanged() {
+    this.tok = this.hostCtx.token;
+  }
 
   @mount
   async load() {
+    this.tok = this.hostCtx.token;
     try {
       this.hosts = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
     } catch {
@@ -99,31 +110,21 @@ export class HostSwitch extends LoomElement {
     }
   }
 
-  async pick(id: string) {
+  pick(id: string) {
     this.open = false;
-    // Writing the store emits HostChanged, which every view listens for to refetch.
-    if (id === "all") {
-      this.hostCtx.activeHost = ""; // no single target in the all-hosts view
-      this.hostCtx.fleet = true;
-      await this.refreshHosts();
-      return;
-    }
-    this.hostCtx.fleet = false;
-    this.hostCtx.activeHost = id; // ambient target the transport reads on every call
-    this.busy = true;
-    try {
-      // Keep the server's active flag in sync (drives the picker's highlight).
-      await this.rpc.call<{ active: string }>("System", "setActiveHost", [id]);
-      await this.refreshHosts();
-    } finally {
-      this.busy = false;
-    }
+    // Both setters navigate — the URL carries the host from here on, so the target
+    // is bookmarkable and can never diverge from the address bar. RouteChanged then
+    // emits HostChanged and every mounted view refetches in place.
+    if (id === "all") this.hostCtx.fleet = true; // the all-hosts overview
+    else this.hostCtx.activeHost = id;
   }
 
   update() {
-    const a = this.active;
-    const fleet = this.fleetOn;
-    const label = fleet ? "all" : a ? (a.kind === "local" ? "local" : a.id) : "—";
+    // The URL host token is the truth: "" (default -> local) | a host id | "all".
+    const fleet = this.tok === "all";
+    const curId = fleet ? "" : this.tok || "local";
+    const a = fleet ? null : this.hosts.find((h) => h.id === curId) || null;
+    const label = fleet ? "all" : a ? (a.kind === "local" ? "local" : a.id) : curId;
     const kind = fleet ? "all" : a?.kind === "agent" ? "agent" : "local";
     const multi = this.hosts.length > 1; // only worth an "all" view with >1 host
     return (
@@ -149,12 +150,12 @@ export class HostSwitch extends LoomElement {
                 {this.hosts.map((h) => (
                   <button
                     class="item"
-                    aria-current={!fleet && h.active ? "true" : "false"}
+                    aria-current={!fleet && h.id === curId ? "true" : "false"}
                     onClick={() => this.pick(h.id)}
                   >
                     <span class={`dot ${h.kind} ${h.connected ? "" : "off"}`}></span>
                     <span class="id">{h.kind === "local" ? "local" : h.id}</span>
-                    <span class="meta">{!fleet && h.active ? "active" : h.kind}</span>
+                    <span class="meta">{!fleet && h.id === curId ? "active" : h.kind}</span>
                   </button>
                 ))}
               </>

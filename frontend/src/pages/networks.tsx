@@ -27,7 +27,7 @@ const ago = (unix: number) => {
   return `${Math.floor(s / 31536000)}y`;
 };
 
-@route("/networks")
+@route("/networks/:host")
 @component("hope-networks")
 @styles(css`
   ${resourceStyles}

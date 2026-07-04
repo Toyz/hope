@@ -17,6 +17,7 @@ import type { ContainerSpec, StackSpec, NetworkSpec, VolumeSpec, OpFrame, OpResu
 import type { ConnectorOpt } from "../components/service-form";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
+import { withHost } from "../host-url";
 import { HostChanged } from "../events";
 import { appBar } from "../app-bar";
 import "../components/service-form";
@@ -24,7 +25,7 @@ import "../components/service-form";
 interface Row { key: number; initial: ContainerSpec; }
 interface ResDecl { name: string; driver: string; }
 
-@route("/deploy")
+@route("/deploy/:host")
 @component("hope-deploy")
 @styles(css`
   :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
@@ -142,8 +143,10 @@ export class DeployPage extends LoomElement {
   private async loadHost() {
     try {
       this.hostList = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
-      this.host = this.hostList.find((h) => h.active)?.id || "";
-    } catch { this.host = ""; }
+      // The URL pins the deploy target (/deploy/:host); fall back to the server's
+      // active host only in the fleet edge, where a target is prompted for.
+      this.host = this.inFleet() ? "" : this.hostCtx.token || this.hostList.find((h) => h.active)?.id || "";
+    } catch { this.host = this.inFleet() ? "" : this.hostCtx.token; }
   }
 
   private inFleet(): boolean {
@@ -321,7 +324,7 @@ export class DeployPage extends LoomElement {
     });
     // Only leave for the stack page once the deploy actually succeeded — a failed
     // pull (rate limit, bad image) leaves you on the builder with the log.
-    if (success) this.router.navigate("/stack/" + encodeURIComponent(spec.name));
+    if (success) this.router.navigate(withHost(this.host || this.hostCtx.token, "/stack/" + encodeURIComponent(spec.name)));
   };
 
   // After the containers are up, wire any declared tunnel routes through the
@@ -376,7 +379,7 @@ export class DeployPage extends LoomElement {
       success = dok;
       return dok;
     });
-    if (success) { this.toast.ok("deleted " + project); this.router.navigate("/"); }
+    if (success) { this.toast.ok("deleted " + project); this.router.navigate(withHost(this.host || this.hostCtx.token, "/")); }
   };
 
   private deployContainer = async () => {
@@ -532,7 +535,7 @@ export class DeployPage extends LoomElement {
           {this.editing ? <hope-button icon="copy" onClick={this.doExport}>Copy as compose</hope-button> : null}
           {this.editing ? <hope-button tone="danger" icon="trash" onClick={this.deleteStack}>Delete stack</hope-button> : null}
           <span class="grow"></span>
-          <hope-button onClick={() => this.router.navigate("/dashboard")}>Cancel</hope-button>
+          <hope-button onClick={() => this.router.navigate(withHost(this.host || this.hostCtx.token, "/"))}>Cancel</hope-button>
           <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployStack}>{this.editing ? "Apply changes" : "Deploy stack"}</hope-button>
         </div>
       </div>
