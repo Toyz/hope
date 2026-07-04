@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/docker/docker/api/types/container"
@@ -224,27 +225,56 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 }
 
 // opFrame is one NDJSON line of a streamed operation (redeploy): progress "log"
-// lines, then a terminal "done" frame carrying success/failure.
+// lines, a periodic "ping" keepalive (ignored by the UI), then a terminal "done"
+// frame carrying success/failure.
 type opFrame struct {
-	Type  string `json:"type"` // "log" | "done"
+	Type  string `json:"type"` // "log" | "ping" | "done"
 	Data  string `json:"data,omitempty"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
 }
 
-// streamOp runs a long operation, forwarding each progress line as an opFrame
-// and finishing with a terminal done frame (so the client knows the outcome
-// even though the HTTP status is already committed).
-func (p *Plugin) streamOp(ctx context.Context, run func(emit func(string)) error) *gateway.Response {
-	_ = ctx
+// keepAlive is how often streamOp emits a ping during a silent step, to keep the
+// NDJSON connection from idling out at a proxy / agent-tunnel / Cloudflare
+// timeout (a big image-layer extract emits nothing for tens of seconds).
+const keepAlive = 15 * time.Second
+
+// streamOp runs a long operation, forwarding each progress line as an opFrame and
+// finishing with a terminal done frame (so the client knows the outcome even
+// though the HTTP status is already committed). The op runs in a goroutine so the
+// main loop can emit keepalive pings while it's blocked on a silent step; writes
+// are serialized so the two goroutines never interleave a frame.
+func (p *Plugin) streamOp(_ context.Context, run func(emit func(string)) error) *gateway.Response {
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		enc := json.NewEncoder(w)
-		emit := func(line string) { _ = enc.Encode(opFrame{Type: "log", Data: line}) }
-		err := run(emit)
-		if err != nil {
-			return enc.Encode(opFrame{Type: "done", OK: false, Error: err.Error()})
+		var mu sync.Mutex
+		write := func(f opFrame) error {
+			mu.Lock()
+			defer mu.Unlock()
+			return enc.Encode(f)
 		}
-		return enc.Encode(opFrame{Type: "done", OK: true})
+		emit := func(line string) { _ = write(opFrame{Type: "log", Data: line}) }
+
+		// Run the op detached: it keeps going to completion on the host even if the
+		// client (or its stream) drops. done is buffered so it never blocks.
+		done := make(chan error, 1)
+		go func() { done <- run(emit) }()
+
+		ticker := time.NewTicker(keepAlive)
+		defer ticker.Stop()
+		for {
+			select {
+			case err := <-done:
+				if err != nil {
+					return write(opFrame{Type: "done", OK: false, Error: err.Error()})
+				}
+				return write(opFrame{Type: "done", OK: true})
+			case <-ticker.C:
+				if err := write(opFrame{Type: "ping"}); err != nil {
+					return err // client gone; the op still finishes server-side
+				}
+			}
+		}
 	}))
 }
 

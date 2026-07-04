@@ -132,10 +132,10 @@ export interface LogFrame {
   source?: string; // set on multiplexed stack/service streams
 }
 
-// Streamed operation (redeploy) frames: progress "log" lines then a terminal
-// "done" frame with the outcome.
+// Streamed operation (redeploy) frames: progress "log" lines, periodic "ping"
+// keepalives (ignored by the UI), then a terminal "done" frame with the outcome.
 export interface OpFrame {
-  type: "log" | "done";
+  type: "log" | "ping" | "done";
   data?: string;
   ok: boolean;
   error?: string;
