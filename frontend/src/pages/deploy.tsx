@@ -132,6 +132,11 @@ export class DeployPage extends LoomElement {
   @mount
   async onMount() {
     if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
+    // Deploy always targets ONE concrete host; there is no "all" deploy. If we
+    // arrived in the fleet view, pin to a real host so it's in the URL — then
+    // activeHost is real and the transport sends X-Hope-Host like every page. Pick
+    // the target with the host switcher (it re-navigates to /deploy/<host>).
+    if (this.hostCtx.fleet) { this.router.navigate(withHost(this.hostCtx.defaultHost(), "/deploy")); return; }
     const editProject = this.intent.take() || new URLSearchParams(location.search).get("edit");
     // Render the builder immediately with one empty row (new deploy) so it doesn't
     // pop in after the async host/resource loads resolve.
@@ -141,12 +146,12 @@ export class DeployPage extends LoomElement {
   }
 
   private async loadHost() {
+    // The URL pins the deploy target (/deploy/:host); onMount redirected away from
+    // the fleet view, so the token is always a concrete host here.
+    this.host = this.hostCtx.token;
     try {
       this.hostList = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
-      // The URL pins the deploy target (/deploy/:host); fall back to the server's
-      // active host only in the fleet edge, where a target is prompted for.
-      this.host = this.inFleet() ? "" : this.hostCtx.token || this.hostList.find((h) => h.active)?.id || "";
-    } catch { this.host = this.inFleet() ? "" : this.hostCtx.token; }
+    } catch { /* keep this.host from the URL */ }
   }
 
   private inFleet(): boolean {
@@ -162,30 +167,14 @@ export class DeployPage extends LoomElement {
     this.loadResources();
   }
 
-  // In "all hosts" fleet mode there is no single active host, so a deploy must
-  // choose one. Prompt for it, switch the server's active host to it (deploy
-  // routes through the active host), and refresh the host-scoped pickers. Returns
-  // false if cancelled. Outside fleet mode the current active host is used as-is.
+  // Deploy targets the one host pinned in the URL. onMount already redirects away
+  // from the fleet view, so this is just a backstop: if we're somehow still in
+  // "all hosts", bounce to a concrete host instead of deploying to an ambiguous
+  // target. The host is chosen with the host switcher, which re-navigates here.
   private async ensureTargetHost(): Promise<boolean> {
     if (!this.inFleet()) return true;
-    const picked = await this.prompt.ask({
-      title: "deploy target",
-      icon: "box",
-      submitLabel: "Continue",
-      message: "You're viewing all hosts. Pick the host to deploy to.",
-      fields: [{ key: "host", label: "host", type: "select", value: this.host || (this.hostList[0]?.id ?? ""), options: this.hostList.map((h) => ({ value: h.id, label: h.id + (h.kind === "local" ? "" : " · agent") })) }],
-    });
-    if (!picked) return false;
-    const id = picked.host;
-    try {
-      await this.rpc.call("System", "setActiveHost", [id]);
-      this.host = id;
-      await Promise.all([this.loadConnectors(), this.loadResources()]);
-      return true;
-    } catch (e: any) {
-      this.toast.error("could not switch host: " + (e?.message || "error"));
-      return false;
-    }
+    this.router.navigate(withHost(this.hostCtx.defaultHost(), "/deploy"));
+    return false;
   }
 
 

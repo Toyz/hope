@@ -7,6 +7,7 @@ package hosts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -17,6 +18,13 @@ import (
 
 // LocalID is the reserved id for the local Docker socket.
 const LocalID = "local"
+
+// ErrHostRequired is returned by RequireTarget when a host-scoped WRITE arrives
+// with no explicit X-Hope-Host target. Writes must name their host so a mutation
+// can never silently land on the globally-active host — a different host than the
+// caller is looking at. This is the server-side backstop behind the client always
+// putting the host in the URL.
+var ErrHostRequired = errors.New("this operation requires an explicit host (X-Hope-Host); none was provided")
 
 // TargetHeader is the per-request host override for headless API callers: set
 // X-Hope-Host to a host id (e.g. "local" or an agent id) to run that one call
@@ -148,6 +156,38 @@ func (s *Set) ActiveIDFor(ctx context.Context) string {
 		}
 	}
 	return s.ActiveID()
+}
+
+// RequireTarget resolves the request's EXPLICIT host target for a write. Unlike
+// ActiveFor / ActiveIDFor it never falls back to the globally-active host: an
+// absent target is ErrHostRequired, and a named-but-disconnected target is an
+// error rather than a silent fallback. Host-scoped mutations resolve their Docker
+// client through this so a write always lands on the host the caller named — or
+// fails loudly. Reads keep using ActiveFor (a fallback is harmless for a read).
+func (s *Set) RequireTarget(ctx context.Context) (string, *docker.Client, error) {
+	return s.ResolveTarget(TargetFrom(ctx))
+}
+
+// ResolveTarget is RequireTarget over an explicit id (e.g. read straight off the
+// X-Hope-Host header by middleware, which runs before the target lands on the
+// context). Empty id -> ErrHostRequired; a named-but-disconnected host is an
+// error, never a silent fallback.
+func (s *Set) ResolveTarget(id string) (string, *docker.Client, error) {
+	if id == "" {
+		return "", nil, ErrHostRequired
+	}
+	if id == LocalID {
+		if s.local == nil {
+			return "", nil, fmt.Errorf("local host is unavailable")
+		}
+		return LocalID, s.local, nil
+	}
+	if s.reg != nil {
+		if c := s.reg.Get(id); c != nil {
+			return id, c, nil
+		}
+	}
+	return "", nil, fmt.Errorf("host %q is not connected", id)
 }
 
 // SetActive selects the active host. LocalID selects local explicitly; any

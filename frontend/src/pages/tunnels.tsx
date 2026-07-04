@@ -308,7 +308,7 @@ export class TunnelsPage extends LoomElement {
         await this.targetHost(v);
         emit("creating Cloudflare tunnel…");
         emit("pulling cloudflared + starting (first pull can take a moment)…");
-        await this.rpc.call<ConnectorView>("Tunnels", "createConnector", [v.name.trim()]);
+        await this.rpc.callOn<ConnectorView>(this.hostCtx.activeHost || this.activeHostId(), "Tunnels", "createConnector", [v.name.trim()]);
         emit("connector deployed");
         return true;
       } catch (e: any) {

@@ -24,6 +24,7 @@ import (
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hostguard"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
 	"github.com/toyz/hope/internal/plugins/accessauth"
@@ -247,12 +248,16 @@ func runServe(configPath string) error {
 	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
 	// traffic passes to sov untouched.
 	apiEnabled := len(cfg.Auth.APIKeys) > 0
+	// hostGuard rejects a host-scoped write that arrives without an explicit
+	// X-Hope-Host, so a mutation can never fall back to the active host and land on
+	// the wrong one (the cross-host stack-duplication class of bug).
+	hostGuard := sov.WithMiddleware(hostguard.Middleware(hostSet))
 	var gw *sov.Gateway
 	if hub != nil {
-		gw = sov.New(sov.WithServer(agent.NewFrontServer(hub, cfg.Agent.WSPath)))
+		gw = sov.New(hostGuard, sov.WithServer(agent.NewFrontServer(hub, cfg.Agent.WSPath)))
 		lg.Info("agent hub websocket enabled", "path", wsPathOr(cfg.Agent.WSPath))
 	} else {
-		gw = sov.New()
+		gw = sov.New(hostGuard)
 	}
 	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
 	gw.RegisterAuth(authRouter)               // binds AuthService → bearer verification

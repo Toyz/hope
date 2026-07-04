@@ -46,6 +46,20 @@ const (
 	pathEditContainer = "/rpc/Stream/editContainer" // args: [container id, json ContainerSpec]
 )
 
+// streamWrites are the mutation paths — each recreates/removes/deploys on one
+// host's Docker, so it must name that host (X-Hope-Host) or be rejected, never
+// fall back to the active host. The log/stat tail paths are absent (reads).
+var streamWrites = map[string]bool{
+	pathRedeploy:      true,
+	pathRedeployStack: true,
+	pathPull:          true,
+	pathPruneImages:   true,
+	pathApplyStack:    true,
+	pathDeployCont:    true,
+	pathDestroyStack:  true,
+	pathEditContainer: true,
+}
+
 // multiTail caps per-container backlog when fanning in many containers.
 const multiTail = "60"
 
@@ -99,6 +113,14 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 	// doesn't run the ContextContributor, so read the header here.
 	if id := req.Header.Get(hosts.TargetHeader); id != "" {
 		ctx = hosts.WithTarget(ctx, id)
+	}
+	// Streaming mutations must name their host explicitly — a RouteHandler bypasses
+	// the gateway middleware, so enforce the same rule here that hostguard enforces
+	// for normal RPC writes. Read streams (logs/stats) keep the active-host fallback.
+	if streamWrites[req.Path] {
+		if _, _, err := p.hosts.RequireTarget(ctx); err != nil {
+			return errResp(http.StatusBadRequest, err.Error())
+		}
 	}
 	args, err := stringArgs(req.Body)
 	if err != nil {
