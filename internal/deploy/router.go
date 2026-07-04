@@ -26,7 +26,7 @@ func NewDeployRouter(hs *hosts.Set, store *Store) *DeployRouter {
 }
 
 func (r *DeployRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
-func (r *DeployRouter) hostID() string                          { return r.hosts.ActiveID() }
+func (r *DeployRouter) hostID(ctx context.Context) string       { return r.hosts.ActiveIDFor(ctx) }
 
 // ── import / export / edit ──────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ func (r *DeployRouter) EditSpec(ctx *rpc.Context, p *ProjectParams) (*stackspec.
 	if p.Project == "" {
 		return nil, rpc.BadRequest("project required")
 	}
-	if spec, err := r.store.Load(r.hostID(), p.Project); err == nil && spec != nil {
+	if spec, err := r.store.Load(r.hostID(ctx), p.Project); err == nil && spec != nil {
 		return spec, nil
 	}
 	spec, err := r.dock(ctx).ProjectSpec(ctx, p.Project)
@@ -93,7 +93,7 @@ func (r *DeployRouter) ExportCompose(ctx *rpc.Context, p *ProjectParams) (*Expor
 	if p.Project == "" {
 		return nil, rpc.BadRequest("project required")
 	}
-	spec, err := r.store.Load(r.hostID(), p.Project)
+	spec, err := r.store.Load(r.hostID(ctx), p.Project)
 	if err != nil || spec == nil {
 		spec, err = r.dock(ctx).ProjectSpec(ctx, p.Project)
 		if err != nil {

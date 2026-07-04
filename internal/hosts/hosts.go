@@ -126,6 +126,30 @@ func (s *Set) ActiveFor(ctx context.Context) *docker.Client {
 // ActiveID returns the resolved active host id (what the UI should highlight).
 func (s *Set) ActiveID() string { id, _ := s.resolve(); return id }
 
+// ActiveIDFor returns the host id a request resolves to, mirroring ActiveFor's
+// logic exactly (per-request X-Hope-Host target when present and reachable, else
+// the globally-active host). Any per-host STATE key — a stored stack spec, an
+// update cache — MUST derive from this, never from ActiveID(): ActiveID ignores
+// the request target, so on a fleet it returns the globally-active host while
+// ActiveFor(ctx) talks to the request's target host. Keying state off ActiveID
+// while acting on ActiveFor loads/writes one host's spec against another host's
+// Docker — cross-host contamination (a stack cloned onto the wrong host).
+func (s *Set) ActiveIDFor(ctx context.Context) string {
+	id := TargetFrom(ctx)
+	if id == "" {
+		return s.ActiveID()
+	}
+	if id == LocalID {
+		return LocalID
+	}
+	if s.reg != nil {
+		if c := s.reg.Get(id); c != nil {
+			return id
+		}
+	}
+	return s.ActiveID()
+}
+
 // SetActive selects the active host. LocalID selects local explicitly; any
 // other id must be a currently-connected agent.
 func (s *Set) SetActive(id string) error {

@@ -23,7 +23,7 @@ type Engine struct {
 func NewEngine(hs *hosts.Set, store *Store) *Engine { return &Engine{hosts: hs, store: store} }
 
 func (e *Engine) dock(ctx context.Context) *docker.Client { return e.hosts.ActiveFor(ctx) }
-func (e *Engine) hostID() string                          { return e.hosts.ActiveID() }
+func (e *Engine) hostID(ctx context.Context) string       { return e.hosts.ActiveIDFor(ctx) }
 
 // Store exposes the spec store for the router's read paths.
 func (e *Engine) Store() *Store { return e.store }
@@ -184,7 +184,7 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		}
 	}
 
-	if err := e.store.Save(e.hostID(), project, spec); err != nil {
+	if err := e.store.Save(e.hostID(ctx), project, spec); err != nil {
 		emit("warning: could not persist stack spec: " + err.Error())
 	}
 	emit("stack " + project + " applied")
@@ -239,7 +239,7 @@ func (e *Engine) Destroy(ctx context.Context, project string, prune bool, emit f
 			emit(fmt.Sprintf("pruned %d managed resource(s)", n))
 		}
 	}
-	if err := e.store.Delete(e.hostID(), project); err != nil {
+	if err := e.store.Delete(e.hostID(ctx), project); err != nil {
 		emit("warning: could not delete stored spec: " + err.Error())
 	}
 	emit("stack " + project + " destroyed")
