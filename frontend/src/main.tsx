@@ -11,6 +11,7 @@ import { ProcService } from "./proc";
 import { PromptService } from "./prompt";
 import { ToastService } from "./toast";
 import { HostContext } from "./host-context";
+import { Inspector } from "./inspector";
 import { DeployIntent } from "./deploy-intent";
 import { ImageDetailService } from "./components/image-detail";
 import { NetworkDetailService } from "./components/network-detail";
@@ -25,6 +26,7 @@ import "./components/host-switch"; // active Docker host picker (<hope-host-swit
 import "./components/nav"; // shared system nav strip (<hope-nav>)
 import "./components/rail"; // explorer scope-rail: the fleet tree (<hope-rail>)
 import "./components/topbar"; // explorer top strip: breadcrumb + search + refresh (<hope-topbar>)
+import "./components/inspector"; // docked container inspector (<hope-inspector>)
 import "./components/footer"; // site footer with API + source links (<hope-footer>)
 import "./components/image-detail"; // shared image-detail modal (<hope-image-detail>)
 import "./components/kvlist"; // reusable key/value list for labels/options (<hope-kvlist>)
@@ -57,6 +59,7 @@ app.use(ProcService);
 app.use(PromptService);
 app.use(ToastService);
 app.use(HostContext);
+app.use(Inspector);
 app.use(DeployIntent);
 app.use(ImageDetailService);
 app.use(NetworkDetailService);

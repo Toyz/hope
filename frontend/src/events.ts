@@ -3,6 +3,20 @@
 // subscribes on connect and auto-unsubscribes on disconnect.
 import { LoomEvent, bus } from "@toyz/loom";
 
+// Fired to open (or close) the docked inspector on a container. host+id identify
+// the target; id === "" closes it. The shell renders the inspector column and the
+// <hope-inspector> loads the target. Opening from a stack row keeps you in place
+// instead of navigating to the full container page.
+export class InspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public id: string,
+    public name: string,
+  ) {
+    super();
+  }
+}
+
 // Fired when the active Docker host or the fleet (all-hosts) view flag changes.
 // Pages re-fetch in place; the host picker refreshes its label.
 export class HostChanged extends LoomEvent {

@@ -13,7 +13,7 @@ import { inject } from "@toyz/loom/di";
 import { RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "./auth-store";
 import { theme } from "./styles";
-import { ModalToggle } from "./events";
+import { ModalToggle, InspectorTarget } from "./events";
 
 @component("hope-app")
 @styles(theme, css`
@@ -26,13 +26,16 @@ import { ModalToggle } from "./events";
   .shell { height: 100vh; display: grid;
     grid-template-columns: 268px minmax(0, 1fr);
     grid-template-rows: 46px minmax(0, 1fr); }
+  .shell.insp { grid-template-columns: 268px minmax(0, 1fr) 384px; }
   .shell > .top { grid-column: 1 / -1; }
   .shell > .rail { min-height: 0; }
   .shell > .main { min-width: 0; overflow-y: auto; }
+  .shell > .insp { min-width: 0; min-height: 0; }
 `)
 export class HopeApp extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @reactive accessor path = location.pathname;
+  @reactive accessor inspOpen = false;
 
   private openModals = new Set<object>();
   private prevOverflow = "";
@@ -40,6 +43,11 @@ export class HopeApp extends LoomElement {
 
   @on(RouteChanged)
   private onRoute(e: RouteChanged) { this.path = e.path; }
+
+  // The docked inspector opens/closes on this event; the shell adds/removes its
+  // column (and mounts/unmounts <hope-inspector>) accordingly.
+  @on(InspectorTarget)
+  private onInspect(e: InspectorTarget) { this.inspOpen = !!e.id; }
 
   // Ref-count open modals; lock on the first, restore on the last. Padding the
   // body by the scrollbar width keeps the layout from shifting when it hides.
@@ -79,13 +87,14 @@ export class HopeApp extends LoomElement {
       );
     }
     return (
-      <div class="shell">
+      <div class={"shell" + (this.inspOpen ? " insp" : "")}>
         <div class="top"><hope-topbar></hope-topbar></div>
         <div class="rail"><hope-rail></hope-rail></div>
         <div class="main">
           <loom-outlet styles={[theme]}></loom-outlet>
           <hope-footer></hope-footer>
         </div>
+        {this.inspOpen ? <div class="insp"><hope-inspector></hope-inspector></div> : null}
       </div>
     );
   }

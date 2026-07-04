@@ -18,6 +18,7 @@ import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, Co
 import { markClass, stackSeverity, severityMark, healthLabel, severityTone } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
+import { Inspector } from "../inspector";
 import { withHost } from "../host-url";
 import { innerPort } from "../format";
 import { UNGROUPED } from "../const";
@@ -313,6 +314,7 @@ export class StackPage extends LoomElement {
   @inject(PromptService) accessor prompt!: PromptService;
   @inject(DeployIntent) accessor intent!: DeployIntent;
   @inject(HostContext) accessor hostCtx!: HostContext;
+  @inject(Inspector) accessor inspector!: Inspector;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -989,8 +991,9 @@ export class StackPage extends LoomElement {
     });
   }
 
-  private openContainer(id: string) {
-    this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(id)}`));
+  private openContainer(id: string, name = "") {
+    // Dock the container in the inspector instead of leaving the stack view.
+    this.inspector.open(this.hostCtx.token, id, name);
   }
 
   // Point-in-time CPU/memory snapshot of the stack's running containers.
@@ -1343,7 +1346,7 @@ export class StackPage extends LoomElement {
                     if (g.items.length === 1) {
                       const c = g.items[0];
                       return [
-                        <tr class="crow" onClick={() => this.openContainer(c.id)}>
+                        <tr class="crow" onClick={() => this.openContainer(c.id, c.service || c.name)}>
                           <td class="svc">
                             <span class="cell">
                               <span class={"mark " + markClass(c.state)}></span>
@@ -1388,7 +1391,7 @@ export class StackPage extends LoomElement {
                     if (open) {
                       for (const c of g.items) {
                         rows.push(
-                          <tr class="rep crow" onClick={() => this.openContainer(c.id)}>
+                          <tr class="rep crow" onClick={() => this.openContainer(c.id, c.service || c.name)}>
                             <td class="svc rep">
                               <span class="cell">
                                 <span class={"mark " + markClass(c.state)}></span>
