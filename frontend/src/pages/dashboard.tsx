@@ -909,15 +909,20 @@ export class DashboardPage extends LoomElement {
 
   // One host's stacks. Single host → just the grid (no header). Fleet → a
   // collapsible section headed by the host id + its vitals.
-  // The host dot reports its worst state, worst-first: unreachable, a crash loop,
-  // a degraded stack, an available update, else healthy. (It used to be tinted by
+  // The one attention-tone rule: a crash loop is the loudest (red), any other
+  // issue is amber, else healthy. Shared by the host dot, the issue chip, and the
+  // verdict banner so they never disagree.
+  private attnTone(loops: number, issues: number): string {
+    return loops > 0 ? "bad" : issues > 0 ? "warn" : "ok";
+  }
+
+  // The host dot reports its worst state, worst-first: unreachable, an attention
+  // tone (loop/issue), an available update, else healthy. (It used to be tinted by
   // host kind, so an agent showed green even with issues.)
   private hostDotTone(h: HostSec): string {
     if (!h.online) return "off";
-    if (h.loops > 0) return "bad";
-    if (h.issues > 0) return "warn";
-    if (h.outdated > 0) return "upd";
-    return "ok";
+    const t = this.attnTone(h.loops, h.issues);
+    return t === "ok" && h.outdated > 0 ? "upd" : t;
   }
 
   private hostGroup(h: HostSec, multi: boolean) {
@@ -943,7 +948,7 @@ export class DashboardPage extends LoomElement {
           <span class="rule"></span>
           {h.online ? (
             <>
-              {h.issues > 0 ? <hope-chip tone={h.loops > 0 ? "bad" : "warn"} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
+              {h.issues > 0 ? <hope-chip tone={this.attnTone(h.loops, h.issues)} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
               {h.outdated > 0 ? <hope-chip tone="upd" size="sm" style="cursor:pointer" title="update this host's outdated stacks" onClick={(e: Event) => { e.stopPropagation(); this.openUpdModal(h.id); }}>{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
               <span class="n">{h.up}<span class="t">/{h.tot}</span></span>
             </>
@@ -968,7 +973,7 @@ export class DashboardPage extends LoomElement {
     const updC = secs.reduce((a, h) => a + h.outdated, 0);
     const loops = issues.filter((x) => x.s.sev === "loop").length;
     const online = secs.filter((h) => h.online).length;
-    const vClass = loops > 0 ? "bad" : issues.length > 0 ? "warn" : "ok";
+    const vClass = this.attnTone(loops, issues.length);
     const vText = issues.length === 0 ? "nominal" : `${issues.length} ${issues.length === 1 ? "issue" : "issues"}`;
     const updGroups: any[] = multi ? this.fleetUpdateGroups(this.fleet ?? []) : this.updateGroups();
     const checked = multi ? this.fleetChecked() : this.updates?.checked_at;
