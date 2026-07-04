@@ -1254,23 +1254,6 @@ export class StackPage extends LoomElement {
     const sev = s ? stackSeverity(s.running, s.total, s.restarting) : "ok";
     return (
       <div>
-        <div class="bar">
-          <div class="s"><loom-link to={withHost(this.hostCtx.token, "/")} class="back"><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
-          {this.host ? (
-            <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
-          ) : null}
-          <div class="s"><span class="crumb">{this.project}</span></div>
-                    <hope-nav></hope-nav>
-          <div class="grow"></div>
-          {this.isUngrouped ? null : (
-            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={!!this.busy} title="add a service to this stack" onClick={() => this.addServiceToStack()}><loom-icon name="plus" size={12}></loom-icon> service</button></div>
-          )}
-          {this.isUngrouped ? null : (
-            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" title="edit this stack in the builder" onClick={() => this.editStack()}><loom-icon name="edit" size={12}></loom-icon>edit</button></div>
-          )}
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
-        </div>
-
         <main>
           {this.error ? <div class="err">{this.error}</div> : null}
           {s ? (
@@ -1291,12 +1274,14 @@ export class StackPage extends LoomElement {
                         <hope-button icon="terminal" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</hope-button>
                         <hope-button icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
                         <hope-button icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
+                        {this.isUngrouped ? null : <hope-button icon="edit" onClick={() => this.editStack()}>edit</hope-button>}
                         <div class="more">
                           <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
                           {this.menuOpen ? (
                             <div class="menu">
                               <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
                               <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
+                              {this.isUngrouped ? null : <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.addServiceToStack(); }}><loom-icon name="plus" size={13}></loom-icon><span>add service</span></button>}
                               <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
                               <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
                               {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}

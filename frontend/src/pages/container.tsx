@@ -1096,52 +1096,6 @@ export class ContainerPage extends LoomElement {
     const running = this.state() === "running";
     return (
       <div>
-        <div class="bar">
-          <div class="s">
-            <span class="back" onClick={() => this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(this.stackId())}`))}>
-              <loom-icon name="chevron-left" size={13}></loom-icon> back
-            </span>
-          </div>
-          {this.host ? (
-            <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
-          ) : null}
-          <div class="s">
-            <span class="crumb">
-              <span class="p" onClick={() => this.router.navigate(withHost(this.hostCtx.token, "/"))}>{this.fleetBack ? "all hosts" : "fleet"}</span>
-              <span class="sep"> / </span>
-              <span class="p" onClick={() => this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(this.stackId())}`))}>
-                {this.project() || "ungrouped"}
-              </span>
-              <span class="sep"> / </span>
-              {this.service()}
-            </span>
-          </div>
-          {this.siblings.length > 1 ? (
-            <div class="s repl">
-              <button class="rbtn" onClick={(e: Event) => { e.stopPropagation(); this.dropOpen = !this.dropOpen; }}>
-                replica #{this.currentNumber()}<span class="rof"> / {this.siblings.length}</span>
-                <loom-icon name="chevron-down" size={12}></loom-icon>
-              </button>
-              {this.dropOpen ? (
-                <div class="rmenu">
-                  {this.siblings.map((c) => (
-                    <div class={"ritem" + (c.id === this.id ? " cur" : "")} onClick={() => this.openSibling(c.id)}>
-                      <span class={"mark " + markClass(c.state)}></span>
-                      <span class="rn">#{c.number}</span>
-                      <span class="rid">{c.id.slice(0, 12)}</span>
-                      <span class="rst">{c.state}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-                    <hope-nav></hope-nav>
-          <div class="grow"></div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" title="edit this container's settings" onClick={this.openEdit}><loom-icon name="redeploy" size={13}></loom-icon> edit</button></div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
-        </div>
-
         <main>
           {this.error ? <div class="err">{this.error}</div> : null}
 
@@ -1149,9 +1103,28 @@ export class ContainerPage extends LoomElement {
             <div class="id">
               <span class={"mark " + markClass(this.state())}></span>
               <h1>{this.service()}</h1>
-              {this.siblings.length > 1 ? <hope-chip>#{this.currentNumber()}</hope-chip> : null}
               {this.state() ? (
                 <hope-chip tone={running ? "ok" : "bad"}>{this.state()}</hope-chip>
+              ) : null}
+              {this.siblings.length > 1 ? (
+                <div class="repl">
+                  <button class="rbtn" onClick={(e: Event) => { e.stopPropagation(); this.dropOpen = !this.dropOpen; }}>
+                    replica #{this.currentNumber()}<span class="rof"> / {this.siblings.length}</span>
+                    <loom-icon name="chevron-down" size={12}></loom-icon>
+                  </button>
+                  {this.dropOpen ? (
+                    <div class="rmenu">
+                      {this.siblings.map((c) => (
+                        <div class={"ritem" + (c.id === this.id ? " cur" : "")} onClick={() => this.openSibling(c.id)}>
+                          <span class={"mark " + markClass(c.state)}></span>
+                          <span class="rn">#{c.number}</span>
+                          <span class="rid">{c.id.slice(0, 12)}</span>
+                          <span class="rst">{c.state}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
               {this.outdated ? (
                 <button class="updchip" disabled={!!this.cbusy} title="a newer image is available — redeploy to update" onClick={() => this.containerOp("redeploy")}>
@@ -1163,6 +1136,7 @@ export class ContainerPage extends LoomElement {
               <hope-button icon="play" disabled={!!this.cbusy || running} onClick={() => this.containerOp("start")}>{this.cbusy === "start" ? "start…" : "start"}</hope-button>
               <hope-button icon="rotate" disabled={!!this.cbusy} onClick={() => this.containerOp("restart")}>{this.cbusy === "restart" ? "restart…" : "restart"}</hope-button>
               <hope-button icon="redeploy" disabled={!!this.cbusy} onClick={() => this.containerOp("redeploy")}>{this.cbusy === "redeploy" ? "redeploy…" : "redeploy"}</hope-button>
+              <hope-button icon="edit" onClick={this.openEdit}>edit</hope-button>
               <div class="more">
                 <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.actOpen = !this.actOpen; }}>···</button>
                 {this.actOpen ? (
