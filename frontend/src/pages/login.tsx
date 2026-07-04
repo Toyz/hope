@@ -9,7 +9,7 @@ import type { LoginResult } from "../contracts";
 @route("/login")
 @component("hope-login")
 @styles(css`
-  :host { display: grid; place-items: center; min-height: calc(100vh - 48px); background: var(--ink); overflow: hidden; }
+  :host { display: grid; place-items: center; min-height: 100vh; background: var(--ink); overflow: hidden; }
   /* an absurd, over-engineered matrix-rain canvas behind the form. for no reason. */
   canvas.bg { position: fixed; inset: 0; z-index: 0; opacity: .8; }
   .card { position: relative; z-index: 1; width: 320px; border: 1px solid var(--line2);

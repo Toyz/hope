@@ -46,7 +46,7 @@ interface HostSec {
 @route("/host/:host")
 @component("hope-dashboard")
 @styles(css`
-  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
+  :host { display: block; min-height: 100%; background: var(--ink); }
 
   /* ── status bar (tmux/vim airline) ── */
   .bar {

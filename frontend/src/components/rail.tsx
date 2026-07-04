@@ -128,9 +128,13 @@ export class HopeRail extends LoomElement {
   // Which host/stack/container the URL is on (for the selected highlight).
   private cur() {
     const p = this.curPath.split("/");
-    if (p[1] === "host") return { host: p[2] || "", project: "", cid: "" };
     if (p[1] === "stack") return { host: p[2] || "", project: p[3] || "", cid: "" };
     if (p[1] === "container") return { host: p[2] || "", project: "", cid: p[3] || "" };
+    // host dashboard + every host-scoped resource page carries the host at p[2],
+    // so the rail keeps its scope (and Resources stay enabled) on those pages too.
+    if (["host", "images", "volumes", "networks", "tunnels", "deploy"].includes(p[1])) {
+      return { host: p[2] || "", project: "", cid: "" };
+    }
     return { host: "", project: "", cid: "" };
   }
 

@@ -28,7 +28,7 @@ interface ResDecl { name: string; driver: string; }
 @route("/deploy/:host")
 @component("hope-deploy")
 @styles(css`
-  :host { display: block; min-height: calc(100vh - 48px); background: var(--ink); }
+  :host { display: block; min-height: 100%; background: var(--ink); }
   .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
     border-bottom: 1px solid var(--line); background: var(--ink); }
   .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
