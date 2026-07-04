@@ -983,11 +983,6 @@ export class DashboardPage extends LoomElement {
     return (
       <div>
         <div class="bar">
-          <div class="s brand">HOPE</div>
-          <div class="s act"><hope-host-switch></hope-host-switch></div>
-          <div class="s"><span class="k">{multi ? "all hosts" : "fleet"}</span></div>
-          <hope-nav></hope-nav>
-          <div class="grow"></div>
           {multi ? <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{secs.length}</span></span></div> : null}
           <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
@@ -995,6 +990,7 @@ export class DashboardPage extends LoomElement {
             <span class={"mark " + vClass}></span>
             {vText}
           </div>
+          <div class="grow"></div>
           {updC > 0 ? (
             <div class="s act">
               <button class="upind" title="review and update outdated stacks" onClick={() => this.openUpdModal()}>
@@ -1008,7 +1004,6 @@ export class DashboardPage extends LoomElement {
               <span>check</span>
             </button>
           </div>
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.logout}><loom-icon name="logout" size={12}></loom-icon>exit</button></div>
         </div>
 
         {this.loading ? <div class="loadbar"><i></i></div> : null}
