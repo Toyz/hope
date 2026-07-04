@@ -400,7 +400,7 @@ export class ContainerPage extends LoomElement {
   }
   // Which host this container lives on (crumb in multi-host setups).
   get host(): string {
-    return (this.hostsQ.data || []).find((h) => h.active)?.id || "";
+    return this.hostCtx.token; // the host in the URL (/container/:host/:id)
   }
 
   // The route param, bound reactively. Watching it reloads the page on any
@@ -1102,7 +1102,7 @@ export class ContainerPage extends LoomElement {
               <loom-icon name="chevron-left" size={13}></loom-icon> back
             </span>
           </div>
-          {this.host && this.host !== "local" ? (
+          {this.host ? (
             <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}
           <div class="s">

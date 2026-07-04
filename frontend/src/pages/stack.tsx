@@ -350,7 +350,7 @@ export class StackPage extends LoomElement {
     return !this.connectorsQ.error && !!this.connectorsQ.data;
   }
   get host(): string {
-    return (this.hostsQ.data || []).find((h) => h.active)?.id || "";
+    return this.hostCtx.token; // the host in the URL (/stack/:host/:project)
   }
   @reactive accessor opLog = "";
   @reactive accessor composeText = "";
@@ -1256,7 +1256,7 @@ export class StackPage extends LoomElement {
       <div>
         <div class="bar">
           <div class="s"><loom-link to={withHost(this.hostCtx.token, "/")} class="back"><loom-icon name="chevron-left" size={13}></loom-icon> {this.fleetBack ? "all hosts" : "fleet"}</loom-link></div>
-          {this.host && this.host !== "local" ? (
+          {this.host ? (
             <div class="s"><hope-chip tone="ok">{this.host}</hope-chip></div>
           ) : null}
           <div class="s"><span class="crumb">{this.project}</span></div>
