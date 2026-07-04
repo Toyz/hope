@@ -122,29 +122,8 @@ interface HostSec {
   .fleetsec .frow-empty { padding: 12px 14px; color: var(--dim); font: 500 12px/1 var(--mono); }
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
 
-  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
-
-  /* single-host title header (mock-style) */
-  .hhead { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
-  .hhead .hdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--dim); }
-  .hhead .hdot.ok { background: var(--ok); } .hhead .hdot.warn { background: var(--warn); }
-  .hhead .hdot.bad { background: var(--bad); } .hhead .hdot.upd { background: var(--upd); }
-  .hhead .hdot.off { background: var(--bad); opacity: .5; }
-  .hhead h1 { margin: 0; font: 700 18px/1 var(--mono); letter-spacing: .01em; color: var(--hi); }
-  .hhead .hmeta { margin-left: 6px; color: var(--dim); font: 500 11px/1 var(--mono); }
-
-  /* single-host stacks table */
-  table.stx { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  table.stx thead th { text-align: left; padding: 12px 14px; color: var(--dim); font: 600 9.5px/1 var(--mono);
-    letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
-  table.stx th.r, table.stx td.r { text-align: right; }
-  table.stx tbody td { padding: 0 14px; height: 46px; border-bottom: 1px solid var(--line); color: var(--mid); font: 13px/1.3 var(--mono); }
-  table.stx tbody tr { cursor: pointer; }
-  table.stx tbody tr:hover td { background: var(--raised); }
-  table.stx td.nm .s { display: flex; align-items: center; gap: 10px; color: var(--hi); }
-  table.stx td.num .t { color: var(--dim); }
-  table.stx td.chev { width: 40px; text-align: right; color: var(--dim); }
-  table.stx tbody tr:hover td.chev { color: var(--hi); }
+  main { padding: 0 0 90px; }
+  /* header / stats / table come from the shared theme (.vhead/.vstats/.vtable) */
   .uchip { display: inline-flex; align-items: center; gap: 5px; color: var(--upd); font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
   .uchip loom-icon { color: var(--upd); }
   .dash { color: var(--faint); }
@@ -448,19 +427,46 @@ export class DashboardPage extends LoomElement {
     );
   }
 
-  // Mock-style host title: a health dot + hostname + a state chip + the daemon
-  // line. Sits above the stat strip on the single-host dashboard.
+  // Mock-style host header: health dot + hostname + state chip + daemon line, with
+  // the host actions (check updates, df) on the right. The single source for these
+  // actions — the old status bar + daemon strip are gone on the single-host view.
   private hostHeader(h0: HostSec) {
     const info = this.host;
     const dot = this.hostDotTone(h0);
     const label = !h0.online ? "offline" : h0.loops > 0 ? "restarting" : h0.issues > 0 ? "degraded" : h0.outdated > 0 ? "updates" : "healthy";
     const os = info ? `${info.OperatingSystem || info.OSType || ""}${info.Architecture ? " · " + info.Architecture : ""}` : "";
     return (
-      <div class="hhead">
-        <span class={"hdot " + dot}></span>
+      <div class="vhead">
+        <span class={"dot " + dot}></span>
         <h1>{(info && info.Name) || this.hostCtx.token || "host"}</h1>
         <hope-chip tone={this.attnTone(h0.loops, h0.issues)}>{label}</hope-chip>
-        {info ? <span class="hmeta">docker {info.ServerVersion || "—"}{os ? " · " + os : ""}</span> : null}
+        {info ? <span class="meta">docker {info.ServerVersion || "—"}{os ? " · " + os : ""}</span> : null}
+        <span class="grow"></span>
+        <button class="act" disabled={this.updBusy} title="check every image for updates" onClick={this.refreshUpdates}>
+          <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={12}></loom-icon>check
+        </button>
+        <button class="act" disabled={this.diskBusy} title="compute disk usage" onClick={this.refreshDisk}>
+          <loom-icon class={this.diskBusy ? "spin" : ""} name="database" size={12}></loom-icon>{this.diskBusy ? "scanning" : "df"}
+        </button>
+      </div>
+    );
+  }
+
+  // Clean single-host stat strip (mock-style gap columns, hairline under). Replaces
+  // the old bordered daemon strip.
+  private hostStats(h0: HostSec) {
+    const info = this.host;
+    const dt = this.diskTotals();
+    const cell = (k: string, v: any) => <div class="s"><div class="k">{k}</div><div class="v">{v}</div></div>;
+    return (
+      <div class="vstats">
+        {cell("stacks", h0.ranked.length)}
+        {cell("containers", <>{h0.up}<span class="t">/{h0.tot}</span></>)}
+        {cell("images", info?.Images ?? 0)}
+        {cell("cpu", <>{info?.NCPU ?? "—"}<span class="t"> cores</span></>)}
+        {cell("memory", gb(info?.MemTotal))}
+        {dt ? cell("disk", gb(dt.total)) : null}
+        {h0.outdated > 0 ? cell("updates", <span style="color:var(--upd)">{h0.outdated}</span>) : null}
       </div>
     );
   }
@@ -472,7 +478,7 @@ export class DashboardPage extends LoomElement {
       return this.loaded && !this.query ? <div class="empty">No containers on this daemon.</div> : null;
     }
     return (
-      <table class="stx">
+      <table class="vtable">
         <thead>
           <tr><th>stack</th><th>state</th><th class="r">containers</th><th>updates</th><th></th></tr>
         </thead>
@@ -481,9 +487,9 @@ export class DashboardPage extends LoomElement {
             const hasUpd = h.updProjects.has(s.project);
             return (
               <tr onClick={() => this.go(s.project)}>
-                <td class="nm"><span class="s"><span class={"mark " + severityMark(s.sev, hasUpd)}></span>{s.project}</span></td>
+                <td><span class="nm"><span class={"mark " + severityMark(s.sev, hasUpd)}></span>{s.project}</span></td>
                 <td><hope-chip tone={severityTone(s.sev)} size="sm">{healthLabel(s.sev)}</hope-chip></td>
-                <td class="r num">{s.running}<span class="t">/{s.total}</span></td>
+                <td class="r">{s.running}<span class="t" style="color:var(--dim)">/{s.total}</span></td>
                 <td>{hasUpd ? <span class="uchip"><loom-icon name="download" size={11}></loom-icon>update</span> : <span class="dash">—</span>}</td>
                 <td class="chev"><loom-icon name="chevron-right" size={14}></loom-icon></td>
               </tr>
@@ -1053,8 +1059,9 @@ export class DashboardPage extends LoomElement {
 
     return (
       <div>
+        {multi ? (
         <div class="bar">
-          {multi ? <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{secs.length}</span></span></div> : null}
+          <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{secs.length}</span></span></div>
           <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
           <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
           <div class={"s verdict " + vClass}>
@@ -1076,10 +1083,10 @@ export class DashboardPage extends LoomElement {
             </button>
           </div>
         </div>
+        ) : null}
 
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
-          {this.storeBanner()}
           {!multi && secs.length ? this.hostHeader(secs[0]) : null}
           {multi
             ? this.statStrip([
@@ -1089,8 +1096,10 @@ export class DashboardPage extends LoomElement {
                 { k: "issues", v: issues.length, cls: issues.length ? vClass : "" },
                 { k: "updates", v: updC, cls: updC ? "upd" : "" },
               ])
-            : this.host ? this.hostStrip() : null}
+            : secs.length ? this.hostStats(secs[0]) : null}
 
+          <div class="vpad">
+          {this.storeBanner()}
           {this.error ? <div class="empty">{this.error}</div> : null}
           {multi && !this.loaded ? <div class="loading">loading fleet…</div> : null}
 
@@ -1127,6 +1136,7 @@ export class DashboardPage extends LoomElement {
               </div>
             </section>
           ) : null}
+          </div>
 
           {multi ? secs.map((h) => this.hostGroup(h, true)) : this.stackTable(secs[0])}
 

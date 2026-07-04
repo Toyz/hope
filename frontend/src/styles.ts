@@ -71,6 +71,50 @@ export const theme = css`
   .btn:hover { color: var(--hi); border-color: var(--line2); }
   .btn:focus-visible { outline: 1px solid var(--hi); outline-offset: 1px; }
   .btn:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     view system — the shared explorer page shell. Every page uses these so the
+     header / stats / table / spacing read identically (the mock, as one system,
+     not per-page CSS). Full-bleed: hairlines span the pane; content aligns at 28px.
+     ───────────────────────────────────────────────────────────────────────── */
+  .vhead { display: flex; align-items: center; gap: 11px; padding: 22px 28px 0; }
+  .vhead .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--dim); }
+  .vhead .dot.ok { background: var(--ok); } .vhead .dot.warn { background: var(--warn); }
+  .vhead .dot.bad { background: var(--bad); } .vhead .dot.upd { background: var(--upd); }
+  .vhead .dot.off { background: var(--bad); opacity: .5; }
+  .vhead h1 { margin: 0; font: 700 18px/1 var(--mono); letter-spacing: .01em; color: var(--hi); }
+  .vhead .meta { margin-left: 6px; color: var(--dim); font: 500 11px/1.4 var(--mono); word-break: break-all; }
+  .vhead .grow { flex: 1; }
+  .vhead .act { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 1px solid var(--line2);
+    background: transparent; color: var(--mid); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .vhead .act:hover { color: var(--hi); border-color: var(--dim); }
+  .vhead .act:disabled { opacity: .5; cursor: default; }
+  .vhead .act loom-icon { color: var(--dim); }
+
+  .vstats { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-end; padding: 16px 28px 18px; border-bottom: 1px solid var(--line); }
+  .vstats .s { display: flex; flex-direction: column; gap: 6px; }
+  .vstats .s .k { color: var(--dim); font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+  .vstats .s .v { color: var(--hi); font: 500 15px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .vstats .s .v .t { color: var(--dim); }
+  .vstats .grow { flex: 1; }
+
+  .vpad { padding: 18px 28px; }
+
+  .vtable { width: 100%; border-collapse: collapse; }
+  .vtable thead th { text-align: left; padding: 12px 14px; color: var(--dim); font: 600 9.5px/1 var(--mono);
+    letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  .vtable th:first-child, .vtable td:first-child { padding-left: 28px; }
+  .vtable th:last-child, .vtable td:last-child { padding-right: 28px; }
+  .vtable th.r, .vtable td.r { text-align: right; }
+  .vtable tbody td { padding: 0 14px; height: 46px; border-bottom: 1px solid var(--line); color: var(--mid);
+    font: 13px/1.35 var(--mono); font-variant-numeric: tabular-nums; }
+  .vtable tbody tr { cursor: pointer; }
+  .vtable tbody tr:hover td { background: var(--raised); }
+  .vtable tbody tr.sel td { background: color-mix(in srgb, var(--upd) 13%, transparent); color: var(--hi); }
+  .vtable tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--upd); }
+  .vtable td .nm { display: flex; align-items: center; gap: 10px; color: var(--hi); }
+  .vtable td.chev { width: 44px; text-align: right; color: var(--dim); }
+  .vtable tbody tr:hover td.chev { color: var(--hi); }
   .btn.danger:hover { color: var(--bad); border-color: var(--bad); }
 
   /* segmented bar (used sparingly) */
