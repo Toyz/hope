@@ -124,7 +124,7 @@ export class ApiDocsPage extends LoomElement {
   update() {
     return (
       <div>
-        {appBar("api")}
+        {appBar("api", [], { hostSwitch: false })}
         <main>
           <div class="doc">
           <div class="hero">
