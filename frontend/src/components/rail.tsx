@@ -38,7 +38,10 @@ function ctrTone(state: string): string {
 @styles(theme, css`
   :host { display: flex; flex-direction: column; height: 100%; overflow: hidden;
     background: var(--panel); border-right: 1px solid var(--line); }
-  .scroll { flex: 1; overflow-y: auto; padding: 12px 0 8px; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 0 8px; }
+  /* resources + fleet stay pinned below the (scrolling) topology so a host with a
+     lot of stacks can't push them out of reach */
+  .pinned { flex: none; border-top: 1px solid var(--line); padding: 10px 0 8px; }
   .grp { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; margin: 0 0 6px; }
   .grp.mt { margin-top: 16px; }
   .eyebrow { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
@@ -138,8 +141,9 @@ export class HopeRail extends LoomElement {
         <div class="scroll">
           <div class="grp"><span class="eyebrow">topology</span><span class="scope">{this.fleet.length} host{this.fleet.length === 1 ? "" : "s"}</span></div>
           {this.fleet.length === 0 ? <div class="empty">no hosts</div> : this.fleet.map((h) => this.renderHost(h, sel))}
-
-          <div class="grp mt"><span class="eyebrow">resources</span>{sel.host ? <span class="scope">{sel.host}</span> : null}</div>
+        </div>
+        <div class="pinned">
+          <div class="grp"><span class="eyebrow">resources</span>{sel.host && sel.host !== "all" ? <span class="scope">{sel.host}</span> : null}</div>
           {this.renderResources(sel.host)}
 
           <div class="grp mt"><span class="eyebrow">fleet</span></div>
