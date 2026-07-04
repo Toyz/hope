@@ -130,7 +130,11 @@ export class AgentsPage extends LoomElement {
   @reactive accessor hostId = "my-host";
 
   get agents(): AgentView[] {
-    return this.agentsQ.data || [];
+    // The server returns agents in map order (non-deterministic) — sort so the
+    // cards don't shuffle on every refresh. Online first, then by id.
+    return [...(this.agentsQ.data || [])].sort(
+      (a, b) => (a.online === b.online ? 0 : a.online ? -1 : 1) || a.id.localeCompare(b.id),
+    );
   }
   get loaded(): boolean {
     return !!this.agentsQ.data;
