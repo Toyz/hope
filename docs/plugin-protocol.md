@@ -113,6 +113,28 @@ A `query` view receives the user's text in the request params as
 **Stream kinds** (`streams[].kind`): `counter` (numbers ticking), `log`
 (append-only lines), `series` (time series -> sparkline).
 
+**Settings** (`settings[]`) — operator-managed configuration the plugin exposes.
+These are distinct from an action's `fields` (per-invocation input) and from the
+plugin's rendered panel: a **setting** is config the operator *sets and manages*
+(in the plugin inspector), a **view/stream** is what the plugin *shows* (on the
+container inspector). Each entry:
+
+```json
+{ "key": "page_size", "label": "Page size", "kind": "number", "default": "100", "hint": "rows per query page" }
+```
+
+`kind` is `text` | `textarea` | `select` (with `options`) | `toggle` | `number` |
+`secret`. hope renders the form, persists the values **encrypted at rest**, and
+pushes them to the plugin via the reserved `hope.settings` method:
+
+```json
+{"jsonrpc":"2.0","id":N,"method":"hope.settings","params":{"values":{"page_size":"250"}}}
+```
+
+A `secret` setting is masked in the UI and never rendered back. In the Go SDK,
+declare a setting with `p.Setting(...)` and read the current value in any handler
+with `p.SettingValue("page_size")`.
+
 ### `hope.layout` -> Layout
 
 A UI contribution descriptor. Requires auth.

@@ -98,6 +98,7 @@ export class HopeRail extends LoomElement {
 
   @reactive accessor fleet: FleetHost[] = [];
   @reactive accessor apiOn = false; // API explorer enabled (config) — show its rail link
+  @reactive accessor pluginsOn = false; // container-plugin system enabled — show its rail link
   @reactive accessor curPath = location.pathname;
   // Expanded host ids and "host/project" stack keys, remembered across the session.
   @persist("hope.rail.hosts") accessor openHosts: string[] = [];
@@ -121,7 +122,7 @@ export class HopeRail extends LoomElement {
 
   @mount
   async load() {
-    void capabilities().then((c) => (this.apiOn = !!c.api_enabled));
+    void capabilities().then((c) => { this.apiOn = !!c.api_enabled; this.pluginsOn = !!c.plugins_enabled; });
     try {
       this.fleet = (await this.rpc.call<FleetHost[]>("System", "fleet", [])) || [];
     } catch { /* keep last */ }
@@ -166,7 +167,7 @@ export class HopeRail extends LoomElement {
     if (page === "container") return { page, host: p[2] || "", project: "", cid: p[3] || "" };
     // host dashboard + every host-scoped resource page carries the host at p[2],
     // so the rail keeps its scope (and Resources stay enabled) on those pages too.
-    if (["host", "images", "volumes", "networks", "tunnels", "deploy"].includes(page)) {
+    if (["host", "images", "volumes", "networks", "tunnels", "deploy", "plugins"].includes(page)) {
       return { page, host: p[2] || "", project: "", cid: "" };
     }
     return { page, host: "", project: "", cid: "" };
@@ -309,6 +310,9 @@ export class HopeRail extends LoomElement {
 
   private renderResources(host: string) {
     const items: [string, string][] = [["box", "images"], ["database", "volumes"], ["link", "networks"], ["globe", "tunnels"]];
+    // Plugins are a per-host resource too (a host's plugin containers) — surfaced
+    // here when the feature is on, alongside the cross-fleet system page.
+    if (this.pluginsOn) items.push(["plugin", "plugins"]);
     // Fleet root (host "all" or none) targets the cross-fleet aggregate view — the
     // resource pages support /<resource>/all, so there's no reason to gate them.
     const target = host || "all";

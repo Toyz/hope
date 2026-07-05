@@ -26,9 +26,10 @@ const (
 	BucketUpdates    = "updates"
 	BucketStacks     = "stacks"
 	BucketRegistries = "registries"
+	BucketPlugins    = "plugins"
 )
 
-var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistries}
+var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistries, BucketPlugins}
 
 // Store wraps a bbolt DB. A nil db is the no-op store (path was empty).
 type Store struct {

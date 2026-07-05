@@ -32,6 +32,7 @@ import (
 	"github.com/toyz/hope/internal/plugins/introspectfilter"
 	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/logstream"
+	"github.com/toyz/hope/internal/pluginhost"
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
 	"github.com/toyz/hope/internal/store"
@@ -264,12 +265,16 @@ func runServe(configPath string) error {
 	gw.RegisterAuthz(auth.NewAuthzRouter())   // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
-	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, st, dock))
+	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
+	gw.Register(pluginhost.NewPluginsRouter(hostSet, st, cfg.Plugins.Enabled))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
+	}
+	if cfg.Plugins.Enabled {
+		lg.Info("container plugins enabled")
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is

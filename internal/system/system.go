@@ -19,6 +19,7 @@ type SystemRouter struct {
 	agentToken  string // shared enrollment secret (empty = hub disabled)
 	agentWSPath string
 	apiEnabled  bool           // static API keys configured -> headless RPC + explorer link
+	pluginsOn   bool           // [plugins] enabled -> surface the plugins page
 	store       *store.Store   // persisted registry creds (no-op when unmounted)
 	localDock   *docker.Client // local daemon — the canonical registry-auth view
 }
@@ -27,8 +28,8 @@ type SystemRouter struct {
 // token + ws path power the "add an agent" enrollment helper; apiEnabled toggles
 // the API explorer link. st persists UI-added registry creds; localDock is the
 // canonical client for listing them (registries are applied fleet-wide).
-func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled bool, st *store.Store, localDock *docker.Client) *SystemRouter {
-	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, store: st, localDock: localDock}
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled, pluginsOn bool, st *store.Store, localDock *docker.Client) *SystemRouter {
+	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, pluginsOn: pluginsOn, store: st, localDock: localDock}
 }
 
 // FeatureFlags reports which optional features are on, so the UI can show/hide
@@ -42,13 +43,16 @@ type FeatureFlags struct {
 	// StoreEphemeral is true when the db is enabled but sits on the container's
 	// rootfs (no volume mounted at its path) — it'll be lost on a recreate.
 	StoreEphemeral bool `json:"store_ephemeral"`
+	// PluginsEnabled is true when the container-plugin system is on ([plugins]
+	// enabled), so the UI surfaces the plugins page + inspector panels.
+	PluginsEnabled bool `json:"plugins_enabled"`
 }
 
 // Features returns the feature flags the UI needs at load. (Named Features, not
 // Capabilities — "Capabilities" is a reserved sov marker method, so it would be
 // skipped at registration and 404 as an RPC endpoint.)
 func (r *SystemRouter) Features(ctx *rpc.Context) (*FeatureFlags, error) {
-	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled(), StoreEphemeral: r.store.Ephemeral()}, nil
+	return &FeatureFlags{APIEnabled: r.apiEnabled, StoreEnabled: r.store.Enabled(), StoreEphemeral: r.store.Ephemeral(), PluginsEnabled: r.pluginsOn}, nil
 }
 
 // AgentEnrollInfo is what the "add agent" modal needs to build a ready-to-run

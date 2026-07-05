@@ -49,6 +49,12 @@ import { theme } from "../styles";
   .primary:hover, .primary:hover .inner loom-icon { color: #06080d; }
   .primary:hover { border-color: var(--upd); }
 
+  /* idle icon matches the button's tone (the base rule pins it to var(--dim),
+     which leaves a toned button's accent text next to a grey icon). */
+  .danger .inner loom-icon { color: var(--bad); }
+  .warn .inner loom-icon { color: var(--warn); }
+  .primary .inner loom-icon { color: var(--upd); }
+
   /* solid: filled by default (primary CTAs). No wipe — brightness on hover. */
   .solid .wipe { display: none; }
   .solid.primary { background: var(--upd); color: #06080d; border-color: var(--upd); }

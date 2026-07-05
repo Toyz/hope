@@ -333,6 +333,29 @@ export interface Capabilities {
   api_enabled: boolean;
   store_enabled: boolean; // false = state db not mounted; persistence is off
   store_ephemeral: boolean; // enabled but on the container rootfs (lost on recreate)
+  plugins_enabled: boolean; // container-plugin system on ([plugins] enabled)
+}
+
+// PluginView is one plugin INSTANCE (deduplicated by stable identity) as the
+// plugins page + inspector see it (mirrors pluginhost.PluginView).
+export interface PluginView {
+  key: string; // stable identity: host|project/service
+  host: string;
+  container_id: string; // representative container hope would dial
+  name: string;
+  title: string;
+  icon: string;
+  image: string;
+  project: string;
+  service: string;
+  port: number;
+  path: string;
+  replicas: number;
+  running: boolean;
+  present: boolean; // still discovered on the fleet
+  trusted: boolean; // has a stored approval
+  enabled: boolean; // trusted AND on
+  stale: boolean; // enabled but the image changed since approval
 }
 
 // AgentEnroll is the info the "add agent" modal needs (token is a secret).

@@ -13,7 +13,7 @@ import { inject } from "@toyz/loom/di";
 import { RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "./auth-store";
 import { theme } from "./styles";
-import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget } from "./events";
+import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget, PluginInspectorTarget } from "./events";
 
 @component("hope-app")
 @styles(theme, css`
@@ -52,6 +52,7 @@ export class HopeApp extends LoomElement {
   @reactive accessor volOpen = false;
   @reactive accessor netOpen = false;
   @reactive accessor connOpen = false;
+  @reactive accessor pluginOpen = false;
   @persist("hope.railw") accessor railW = 268;
   @persist("hope.panelh") accessor panelH = 320;
 
@@ -65,22 +66,25 @@ export class HopeApp extends LoomElement {
   // The docked bottom slot holds either the container inspector or the
   // multi-source log viewer — opening one supersedes the other.
   @on(InspectorTarget)
-  private onInspect(e: InspectorTarget) { this.inspOpen = !!e.id; if (e.id) { this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; } }
+  private onInspect(e: InspectorTarget) { this.inspOpen = !!e.id; if (e.id) { this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; this.pluginOpen = false; } }
 
   @on(LogPanelTarget)
-  private onLogs(e: LogPanelTarget) { this.logsOpen = !!e.method; if (e.method) { this.inspOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; } }
+  private onLogs(e: LogPanelTarget) { this.logsOpen = !!e.method; if (e.method) { this.inspOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; this.pluginOpen = false; } }
 
   @on(ImageInspectorTarget)
-  private onImage(e: ImageInspectorTarget) { this.imgOpen = !!e.ref; if (e.ref) { this.inspOpen = false; this.logsOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; } }
+  private onImage(e: ImageInspectorTarget) { this.imgOpen = !!e.ref; if (e.ref) { this.inspOpen = false; this.logsOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; this.pluginOpen = false; } }
 
   @on(VolumeInspectorTarget)
-  private onVolume(e: VolumeInspectorTarget) { this.volOpen = !!e.name; if (e.name) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.netOpen = false; this.connOpen = false; } }
+  private onVolume(e: VolumeInspectorTarget) { this.volOpen = !!e.name; if (e.name) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.netOpen = false; this.connOpen = false; this.pluginOpen = false; } }
 
   @on(NetworkInspectorTarget)
-  private onNetwork(e: NetworkInspectorTarget) { this.netOpen = !!e.ref; if (e.ref) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.connOpen = false; } }
+  private onNetwork(e: NetworkInspectorTarget) { this.netOpen = !!e.ref; if (e.ref) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.connOpen = false; this.pluginOpen = false; } }
 
   @on(ConnectorInspectorTarget)
-  private onConnector(e: ConnectorInspectorTarget) { this.connOpen = !!e.id; if (e.id) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; } }
+  private onConnector(e: ConnectorInspectorTarget) { this.connOpen = !!e.id; if (e.id) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.pluginOpen = false; } }
+
+  @on(PluginInspectorTarget)
+  private onPlugin(e: PluginInspectorTarget) { this.pluginOpen = !!e.key; if (e.key) { this.inspOpen = false; this.logsOpen = false; this.imgOpen = false; this.volOpen = false; this.netOpen = false; this.connOpen = false; } }
 
   // Drag the rail's right edge to resize its width (clamped, persisted).
   private startRail = (e: PointerEvent) => {
@@ -156,10 +160,10 @@ export class HopeApp extends LoomElement {
           <div class="content">
             <loom-outlet styles={[theme]}></loom-outlet>
           </div>
-          {this.inspOpen || this.logsOpen || this.imgOpen || this.volOpen || this.netOpen || this.connOpen ? (
+          {this.inspOpen || this.logsOpen || this.imgOpen || this.volOpen || this.netOpen || this.connOpen || this.pluginOpen ? (
             <>
               <div class="rzy" onPointerDown={this.startPanel}></div>
-              <div class="panel">{this.logsOpen ? <hope-logs></hope-logs> : this.imgOpen ? <hope-image-inspector></hope-image-inspector> : this.volOpen ? <hope-volume-inspector></hope-volume-inspector> : this.netOpen ? <hope-network-inspector></hope-network-inspector> : this.connOpen ? <hope-connector-inspector></hope-connector-inspector> : <hope-inspector></hope-inspector>}</div>
+              <div class="panel">{this.logsOpen ? <hope-logs></hope-logs> : this.imgOpen ? <hope-image-inspector></hope-image-inspector> : this.volOpen ? <hope-volume-inspector></hope-volume-inspector> : this.netOpen ? <hope-network-inspector></hope-network-inspector> : this.connOpen ? <hope-connector-inspector></hope-connector-inspector> : this.pluginOpen ? <hope-plugin-inspector></hope-plugin-inspector> : <hope-inspector></hope-inspector>}</div>
             </>
           ) : null}
         </div>

@@ -24,6 +24,16 @@ type Config struct {
 	Agent       AgentConfig       `mapstructure:"agent"`
 	Cloudflare  CloudflareConfig  `mapstructure:"cloudflare"`
 	Store       StoreConfig       `mapstructure:"store"`
+	Plugins     PluginsConfig     `mapstructure:"plugins"`
+}
+
+// PluginsConfig gates the container-plugin system: hope discovers containers that
+// declare a JSON-RPC endpoint (labels hope.plugin.*) and renders their capabilities
+// in the UI. A single capability flag; everything else (which plugins are trusted)
+// lives in the UI + the embedded store. Default off. Requires the store mounted to
+// persist approvals across restarts.
+type PluginsConfig struct {
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // StoreConfig points at hope's optional embedded state db (bbolt). Empty Path =

@@ -137,3 +137,16 @@ allow_paths = ["/_ping", "/version", "/info", "/v1.*/containers/*", "/v1.*/image
 enabled = false
 api_token = ""
 account_id = ""
+
+[plugins]
+# Opt-in plugin system: hope discovers containers on the fleet that expose a small
+# JSON-RPC endpoint declared via labels
+#   hope.plugin=true             # opt in
+#   hope.plugin.port=8080        # the container port the endpoint listens on
+#   hope.plugin.path=/__hope     # optional, default /__hope
+# and — once you enable each discovered plugin in the UI — renders its data views,
+# actions, and live streams inside hope, proxying every call itself. hope never
+# exposes a plugin to the browser. This is only the capability gate; which plugins
+# are trusted is decided in the UI and persisted in the store ([store] must be
+# mounted to keep approvals across restarts). See docs/plugin-protocol.md.
+enabled = false

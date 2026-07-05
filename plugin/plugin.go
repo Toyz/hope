@@ -72,6 +72,11 @@ type Plugin struct {
 	streams  map[string]streamEntry
 	contribs []Contribution
 
+	// Operator-managed settings: the declared schema + the current values hope
+	// pushes via hope.settings (read in a handler with SettingValue).
+	settings    []Setting
+	settingVals map[string]string
+
 	// auth: token is the configured shared secret (HOPE_PLUGIN_TOKEN or Token()).
 	// When empty, the plugin trusts-on-first-use — it pins the first bearer hope
 	// presents and rejects mismatches after (see authorize in jsonrpc.go).
@@ -90,10 +95,11 @@ func New(name, version string) *Plugin {
 		path:    "/__hope",
 		maxBody: 4 << 20,
 		icons:   map[string]string{},
-		views:   map[string]viewEntry{},
-		actions: map[string]actionEntry{},
-		streams: map[string]streamEntry{},
-		token:   os.Getenv("HOPE_PLUGIN_TOKEN"),
+		views:       map[string]viewEntry{},
+		actions:     map[string]actionEntry{},
+		streams:     map[string]streamEntry{},
+		settingVals: map[string]string{},
+		token:       os.Getenv("HOPE_PLUGIN_TOKEN"),
 	}
 }
 
@@ -184,6 +190,41 @@ func (p *Plugin) Stream(method, label string, kind StreamKind, fn StreamFunc) *P
 	return p
 }
 
+// Setting declares an operator-managed configuration field. hope renders these in
+// the plugin inspector, persists the values (encrypted), and pushes them to the
+// plugin; read a value in any handler with SettingValue. Settings are config the
+// operator SETS — distinct from the panel the plugin SHOWS.
+func (p *Plugin) Setting(s Setting) *Plugin {
+	p.settings = append(p.settings, s)
+	return p
+}
+
+// SettingValue returns the current value of an operator-managed setting (the value
+// hope last pushed), falling back to the declared default. Safe for concurrent use.
+func (p *Plugin) SettingValue(key string) string {
+	p.mu.Lock()
+	v, ok := p.settingVals[key]
+	p.mu.Unlock()
+	if ok && v != "" {
+		return v
+	}
+	for _, s := range p.settings {
+		if s.Key == key {
+			return s.Default
+		}
+	}
+	return v
+}
+
+// applySettings replaces the current setting values (hope.settings push).
+func (p *Plugin) applySettings(vals map[string]string) {
+	next := make(map[string]string, len(vals))
+	maps.Copy(next, vals)
+	p.mu.Lock()
+	p.settingVals = next
+	p.mu.Unlock()
+}
+
 // Contribute adds an explicit UI contribution. Without any, the plugin
 // auto-generates a single container contribution (see layout) listing every
 // registered capability — so a minimal plugin needs no layout code.
@@ -211,6 +252,7 @@ func (p *Plugin) schema() Schema {
 	if len(p.icons) > 0 {
 		s.Icons = p.icons
 	}
+	s.Settings = p.settings
 	for _, m := range p.order {
 		switch {
 		case p.views[m].fn != nil:

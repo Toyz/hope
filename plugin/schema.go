@@ -61,6 +61,35 @@ type Schema struct {
 	Actions         []ActionDesc      `json:"actions"`
 	Views           []ViewDesc        `json:"views"`
 	Streams         []StreamDesc      `json:"streams"`
+	Settings        []Setting         `json:"settings,omitempty"` // operator-managed config (see Setting)
+}
+
+// SettingKind enumerates the input type for an operator-managed plugin setting.
+type SettingKind string
+
+const (
+	SettingText     SettingKind = "text"
+	SettingTextarea SettingKind = "textarea"
+	SettingSelect   SettingKind = "select"
+	SettingToggle   SettingKind = "toggle"
+	SettingNumber   SettingKind = "number"
+	SettingSecret   SettingKind = "secret" // masked input; hope stores it encrypted, never renders it back
+)
+
+// Setting is one operator-managed configuration field the plugin exposes. Unlike
+// an action's Fields (per-invocation input), settings are configured once in the
+// plugin inspector, persisted by hope (encrypted at rest), and pushed to the
+// plugin via the reserved hope.settings method — read them in a handler with
+// plugin.SettingValue(key). This is distinct from the plugin's rendered panel &
+// metrics, which live on the container inspector: settings are what the operator
+// CONFIGURES, the panel is what the plugin SHOWS.
+type Setting struct {
+	Key     string      `json:"key"`
+	Label   string      `json:"label"`
+	Kind    SettingKind `json:"kind,omitempty"` // default text
+	Default string      `json:"default,omitempty"`
+	Hint    string      `json:"hint,omitempty"`
+	Options []Option    `json:"options,omitempty"` // for kind=select
 }
 
 // ActionDesc describes an invocable action (a mutation). Danger flags a

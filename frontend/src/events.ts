@@ -78,6 +78,17 @@ export class ConnectorInspectorTarget extends LoomEvent {
   }
 }
 
+// Fired to open/close the docked plugin inspector. key is the plugin's stable
+// identity (host|project/service); host is the fleet host it lives on.
+export class PluginInspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public key: string,
+  ) {
+    super();
+  }
+}
+
 // Fired to open the global command palette (the ⌘K "jump to" search). The topbar
 // search box emits it; <hope-palette> listens (⌘K itself is handled in-palette).
 export class PaletteToggle extends LoomEvent {}

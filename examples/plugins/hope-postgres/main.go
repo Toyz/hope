@@ -28,6 +28,10 @@ func main() {
 		Description("Browse and query a Postgres database").
 		Icon("database")
 
+	// Operator-managed setting: the max rows the tables view returns. Configured +
+	// saved from the plugin inspector; read here with p.SettingValue.
+	p.Setting(plugin.Setting{Key: "page_size", Label: "Page size", Kind: plugin.SettingNumber, Default: "500", Hint: "max rows per table listing"})
+
 	// kv: server + database overview.
 	p.View("overview", "Overview", plugin.KV, func(ctx context.Context) (any, error) {
 		pool, err := getPool(ctx)
@@ -51,14 +55,19 @@ func main() {
 		return out, nil
 	})
 
-	// table: user tables with live row estimates.
+	// table: user tables with live row estimates. Row cap comes from the operator
+	// setting (a validated int, so it's safe to inline into the query).
 	p.View("tables", "Tables", plugin.Table, func(ctx context.Context) (any, error) {
+		limit := 500
+		if n, err := strconv.Atoi(p.SettingValue("page_size")); err == nil && n > 0 && n <= 100000 {
+			limit = n
+		}
 		return grid(ctx, `
 			select schemaname as schema, relname as table, n_live_tup as rows,
 			       pg_size_pretty(pg_total_relation_size(relid)) as size
 			from pg_stat_user_tables
 			order by n_live_tup desc
-			limit 500`)
+			limit `+strconv.Itoa(limit))
 	})
 
 	// query: run the operator's SQL and return the grid. The plugin owns the DB

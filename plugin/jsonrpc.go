@@ -113,6 +113,23 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// hope pushes operator-managed setting values here; the plugin reads them via
+	// SettingValue. params: {"values": {"<key>": "<value>"}}.
+	if req.Method == "hope.settings" {
+		var in struct {
+			Values map[string]string `json:"values"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &in); err != nil {
+				writeError(w, req.ID, codeInvalidArgs, "invalid params")
+				return
+			}
+		}
+		p.applySettings(in.Values)
+		writeResult(w, req.ID, map[string]any{"ok": true})
+		return
+	}
+
 	ctx := context.WithValue(r.Context(), paramsKey{}, req.Params)
 
 	if st, ok := p.streams[req.Method]; ok {

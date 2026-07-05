@@ -17,6 +17,7 @@ import { ImageInspector } from "./image-inspector";
 import { VolumeInspector } from "./volume-inspector";
 import { NetworkInspector } from "./network-inspector";
 import { ConnectorInspector } from "./connector-inspector";
+import { PluginInspector } from "./plugin-inspector";
 import { DeployIntent } from "./deploy-intent";
 import { NetworkDetailService } from "./components/network-detail";
 
@@ -36,6 +37,7 @@ import "./components/image-inspector"; // docked image inspector (<hope-image-in
 import "./components/volume-inspector"; // docked volume inspector (<hope-volume-inspector>)
 import "./components/network-inspector"; // docked network inspector (<hope-network-inspector>)
 import "./components/connector-inspector"; // docked connector inspector (<hope-connector-inspector>)
+import "./components/plugin-inspector"; // docked plugin inspector (<hope-plugin-inspector>)
 import "./components/sysbanner"; // global persistence warning above the shell (<hope-sysbanner>)
 import "./components/tooltip"; // reusable hover tooltip (<hope-tip>)
 import "./components/phead"; // shared page header: title row + stat band (<hope-phead>)
@@ -62,6 +64,7 @@ import "./pages/networks";
 import "./pages/volumes";
 import "./pages/agents";
 import "./pages/registries";
+import "./pages/plugins";
 import "./pages/tunnels";
 import "./pages/api-docs";
 
@@ -77,6 +80,7 @@ app.use(ImageInspector);
 app.use(VolumeInspector);
 app.use(NetworkInspector);
 app.use(ConnectorInspector);
+app.use(PluginInspector);
 app.use(DeployIntent);
 app.use(NetworkDetailService);
 
