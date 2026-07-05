@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -32,6 +34,27 @@ type Host struct {
 	Remote      string
 	ConnectedAt time.Time
 	Info        AgentInfo
+
+	sess        *yamux.Session // for opening typed streams (container dial)
+	streamTypes bool           // agent negotiated typed streams (DOCKER/DIAL)
+}
+
+// DialContainer opens a tunnel stream that the agent connects to addr (an
+// ip:port on the agent's host) and returns it as a net.Conn. Requires a
+// stream-type-capable agent.
+func (h *Host) DialContainer(addr string) (net.Conn, error) {
+	if !h.streamTypes || h.sess == nil {
+		return nil, errors.New("agent is too old to dial containers (update the agent)")
+	}
+	s, err := h.sess.Open()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.Write([]byte("DIAL " + addr + "\n")); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // Registry tracks the live agents. Safe for concurrent use.
@@ -117,6 +140,16 @@ func NewHub(token, configPath string, log Logger) *Hub {
 
 // Registry exposes the live hosts for routing.
 func (h *Hub) Registry() *Registry { return h.reg }
+
+// DialContainer opens a stream to a connected host's agent that connects to addr
+// (ip:port) on that host, for reaching a plugin container over the tunnel.
+func (h *Hub) DialContainer(hostID, addr string) (net.Conn, error) {
+	host := h.reg.Host(hostID)
+	if host == nil {
+		return nil, fmt.Errorf("host %q is not connected", hostID)
+	}
+	return host.DialContainer(addr)
+}
 
 // ServeWS upgrades an HTTP request to a WebSocket and runs the agent tunnel
 // over it, so the agent can reach the hub on hope's main HTTPS port (through
@@ -208,7 +241,21 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 			info.ContainerID = deDash(parts[8])
 		}
 	}
-	if _, err := conn.Write([]byte("OK\n")); err != nil {
+	// Typed-stream negotiation: a capable agent advertises capStreamTypes in a
+	// trailing handshake field; hope echoes it in the OK reply only when it too
+	// supports it. Both new => streams carry a DOCKER/DIAL header; any old peer =>
+	// plain OK, docker-only (fully back-compatible).
+	streamTypes := false
+	for _, f := range parts[min(len(parts), 9):] {
+		if f == capStreamTypes {
+			streamTypes = true
+		}
+	}
+	reply := "OK\n"
+	if streamTypes {
+		reply = "OK " + capStreamTypes + "\n"
+	}
+	if _, err := conn.Write([]byte(reply)); err != nil {
 		conn.Close()
 		return
 	}
@@ -220,8 +267,20 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 		conn.Close()
 		return
 	}
+	// When typed streams are on, every docker stream is prefixed with a DOCKER
+	// line so the agent can distinguish it from a container DIAL.
 	dock, err := docker.NewOverDialer(h.configPath, func(_ context.Context, _, _ string) (net.Conn, error) {
-		return sess.Open()
+		s, err := sess.Open()
+		if err != nil {
+			return nil, err
+		}
+		if streamTypes {
+			if _, err := s.Write([]byte("DOCKER\n")); err != nil {
+				s.Close()
+				return nil, err
+			}
+		}
+		return s, nil
 	})
 	if err != nil {
 		sess.Close()
@@ -233,7 +292,7 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	if info.ContainerID != "" {
 		dock.SetSelfID(info.ContainerID)
 	}
-	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now(), Info: info}
+	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now(), Info: info, sess: sess, streamTypes: streamTypes}
 	h.reg.add(host)
 	h.log.Info("agent online", "host", hostID, "remote", host.Remote)
 

@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,6 +98,67 @@ func (c *Client) PluginContainers(ctx context.Context) ([]PluginContainer, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// PluginDialCandidates returns ordered host:port addresses hope can try to reach a
+// container's port, plus the user network to attach to. Order:
+//  1. the container's network IP (works when hope shares the network — the normal
+//     containerized deployment, after AttachNetwork);
+//  2. any PUBLISHED host port at 127.0.0.1 (works for NATIVE hope, including Docker
+//     Desktop, which forwards published ports to localhost) — the dev fast path.
+// Errors only if the container exposes neither.
+func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) (targets []string, attachNet string, err error) {
+	insp, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	ns := insp.NetworkSettings
+	if ns == nil {
+		return nil, "", errors.New("container has no network settings")
+	}
+	// 1) container network IP — prefer a user network hope can attach to.
+	var ip, ipNet, fbIP, fbNet string
+	for name, ep := range ns.Networks {
+		if ep == nil || ep.IPAddress == "" {
+			continue
+		}
+		if name == "bridge" || name == "host" || name == "none" {
+			if fbIP == "" {
+				fbIP, fbNet = ep.IPAddress, name
+			}
+			continue
+		}
+		ip, ipNet = ep.IPAddress, name
+		break
+	}
+	if ip == "" {
+		ip, ipNet = fbIP, fbNet
+	}
+	if ip != "" {
+		targets = append(targets, net.JoinHostPort(ip, strconv.Itoa(port)))
+	}
+	attachNet = ipNet
+	// 2) published host port — the dev fast path for native hope.
+	prefix := strconv.Itoa(port) + "/"
+	for k, binds := range ns.Ports {
+		if !strings.HasPrefix(string(k), prefix) {
+			continue
+		}
+		for _, b := range binds {
+			if b.HostPort == "" {
+				continue
+			}
+			hip := b.HostIP
+			if hip == "" || hip == "0.0.0.0" || hip == "::" {
+				hip = "127.0.0.1"
+			}
+			targets = append(targets, net.JoinHostPort(hip, b.HostPort))
+		}
+	}
+	if len(targets) == 0 {
+		return nil, "", errors.New("container has no reachable address (no network IP, no published port)")
+	}
+	return targets, attachNet, nil
 }
 
 // truthy reports whether a label value opts in (true/1/yes/on, case-insensitive).

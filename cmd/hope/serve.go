@@ -268,7 +268,11 @@ func runServe(configPath string) error {
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
-	gw.Register(pluginhost.NewPluginsRouter(hostSet, st, cfg.Plugins.Enabled))
+	var pluginDialer pluginhost.ContainerDialer
+	if hub != nil {
+		pluginDialer = hub // remote plugin dialing over the agent tunnel
+	}
+	gw.Register(pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled))
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)

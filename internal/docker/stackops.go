@@ -370,6 +370,11 @@ func (c *Client) selfID() string {
 // so self-recreate detection works across the tunnel).
 func (c *Client) SetSelfID(id string) { c.selfHint = id }
 
+// SelfID is the exported view of selfID — this client's own container id (hope's
+// on the local daemon, the agent's on a tunnel). Used by the plugin host to attach
+// hope to a plugin's network before dialing it.
+func (c *Client) SelfID() string { return c.selfID() }
+
 // isSelf reports whether id refers to hope's own container.
 func (c *Client) isSelf(id string) bool {
 	s := c.selfID()

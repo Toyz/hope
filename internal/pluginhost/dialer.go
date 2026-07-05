@@ -1,0 +1,155 @@
+package pluginhost
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hosts"
+)
+
+// ContainerDialer opens a raw connection to a container's ip:port on a remote host
+// over the agent tunnel. Satisfied by *agent.Hub; nil when no hub is configured.
+type ContainerDialer interface {
+	DialContainer(hostID, addr string) (net.Conn, error)
+}
+
+const (
+	dialTimeout = 15 * time.Second
+	maxRespBody = 4 << 20 // mirror front.go's cap — a plugin must not flood the control plane
+)
+
+// endpoint is a dialed plugin: the ordered JSON-RPC URLs to try (network IP first,
+// published-port fallback), the bearer token hope presents, and an http client.
+type endpoint struct {
+	urls   []string
+	token  string
+	client *http.Client
+}
+
+// hostClient finds a connected host by id.
+func (r *PluginsRouter) hostClient(host string) (hosts.HostClient, bool) {
+	for _, h := range r.hosts.All() {
+		if h.ID == host {
+			return h, true
+		}
+	}
+	return hosts.HostClient{}, false
+}
+
+// dial prepares an endpoint to reach a plugin container's JSON-RPC URL. v1 handles
+// the LOCAL host only: it resolves the container IP, best-effort attaches hope to
+// the plugin's network so the IP is routable, then returns an http endpoint.
+// Remote hosts error until the agent DIAL stream lands (a later phase).
+func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginContainer, token string) (*endpoint, error) {
+	hc, ok := r.hostClient(host)
+	if !ok || hc.Client == nil {
+		return nil, fmt.Errorf("host %q is not connected", host)
+	}
+	dock := hc.Client
+	targets, netName, err := dock.PluginDialCandidates(ctx, pc.ContainerID, pc.Port)
+	if err != nil {
+		return nil, fmt.Errorf("resolve plugin address: %w", err)
+	}
+	path := pc.Path
+	if path == "" {
+		path = "/__hope"
+	}
+	// Best-effort attach the routing container (hope locally, the agent remotely) to
+	// the plugin's network so the container IP is routable. Harmless if already on
+	// it or not containerized. Done over the same docker client either way (local
+	// daemon, or the agent's daemon over the tunnel).
+	if self := dock.SelfID(); self != "" && netName != "" {
+		_ = dock.AttachNetwork(ctx, self, netName, nil)
+	}
+
+	if hc.Kind == "local" {
+		urls := make([]string, len(targets))
+		for i, t := range targets {
+			urls[i] = "http://" + t + path
+		}
+		return &endpoint{urls: urls, token: token, client: &http.Client{Timeout: dialTimeout}}, nil
+	}
+
+	// Remote host: dial the plugin's network IP through the agent tunnel. The
+	// published-port candidate is meaningless remotely (the agent's localhost isn't
+	// the host's), so use the network IP (targets[0]).
+	if r.dialer == nil {
+		return nil, fmt.Errorf("remote plugin dialing needs the agent hub, which is not enabled")
+	}
+	target := targets[0]
+	client := &http.Client{
+		Timeout: dialTimeout,
+		Transport: &http.Transport{
+			DisableKeepAlives: true, // one tunnel stream per request
+			DialContext: func(dctx context.Context, _, _ string) (net.Conn, error) {
+				return r.dialer.DialContainer(host, target)
+			},
+		},
+	}
+	return &endpoint{urls: []string{"http://" + target + path}, token: token, client: client}, nil
+}
+
+// callRPC performs one unary JSON-RPC 2.0 request and returns the raw result (or a
+// Go error carrying the plugin's JSON-RPC error).
+func (e *endpoint) callRPC(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	var praw json.RawMessage
+	if params != nil {
+		b, err := json.Marshal(params)
+		if err != nil {
+			return nil, err
+		}
+		praw = b
+	}
+	reqBody, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": praw})
+	if err != nil {
+		return nil, err
+	}
+
+	// Try each candidate address; a connection failure falls through to the next
+	// (network IP -> published port). Once we get an HTTP response it's
+	// authoritative — parse it, even if the plugin returned a JSON-RPC error.
+	var connErr error
+	for _, url := range e.urls {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if e.token != "" {
+			req.Header.Set("Authorization", "Bearer "+e.token)
+		}
+		resp, err := e.client.Do(req)
+		if err != nil {
+			connErr = err
+			continue
+		}
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
+		resp.Body.Close()
+		if rerr != nil {
+			return nil, rerr
+		}
+		var out struct {
+			Result json.RawMessage `json:"result"`
+			Error  *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(body, &out); err != nil {
+			return nil, fmt.Errorf("bad plugin response: %w", err)
+		}
+		if out.Error != nil {
+			return nil, fmt.Errorf("plugin error %d: %s", out.Error.Code, out.Error.Message)
+		}
+		return out.Result, nil
+	}
+	// Every candidate refused/unreachable — actionable guidance.
+	return nil, fmt.Errorf("%w — hope couldn't reach the plugin. Run hope as a container (it auto-attaches to the plugin's network), or publish the plugin's port for native/Desktop dev", connErr)
+}

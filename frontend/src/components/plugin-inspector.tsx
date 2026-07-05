@@ -11,11 +11,27 @@ import { HopeTransport } from "../transport";
 import { PluginInspector } from "../plugin-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
+import { PromptService, type PromptField } from "../prompt";
 import { PluginInspectorTarget } from "../events";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
 import type { PluginView } from "../contracts";
 import { theme } from "../styles";
+
+// A plugin's operator-managed setting descriptor (subset of hope.schema.settings).
+interface PluginSetting {
+  key: string;
+  label: string;
+  kind?: "text" | "textarea" | "select" | "toggle" | "number" | "secret";
+  default?: string;
+  hint?: string;
+  options?: { label: string; value: string }[];
+}
+interface PluginManifest {
+  schema: { settings?: PluginSetting[] };
+  layout: unknown;
+  settings: Record<string, string> | null;
+}
 
 @component("hope-plugin-inspector")
 @styles(theme, css`
@@ -56,12 +72,18 @@ import { theme } from "../styles";
   .future { margin: 12px 15px; padding: 22px 16px; border: 1px dashed var(--line2); text-align: center; color: var(--dim); font: 12px/1.7 var(--mono); }
   .future b { color: var(--mid); font-weight: 600; }
   .empty { padding: 18px 15px; color: var(--dim); font: 12px/1.4 var(--mono); }
+  .ctitle { display: flex; align-items: center; justify-content: space-between; }
+  .ctitle .edit { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .ctitle .edit:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .retry { margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line2); color: var(--mid); cursor: pointer; font: 11px/1.4 var(--mono); }
+  .retry:hover { color: var(--upd); }
 `)
 export class HopePluginInspector extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(PluginInspector) accessor insp!: PluginInspector;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ToastService) accessor toast!: ToastService;
+  @inject(PromptService) accessor prompt!: PromptService;
 
   @reactive accessor host = "";
   @reactive accessor key = "";
@@ -69,6 +91,12 @@ export class HopePluginInspector extends LoomElement {
   @reactive accessor error = "";
   @reactive accessor busy = false;
   @reactive accessor storeOn = true;
+
+  // Settings (fetched from the manifest once the plugin is enabled + reachable).
+  @reactive accessor settings: PluginSetting[] = [];
+  @reactive accessor settingVals: Record<string, string> = {};
+  @reactive accessor manifestErr = "";
+  @reactive accessor manifestBusy = false;
 
   @mount
   onMount() {
@@ -90,16 +118,59 @@ export class HopePluginInspector extends LoomElement {
 
   private async load() {
     if (!this.key) return;
+    this.settings = [];
+    this.settingVals = {};
+    this.manifestErr = "";
     try {
       const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host: this.host }])) || [];
       const v = all.find((p) => p.key === this.key) || null;
       this.view = v;
       this.error = v ? "" : "plugin not found on this host";
+      if (v?.enabled) void this.loadManifest();
     } catch (e: any) {
       this.error = e?.message ?? "failed to load plugin";
       this.view = null;
     }
   }
+
+  // Dial the enabled plugin for its settings schema + current values. Reachability
+  // failures are non-fatal — the identity/trust view still renders.
+  private async loadManifest() {
+    this.manifestBusy = true;
+    try {
+      const m = await this.rpc.call<PluginManifest>("Plugins", "manifest", [{ key: this.key }]);
+      this.settings = m?.schema?.settings || [];
+      this.settingVals = m?.settings || {};
+      this.manifestErr = "";
+    } catch (e: any) {
+      this.manifestErr = e?.message ?? "couldn't reach the plugin";
+    } finally {
+      this.manifestBusy = false;
+    }
+  }
+
+  // Edit settings via the shared prompt form, then persist + push through hope.
+  private editSettings = async () => {
+    if (!this.settings.length) return;
+    const fields: PromptField[] = this.settings.map((s) => ({
+      key: s.key,
+      label: s.label || s.key,
+      type: s.kind === "textarea" ? "textarea" : s.kind === "select" ? "select" : s.kind === "toggle" ? "toggle" : "text",
+      value: this.settingVals[s.key] ?? s.default ?? "",
+      hint: s.hint,
+      options: s.options,
+      optional: true,
+    }));
+    const v = await this.prompt.ask({ title: "plugin settings", icon: "edit", submitLabel: "Save", fields });
+    if (!v) return;
+    try {
+      await this.rpc.call("Plugins", "setSettings", [{ key: this.key, values: v }]);
+      this.toast.ok("saved settings");
+      void this.loadManifest();
+    } catch (e: any) {
+      this.toast.error(`save — ${e?.message ?? "failed"}`);
+    }
+  };
 
   private act = async (method: "enable" | "disable" | "forget") => {
     const v = this.view;
@@ -126,6 +197,13 @@ export class HopePluginInspector extends LoomElement {
       this.busy = false;
     }
   };
+
+  // Display value for a setting row — secrets are masked, never revealed.
+  private settingDisplay(s: PluginSetting): string {
+    const val = this.settingVals[s.key] ?? s.default ?? "";
+    if (s.kind === "secret") return val ? "••••••" : "—";
+    return val || "—";
+  }
 
   private gotoContainer() {
     const v = this.view;
@@ -185,12 +263,25 @@ export class HopePluginInspector extends LoomElement {
             </div>
 
             <div class="col">
-              <div class="ctitle">settings</div>
-              <div class="future">
-                {v.enabled
-                  ? <span>Operator-managed <b>settings</b> the plugin declares are configured &amp; saved here.<br />Its own panel &amp; live metrics render on the <b>container</b> inspector — it's just a container.<br />(editable form arrives once hope dials the plugin.)</span>
-                  : <span>Enable this plugin to configure its settings here.<br />Its panel &amp; metrics render on the <b>container</b> inspector.</span>}
+              <div class="ctitle">
+                settings
+                {v.enabled && this.settings.length ? <button class="edit" onClick={this.editSettings}><loom-icon name="edit" size={12}></loom-icon>edit</button> : null}
               </div>
+              {!v.enabled ? (
+                <div class="future"><span>Enable this plugin to configure its settings here.<br />Its panel &amp; live metrics render on the <b>container</b> inspector — it's just a container.</span></div>
+              ) : this.manifestBusy && !this.settings.length ? (
+                <div class="empty">dialing the plugin…</div>
+              ) : this.manifestErr ? (
+                <div class="empty">couldn't reach the plugin — {this.manifestErr} <button class="retry" onClick={() => this.loadManifest()}>retry</button></div>
+              ) : !this.settings.length ? (
+                <div class="future"><span>This plugin exposes no settings.<br />Its panel &amp; live metrics render on the <b>container</b> inspector.</span></div>
+              ) : (
+                <>
+                  {this.settings.map((s) => (
+                    <div class="row"><span class="k">{s.label || s.key}</span><span class="v">{this.settingDisplay(s)}</span></div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         )}

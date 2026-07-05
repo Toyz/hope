@@ -27,6 +27,13 @@ import (
 // protoLine is the handshake the agent sends first: "HOPE-AGENT/1 <token> <id>".
 const protoVersion = "HOPE-AGENT/1"
 
+// capStreamTypes is the handshake capability token for typed tunnel streams: the
+// agent advertises it, the hub echoes it in the OK reply, and when both agree each
+// stream is prefixed with a type line ("DOCKER" or "DIAL <addr>") so the same
+// tunnel can proxy the docker socket AND dial plugin containers. Back-compatible:
+// any peer that omits it stays docker-only.
+const capStreamTypes = "streamtypes"
+
 // Logger is the small logging surface the agent/hub need (hope's logger fits).
 type Logger interface {
 	Info(msg string, kv ...any)
@@ -96,19 +103,26 @@ func serveOnce(ctx context.Context, opts Options) error {
 		return s
 	}
 	selfID, _ := os.Hostname() // inside the container this is its short id
-	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s %s\n",
+	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s %s %s\n",
 		protoVersion, opts.Token, opts.HostID,
-		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime), f(selfID)); err != nil {
+		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime), f(selfID), capStreamTypes); err != nil {
 		return err
 	}
 	reply, err := readLine(conn)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(reply) != "OK" {
+	replyFields := strings.Fields(strings.TrimSpace(reply))
+	if len(replyFields) == 0 || replyFields[0] != "OK" {
 		return fmt.Errorf("hub rejected: %s", strings.TrimSpace(reply))
 	}
-	opts.Log.Info("agent connected", "hub", opts.Connect, "host", opts.HostID)
+	streamTypes := false
+	for _, cap := range replyFields[1:] {
+		if cap == capStreamTypes {
+			streamTypes = true
+		}
+	}
+	opts.Log.Info("agent connected", "hub", opts.Connect, "host", opts.HostID, "stream_types", streamTypes)
 
 	// Agent accepts streams; hope (the hub) opens them.
 	sess, err := yamux.Server(conn, yamuxCfg())
@@ -127,8 +141,61 @@ func serveOnce(ctx context.Context, opts Options) error {
 		if err != nil {
 			return err // session closed
 		}
-		go proxyToDocker(stream, opts.Docker)
+		if streamTypes {
+			go handleStream(stream, opts.Docker)
+		} else {
+			go proxyToDocker(stream, opts.Docker)
+		}
 	}
+}
+
+// handleStream dispatches a typed tunnel stream by its first line: "DIAL <addr>"
+// connects to a container's ip:port on this host; anything else (DOCKER) proxies
+// the docker socket. The header is read byte-by-byte so the remaining bytes are
+// left intact for the proxy.
+func handleStream(stream net.Conn, dockerHost string) {
+	line, err := readStreamLine(stream)
+	if err != nil {
+		stream.Close()
+		return
+	}
+	if addr, ok := strings.CutPrefix(line, "DIAL "); ok {
+		proxyToContainer(stream, strings.TrimSpace(addr))
+		return
+	}
+	proxyToDocker(stream, dockerHost)
+}
+
+// readStreamLine reads a single '\n'-terminated header from a stream without
+// over-reading into the payload that follows.
+func readStreamLine(r net.Conn) (string, error) {
+	var b []byte
+	one := make([]byte, 1)
+	for {
+		if _, err := r.Read(one); err != nil {
+			return "", err
+		}
+		if one[0] == '\n' {
+			return strings.TrimSpace(string(b)), nil
+		}
+		if b = append(b, one[0]); len(b) > 256 {
+			return "", fmt.Errorf("stream header too long")
+		}
+	}
+}
+
+// proxyToContainer pipes a tunnel stream to a container's ip:port on this host.
+func proxyToContainer(stream net.Conn, addr string) {
+	defer stream.Close()
+	d, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	done := make(chan struct{}, 1)
+	go func() { _, _ = io.Copy(d, stream); done <- struct{}{} }()
+	_, _ = io.Copy(stream, d)
+	<-done
 }
 
 // dialHub opens the transport to the hub: a WebSocket (ws://, wss://) so the

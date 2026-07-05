@@ -1,6 +1,8 @@
 package pluginhost
 
 import (
+	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,18 +18,20 @@ import (
 type PluginsRouter struct {
 	hosts   *hosts.Set
 	store   *store.Store
-	enabled bool // [plugins] enabled capability gate
+	dialer  ContainerDialer // agent hub for remote container dialing; nil if no hub
+	enabled bool            // [plugins] enabled capability gate
 
 	mu       sync.Mutex
 	cache    []Discovered
 	cachedAt time.Time
 }
 
-// NewPluginsRouter wires the router to the host set + state store. enabled is the
-// [plugins] config gate; when false every method reports the feature is off. sov
-// derives the wire name "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, enabled bool) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, enabled: enabled}
+// NewPluginsRouter wires the router to the host set + state store + the agent hub
+// (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
+// when false every method reports the feature is off. sov derives the wire name
+// "Plugins" by stripping the required "Router" suffix.
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled bool) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled}
 }
 
 // gate blocks every method when the feature is disabled in config.
@@ -244,4 +248,136 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 		return nil, rpc.Internal("forget: %v", err)
 	}
 	return map[string]any{"ok": true}, nil
+}
+
+// PluginManifest is what the UI needs to render an enabled plugin: its capability
+// schema (incl. settings), its UI layout (contributions), and the operator's
+// current setting values. Schema/Layout are passed through as raw JSON so hope
+// never has to model the plugin's own shapes.
+type PluginManifest struct {
+	Schema   json.RawMessage   `json:"schema"`
+	Layout   json.RawMessage   `json:"layout"`
+	Settings map[string]string `json:"settings"`
+}
+
+// enabledEndpoint resolves + dials an enabled plugin, returning its endpoint and
+// the representative container. Errors clearly if disabled or unreachable.
+func (r *PluginsRouter) enabledEndpoint(ctx *rpc.Context, key string) (*endpoint, *store.PluginRecord, error) {
+	rec, err := r.store.Plugin(key)
+	if err != nil {
+		return nil, nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil || !rec.Enabled {
+		return nil, nil, rpc.BadRequest("plugin is not enabled")
+	}
+	members, host, ok := r.group(ctx, key)
+	if !ok {
+		return nil, nil, rpc.BadRequest("plugin container not found (not running?)")
+	}
+	ep, err := r.dial(ctx, host, representative(members), rec.Token)
+	if err != nil {
+		return nil, nil, rpc.Internal("dial plugin: %v", err)
+	}
+	return ep, rec, nil
+}
+
+// Manifest dials an enabled plugin for its schema + layout and returns them with
+// the stored setting values. Used by the container inspector (layout) and the
+// plugin inspector (schema.settings + values).
+func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginManifest, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key is required")
+	}
+	ep, rec, err := r.enabledEndpoint(ctx, p.Key)
+	if err != nil {
+		return nil, err
+	}
+	schema, err := ep.callRPC(ctx, "hope.schema", nil)
+	if err != nil {
+		return nil, rpc.Internal("plugin schema: %v", err)
+	}
+	layout, err := ep.callRPC(ctx, "hope.layout", nil)
+	if err != nil {
+		return nil, rpc.Internal("plugin layout: %v", err)
+	}
+	return &PluginManifest{Schema: schema, Layout: layout, Settings: rec.Settings}, nil
+}
+
+// CallParams proxies one call to an enabled plugin's own method.
+type CallParams struct {
+	Key    string          `json:"key"`
+	Method string          `json:"method"`
+	Args   json.RawMessage `json:"args"`
+}
+
+// Call proxies a unary call to an enabled plugin's view/action method and returns
+// its raw result. Reserved hope.* methods can't be proxied (the protocol owns them).
+func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if p == nil || p.Key == "" || p.Method == "" {
+		return nil, rpc.BadRequest("key and method are required")
+	}
+	if strings.HasPrefix(p.Method, "hope.") {
+		return nil, rpc.BadRequest("hope.* methods are reserved and cannot be proxied")
+	}
+	ep, _, err := r.enabledEndpoint(ctx, p.Key)
+	if err != nil {
+		return nil, err
+	}
+	var args any
+	if len(p.Args) > 0 {
+		args = p.Args
+	}
+	res, err := ep.callRPC(ctx, p.Method, args)
+	if err != nil {
+		return nil, rpc.Internal("%v", err)
+	}
+	return res, nil
+}
+
+// SetSettingsParams sets operator-managed setting values for a plugin.
+type SetSettingsParams struct {
+	Key    string            `json:"key"`
+	Values map[string]string `json:"values"`
+}
+
+// SetSettings persists the operator's setting values (encrypted with the record)
+// and pushes them to the plugin via hope.settings. Persist always; the push is
+// best-effort (a stopped plugin gets them on the next SetSettings once running).
+func (r *PluginsRouter) SetSettings(ctx *rpc.Context, p *SetSettingsParams) (any, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if p == nil || p.Key == "" {
+		return nil, rpc.BadRequest("key is required")
+	}
+	if !r.store.Enabled() {
+		return nil, rpc.BadRequest("saving settings needs the state store mounted ([store] path)")
+	}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil || !rec.Enabled {
+		return nil, rpc.BadRequest("plugin is not enabled")
+	}
+	rec.Settings = p.Values
+	if err := r.store.PutPlugin(*rec); err != nil {
+		return nil, rpc.Internal("persist settings: %v", err)
+	}
+	// Best-effort push to the running plugin.
+	pushed := false
+	if members, host, ok := r.group(ctx, p.Key); ok {
+		if ep, derr := r.dial(ctx, host, representative(members), rec.Token); derr == nil {
+			if _, cerr := ep.callRPC(ctx, "hope.settings", map[string]any{"values": p.Values}); cerr == nil {
+				pushed = true
+			}
+		}
+	}
+	return map[string]any{"ok": true, "pushed": pushed}, nil
 }
