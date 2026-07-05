@@ -80,7 +80,7 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 			continue
 		}
 		rep := representative(members)
-		ep, err := r.dial(ctx, host, rep, rec.Token)
+		ep, err := r.dial(ctx, host, rep, rec.Token, false)
 		if err != nil {
 			continue // unreachable plugin — skip, don't fail the whole inspector
 		}

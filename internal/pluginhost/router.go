@@ -274,7 +274,7 @@ func (r *PluginsRouter) enabledEndpoint(ctx *rpc.Context, key string) (*endpoint
 	if !ok {
 		return nil, nil, rpc.BadRequest("plugin container not found (not running?)")
 	}
-	ep, err := r.dial(ctx, host, representative(members), rec.Token)
+	ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
 	if err != nil {
 		return nil, nil, rpc.Internal("dial plugin: %v", err)
 	}
@@ -373,7 +373,7 @@ func (r *PluginsRouter) SetSettings(ctx *rpc.Context, p *SetSettingsParams) (any
 	// Best-effort push to the running plugin.
 	pushed := false
 	if members, host, ok := r.group(ctx, p.Key); ok {
-		if ep, derr := r.dial(ctx, host, representative(members), rec.Token); derr == nil {
+		if ep, derr := r.dial(ctx, host, representative(members), rec.Token, false); derr == nil {
 			if _, cerr := ep.callRPC(ctx, "hope.settings", map[string]any{"values": p.Values}); cerr == nil {
 				pushed = true
 			}

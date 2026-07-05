@@ -1,6 +1,7 @@
 package pluginhost
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -47,7 +48,7 @@ func (r *PluginsRouter) hostClient(host string) (hosts.HostClient, bool) {
 // the LOCAL host only: it resolves the container IP, best-effort attaches hope to
 // the plugin's network so the IP is routable, then returns an http endpoint.
 // Remote hosts error until the agent DIAL stream lands (a later phase).
-func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginContainer, token string) (*endpoint, error) {
+func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginContainer, token string, streaming bool) (*endpoint, error) {
 	hc, ok := r.hostClient(host)
 	if !ok || hc.Client == nil {
 		return nil, fmt.Errorf("host %q is not connected", host)
@@ -68,13 +69,19 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	if self := dock.SelfID(); self != "" && netName != "" {
 		_ = dock.AttachNetwork(ctx, self, netName, nil)
 	}
+	// A stream must not use the unary request timeout (it would cut the stream off);
+	// it relies on context cancellation when the UI disconnects instead.
+	timeout := dialTimeout
+	if streaming {
+		timeout = 0
+	}
 
 	if hc.Kind == "local" {
 		urls := make([]string, len(targets))
 		for i, t := range targets {
 			urls[i] = "http://" + t + path
 		}
-		return &endpoint{urls: urls, token: token, client: &http.Client{Timeout: dialTimeout}}, nil
+		return &endpoint{urls: urls, token: token, client: &http.Client{Timeout: timeout}}, nil
 	}
 
 	// Remote host: dial the plugin's network IP through the agent tunnel. The
@@ -85,7 +92,7 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	}
 	target := targets[0]
 	client := &http.Client{
-		Timeout: dialTimeout,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			DisableKeepAlives: true, // one tunnel stream per request
 			DialContext: func(dctx context.Context, _, _ string) (net.Conn, error) {
@@ -152,4 +159,67 @@ func (e *endpoint) callRPC(ctx context.Context, method string, params any) (json
 	}
 	// Every candidate refused/unreachable — actionable guidance.
 	return nil, fmt.Errorf("%w — hope couldn't reach the plugin. Run hope as a container (it auto-attaches to the plugin's network), or publish the plugin's port for native/Desktop dev", connErr)
+}
+
+// stream POSTs a stream method and forwards each NDJSON result frame to onFrame
+// until the plugin ends the stream, the context is cancelled, or onFrame returns
+// an error (the UI disconnected). Reads incrementally — the endpoint's client must
+// have no unary timeout (see dial(streaming=true)).
+func (e *endpoint) stream(ctx context.Context, method string, params any, onFrame func(json.RawMessage) error) error {
+	var praw json.RawMessage
+	if params != nil {
+		b, err := json.Marshal(params)
+		if err != nil {
+			return err
+		}
+		praw = b
+	}
+	reqBody, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": praw})
+	if err != nil {
+		return err
+	}
+
+	var connErr error
+	for _, url := range e.urls {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if e.token != "" {
+			req.Header.Set("Authorization", "Bearer "+e.token)
+		}
+		resp, err := e.client.Do(req)
+		if err != nil {
+			connErr = err
+			continue
+		}
+		defer resp.Body.Close()
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 64*1024), maxRespBody)
+		for sc.Scan() {
+			line := bytes.TrimSpace(sc.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			var f struct {
+				Result json.RawMessage `json:"result"`
+				Error  *struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(line, &f); err != nil {
+				continue
+			}
+			if f.Error != nil {
+				return fmt.Errorf("plugin error %d: %s", f.Error.Code, f.Error.Message)
+			}
+			if err := onFrame(f.Result); err != nil {
+				return err
+			}
+		}
+		return sc.Err()
+	}
+	return fmt.Errorf("%w — hope couldn't reach the plugin for streaming", connErr)
 }

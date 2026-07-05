@@ -3,7 +3,7 @@
 // view-kind components (kv/table/query/tree), action buttons, and stream slots,
 // calling the plugin through Plugins.call. The SAME component renders a container
 // panel now and a full page later — it doesn't care which surface hosts it.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { PromptService, type PromptField } from "../prompt";
@@ -58,7 +58,8 @@ type Cell = { loading: boolean; error?: string; data?: any };
   ul.tree li { color: var(--mid); }
   ul.tree li > .lb { color: var(--hi); }
 
-  .stream { display: inline-flex; align-items: baseline; gap: 8px; padding: 8px 0; }
+  .streams { display: flex; gap: 26px; flex-wrap: wrap; padding: 4px 0; }
+  .stream { display: inline-flex; flex-direction: column; gap: 6px; padding: 8px 0; }
   .stream .k { color: var(--dim); font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
   .stream .v { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
 `)
@@ -73,27 +74,50 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor cells: Record<string, Cell> = {};
   @reactive accessor tabSel: Record<string, number> = {};
   @reactive accessor queryText: Record<string, string> = {};
+  @reactive accessor streamData: Record<string, any> = {};
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
   private streams: Record<string, StreamDesc> = {};
+  private abort?: AbortController;
 
   @mount onMount() { this.rebuild(); }
   @watch("surface") onSurface() { this.rebuild(); }
+  @unmount onUnmount() { this.abort?.abort(); }
 
   private rebuild() {
     const s = this.surface;
+    this.abort?.abort(); // tear down any previous streams (goroutine-leak class)
+    this.abort = new AbortController();
     this.views = {};
     this.actions = {};
     this.streams = {};
     this.cells = {};
+    this.streamData = {};
     if (!s) return;
     for (const v of s.schema.views || []) this.views[v.method] = v;
     for (const a of s.schema.actions || []) this.actions[a.method] = a;
     for (const st of s.schema.streams || []) this.streams[st.method] = st;
-    // Fetch every view referenced in the tree.
+    // Fetch every view referenced in the tree; open a subscription per stream.
     for (const ref of this.leafRefs(s.node)) {
       if (this.views[ref]) void this.fetch(ref);
+      else if (this.streams[ref]) void this.subscribe(ref);
+    }
+  }
+
+  // Subscribe to a plugin stream; each data frame updates the live value. The
+  // AbortController (torn down on unmount / surface change) cancels the fetch, and
+  // hope cancels the plugin's stream in turn.
+  private async subscribe(method: string) {
+    const s = this.surface;
+    if (!s || !this.abort) return;
+    try {
+      for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], this.abort.signal)) {
+        if (frame?.type === "data") this.streamData = { ...this.streamData, [method]: frame.data };
+        else if (frame?.type === "error") this.streamData = { ...this.streamData, [method]: { error: frame.error } };
+      }
+    } catch {
+      /* aborted or transport closed */
     }
   }
 
@@ -182,7 +206,8 @@ export class HopePluginSurface extends LoomElement {
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];
-      return <div class="leaf"><div class="llabel">{st.label}</div><div class="msg">live stream — wired in the streaming phase</div></div>;
+      const d = this.streamData[ref];
+      return <div class="leaf"><div class="llabel">{st.label}</div>{d != null ? this.renderStream(d) : <div class="msg">connecting…</div>}</div>;
     }
     const v = this.views[ref];
     if (!v) return null;
@@ -235,6 +260,14 @@ export class HopePluginSurface extends LoomElement {
         </table>
       </div>
     );
+  }
+
+  private renderStream(d: any) {
+    if (d && typeof d === "object" && d.error) return <div class="msg bad">{String(d.error)}</div>;
+    if (d && typeof d === "object") {
+      return <div class="streams">{Object.keys(d).map((k) => <div class="stream"><span class="k">{k}</span><span class="v">{this.cellStr(d[k])}</span></div>)}</div>;
+    }
+    return <div class="stream"><span class="v">{this.cellStr(d)}</span></div>;
   }
 
   private renderTree(nodes: any[]): any {

@@ -272,7 +272,9 @@ func runServe(configPath string) error {
 	if hub != nil {
 		pluginDialer = hub // remote plugin dialing over the agent tunnel
 	}
-	gw.Register(pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled))
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled)
+	gw.Register(pluginsRouter)
+	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
