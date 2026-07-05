@@ -145,7 +145,9 @@ interface HostSec {
   .hsearch input::placeholder { color: var(--dim); }
 
   /* fleet host cards use the shared .card / .cards system; these are the extras */
-  .hcards { padding: 20px 28px 40px; }
+  /* align-items:start so a sparse agent card (2 rows) isn't stretched to match a
+     dense one (local, +13 more) — that stretch left a big empty void below it. */
+  .hcards { padding: 20px 28px 40px; align-items: start; }
   .card-row .uparrow { color: var(--upd); flex: none; }
   .hc-offlbl { color: var(--bad); font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
   .hc-more, .hc-empty { padding: 8px 14px; color: var(--dim); font: 11px/1 var(--mono); }
