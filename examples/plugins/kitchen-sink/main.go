@@ -70,16 +70,20 @@ func main() {
 	// A real query view: SQL-highlighted editor; the input filters synthetic rows
 	// (a stand-in for "run your own query against this table").
 	p.QueryView("sql", "Query", "sql", func(ctx context.Context) (any, error) {
+		var pr struct {
+			Table string `json:"table"`
+		}
+		_ = plugin.Params(ctx, &pr) // the page's param (which table), when opened from Explorer
 		q := strings.ToLower(strings.TrimSpace(plugin.Input(ctx)))
 		rows := [][]any{}
 		for i := range 200 {
 			name := fmt.Sprintf("row-%d", i)
 			val := strconv.Itoa(i * 7 % 1000)
 			if q == "" || strings.Contains(strings.ToLower(name+" "+val), q) {
-				rows = append(rows, []any{i, name, val})
+				rows = append(rows, []any{i, orDefault(pr.Table, "-"), name, val})
 			}
 		}
-		return map[string]any{"columns": []string{"id", "name", "value"}, "rows": rows}, nil
+		return map[string]any{"columns": []string{"id", "table", "name", "value"}, "rows": rows}, nil
 	})
 
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
@@ -181,7 +185,11 @@ func main() {
 		}
 		dbs = append(dbs, plugin.PageItem{Title: db, Children: tables})
 	}
-	p.DynamicPage("Explorer", plugin.Section("", plugin.Leaf("overview"), plugin.Section("Rows", plugin.Leaf("rows"))), dbs)
+	p.DynamicPage("Explorer", plugin.Section("",
+		plugin.Leaf("overview"),
+		plugin.Section("Query", plugin.Leaf("sql")),
+		plugin.Section("Rows", plugin.Leaf("rows")),
+	), dbs)
 
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
