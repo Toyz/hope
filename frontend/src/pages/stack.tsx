@@ -23,7 +23,7 @@ import { LogPanel } from "../log-panel";
 import { withHost } from "../host-url";
 import { innerPort } from "../format";
 import { UNGROUPED } from "../const";
-import { stripAnsi } from "./container";
+import { stripAnsi } from "../format";
 
 
 // One fixed action order for every row (single, replica, group) so columns line

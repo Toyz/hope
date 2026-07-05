@@ -157,41 +157,6 @@ export const theme = css`
   hope-alert b { color: var(--hi); font-weight: 600; }
   hope-alert code { color: var(--hi); font-family: var(--mono); }
 
-  /* <hope-table> — the standard data table. The <table> is slotted (light DOM),
-     so it's styled here globally. Put a normal <table> inside <hope-table> and use
-     these cell classes. table-layout:fixed + ellipsis = aligned columns, no wrap. */
-  hope-table table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
-  hope-table table.flat { border: 0; } /* inside a <hope-panel>, the panel owns the border */
-  hope-table thead th { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line);
-    font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  hope-table th.r, hope-table td.r { text-align: right; }
-  hope-table tbody td { padding: 0 14px; height: 44px; border-bottom: 1px solid var(--line);
-    font: 12.5px/1.3 var(--mono); color: var(--mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  hope-table tbody tr:last-child td { border-bottom: none; }
-  hope-table tbody tr:hover td { background: var(--raised); }
-  hope-table tbody tr.sel td { background: color-mix(in srgb, var(--upd) 8%, transparent); }
-  hope-table tbody tr.click { cursor: pointer; }
-  hope-table th.pl, hope-table td.pl { padding-left: 16px; }
-  /* Cells holding a box widget (checkbox / remove button) in a narrow column:
-     the widget overflows the content box, and the cell's text-overflow:ellipsis
-     would paint a stray ellipsis mark ("…") beside it. Clip those cells only —
-     text columns (Size, etc.) still ellipsize. */
-  hope-table th:has(.ck), hope-table td:has(.ck), hope-table td:has(.rm) { text-overflow: clip; }
-  /* cell utility classes */
-  hope-table .link, hope-table td.link { color: var(--hi); cursor: pointer; }
-  hope-table .link:hover, hope-table td.link:hover { color: var(--upd); text-decoration: underline; text-underline-offset: 3px; }
-  hope-table .dim { color: var(--dim); }
-  hope-table .hi, hope-table td.hi { color: var(--hi); }
-  hope-table .num, hope-table td.num { font-variant-numeric: tabular-nums; }
-  hope-table td.cmd { white-space: normal; overflow-wrap: anywhere; word-break: normal; color: var(--hi); } /* argv / long text wraps at spaces */
-  hope-table .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
-  hope-table .ck:hover { border-color: var(--mid); }
-  hope-table .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
-  hope-table .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent;
-    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  hope-table .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--raised); }
-
   /* tooltip — flat, hairline, no shadow */
   [data-tip] { position: relative; }
   [data-tip]:hover::after {

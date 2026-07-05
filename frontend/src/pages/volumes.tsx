@@ -15,18 +15,6 @@ import type { VolumeInfo, FleetVolumesHost } from "../contracts";
 import { bytes } from "../format";
 import { theme } from "../styles";
 
-const agoStr = (iso: string) => {
-  if (!iso) return "—";
-  const t = Date.parse(iso);
-  if (isNaN(t)) return "—";
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d`;
-  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
-  return `${Math.floor(s / 31536000)}y`;
-};
-
 type Filter = "all" | "mounted" | "unused";
 
 @route("/volumes/:host")

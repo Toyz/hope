@@ -110,3 +110,25 @@ export function uptime(startedAt?: string): string {
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
+
+// Strip ANSI color/escape sequences so colored logger output renders cleanly.
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;]*m/g;
+export function stripAnsi(s: string): string {
+  return s.replace(ANSI, "");
+}
+
+// ago — compact relative time ("just now", "5m", "3h", "2d", "3mo", "1y"). "—"
+// when the timestamp is missing/unparseable. Shared by the resource + agent lists.
+export function ago(iso: string): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d`;
+  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
+  return `${Math.floor(s / 31536000)}y`;
+}

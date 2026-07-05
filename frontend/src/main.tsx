@@ -18,7 +18,6 @@ import { VolumeInspector } from "./volume-inspector";
 import { NetworkInspector } from "./network-inspector";
 import { ConnectorInspector } from "./connector-inspector";
 import { DeployIntent } from "./deploy-intent";
-import { ImageDetailService } from "./components/image-detail";
 import { NetworkDetailService } from "./components/network-detail";
 
 import "./icons";
@@ -28,7 +27,6 @@ import "./components/select"; // reusable custom dropdown (<hope-select>)
 import "./components/toast-host"; // shared transient toasts (<hope-toast>)
 import "./components/proc-dialog"; // shared processing dialog (<hope-proc>)
 import "./components/host-switch"; // active Docker host picker (<hope-host-switch>)
-import "./components/nav"; // shared system nav strip (<hope-nav>)
 import "./components/rail"; // explorer scope-rail: the fleet tree (<hope-rail>)
 import "./components/topbar"; // explorer top strip: breadcrumb + search + refresh (<hope-topbar>)
 import "./components/inspector"; // docked container inspector (<hope-inspector>)
@@ -44,12 +42,10 @@ import "./components/phead"; // shared page header: title row + stat band (<hope
 import "./components/stat"; // one labelled figure in a header stat band (<hope-stat>)
 import "./components/skeleton"; // shimmer loading placeholder (<hope-skel>)
 import "./components/palette"; // global ⌘K command palette (<hope-palette>)
-import "./components/image-detail"; // shared image-detail modal (<hope-image-detail>)
 import "./components/kvlist"; // reusable key/value list for labels/options (<hope-kvlist>)
 import "./components/kv-editor"; // shared key/value editor for options/labels (<hope-kv-editor>)
 import "./components/panel"; // site-standard section card + header bar (<hope-panel>)
 import "./components/alert"; // reusable inline banner (<hope-alert>)
-import "./components/table"; // site-standard data table (<hope-table>)
 import "./components/search"; // site-standard filter box (<hope-search>)
 import "./components/chip"; // site-standard square label (<hope-chip>)
 import "./components/button"; // site-standard action button (<hope-button>)
@@ -60,7 +56,6 @@ import "./host-boot"; // host-redirect catch-all (must load so the "*" route + g
 import "./pages/login";
 import "./pages/dashboard";
 import "./pages/stack";
-import "./pages/container";
 import "./pages/deploy";
 import "./pages/images";
 import "./pages/networks";
@@ -83,7 +78,6 @@ app.use(VolumeInspector);
 app.use(NetworkInspector);
 app.use(ConnectorInspector);
 app.use(DeployIntent);
-app.use(ImageDetailService);
 app.use(NetworkDetailService);
 
 // Register the transport under both its concrete class (so components inject a

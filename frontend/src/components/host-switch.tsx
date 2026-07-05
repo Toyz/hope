@@ -85,6 +85,7 @@ export class HostSwitch extends LoomElement {
   toggle = (e: Event) => {
     e.stopPropagation();
     this.open = !this.open;
+    if (this.open) void this.refreshHosts(); // fresh list + active highlight on open
   };
 
   // Close when clicking elsewhere (the toggle + menu stopPropagation so their own

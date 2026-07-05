@@ -16,17 +16,9 @@ import { ToastService } from "../toast";
 import { System } from "../contracts";
 import type { AgentView, AgentEnroll } from "../contracts";
 import { resourceStyles } from "./resource-styles";
+import { ago } from "../format";
 import { theme } from "../styles";
 
-const ago = (iso: string) => {
-  const t = Date.parse(iso);
-  if (isNaN(t)) return "—";
-  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 90) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-};
 const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—");
 
 @route("/agents")
