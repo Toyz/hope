@@ -4,7 +4,7 @@
 // trust + a placeholder for the plugin's own rendered panel & live metrics, which
 // arrive once hope dials the plugin (a later phase — it's just a container after
 // all). Data comes from Plugins.list (cached) filtered to this host.
-import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, on, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -12,7 +12,7 @@ import { PluginInspector } from "../plugin-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import { PluginInspectorTarget } from "../events";
+import { PluginInspectorTarget, PluginsChanged } from "../events";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
 import type { PluginView } from "../contracts";
@@ -189,6 +189,7 @@ export class HopePluginInspector extends LoomElement {
       await this.rpc.call("Plugins", method, [{ key: v.key }]);
       this.toast.ok(`${method}d ${v.name || v.service || "plugin"}`);
       this.insp.onChange?.();
+      bus.emit(new PluginsChanged());
       if (method === "forget") this.insp.close();
       else void this.load();
     } catch (e: any) {

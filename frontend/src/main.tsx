@@ -39,6 +39,7 @@ import "./components/network-inspector"; // docked network inspector (<hope-netw
 import "./components/connector-inspector"; // docked connector inspector (<hope-connector-inspector>)
 import "./components/plugin-inspector"; // docked plugin inspector (<hope-plugin-inspector>)
 import "./components/plugin-surface"; // plugin UI renderer (<hope-plugin-surface>)
+import "./components/code-editor"; // highlighting code editor for plugin query views (<hope-code>)
 import "./components/sysbanner"; // global persistence warning above the shell (<hope-sysbanner>)
 import "./components/tooltip"; // reusable hover tooltip (<hope-tip>)
 import "./components/phead"; // shared page header: title row + stat band (<hope-phead>)

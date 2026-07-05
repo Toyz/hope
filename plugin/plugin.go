@@ -167,6 +167,14 @@ func (p *Plugin) View(method, label string, kind ViewKind, fn ViewFunc) *Plugin 
 	return p
 }
 
+// QueryView registers a Query view whose input editor syntax-highlights the given
+// language (e.g. "sql", "json"). Read the user's input with plugin.Input(ctx).
+func (p *Plugin) QueryView(method, label, lang string, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Query, Lang: lang}, fn}
+	return p
+}
+
 // Action registers an invocable action. The UI collects fields, then calls fn
 // with the values. Mark destructive actions with DangerAction.
 func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc) *Plugin {

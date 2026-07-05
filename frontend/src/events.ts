@@ -89,6 +89,10 @@ export class PluginInspectorTarget extends LoomEvent {
   }
 }
 
+// Fired when a plugin's trust/state changes (enable / disable / forget / settings)
+// so the rail (pages) and container inspector (surfaces) refetch immediately.
+export class PluginsChanged extends LoomEvent {}
+
 // Fired to open the global command palette (the ⌘K "jump to" search). The topbar
 // search box emits it; <hope-palette> listens (⌘K itself is handled in-palette).
 export class PaletteToggle extends LoomEvent {}

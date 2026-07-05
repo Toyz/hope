@@ -17,7 +17,7 @@ interface Node {
   size?: number;
   children?: Node[];
 }
-interface ViewDesc { method: string; label: string; kind: string }
+interface ViewDesc { method: string; label: string; kind: string; lang?: string }
 interface ActionDesc { method: string; label: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[] }
@@ -52,9 +52,7 @@ type Cell = { loading: boolean; error?: string; data?: any };
   table.g td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--mid); vertical-align: top; }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
 
-  .qbar { display: flex; gap: 8px; margin-bottom: 10px; }
-  .qbar textarea { flex: 1; min-height: 54px; resize: vertical; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.5 var(--mono); padding: 8px 10px; }
-  .qbar textarea:focus { outline: none; border-color: var(--line2); }
+  .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
   ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.7 var(--mono); }
   ul.tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px solid var(--line); }
@@ -286,8 +284,8 @@ export class HopePluginSurface extends LoomElement {
     const text = this.queryText[v.method] ?? "";
     return (
       <div>
-        <div class="qbar">
-          <textarea placeholder="enter query…" onInput={(e: any) => (this.queryText = { ...this.queryText, [v.method]: e.target.value })}>{text}</textarea>
+        <hope-code lang={v.lang || "sql"} value={text} placeholder="enter a query…" onInput={(e: any) => (this.queryText = { ...this.queryText, [v.method]: e.detail })}></hope-code>
+        <div class="qrun">
           <hope-button size="sm" tone="primary" icon="play" onClick={() => this.fetch(v.method, { input: this.queryText[v.method] ?? "" })}>run</hope-button>
         </div>
         {cell?.loading ? <div class="msg">running…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : cell?.data ? this.renderTable(cell.data) : <div class="msg">no results yet</div>}

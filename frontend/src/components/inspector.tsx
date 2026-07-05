@@ -20,7 +20,7 @@ import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
 import { NetworkDetailService } from "./network-detail";
 import { ImageInspector } from "../image-inspector";
-import { InspectorTarget, withRefresh } from "../events";
+import { InspectorTarget, PluginsChanged, withRefresh } from "../events";
 import { promptAddRoute } from "../add-route";
 import { redactInspect, redactCmd } from "../redact";
 import { parseStats } from "../stats";
@@ -272,6 +272,9 @@ export class HopeInspector extends LoomElement {
 
   @unmount
   onUnmount() { this.lac?.abort(); this.sac?.abort(); }
+
+  // A plugin was enabled/disabled/forgotten — refetch this container's plugin tabs.
+  @on(PluginsChanged) private onPluginsChanged() { if (this.id && this.pluginsOn) this.loadSurfaces(); }
 
   @on(InspectorTarget)
   private onTarget(e: InspectorTarget) {

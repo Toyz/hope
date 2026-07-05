@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing } from "../events";
+import { Refreshing, PluginsChanged } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -134,12 +134,20 @@ export class HopeRail extends LoomElement {
     void capabilities().then((c) => {
       this.apiOn = !!c.api_enabled;
       this.pluginsOn = !!c.plugins_enabled;
-      if (this.pluginsOn) void this.rpc.call<PluginPages[]>("Plugins", "pages", []).then((p) => (this.pluginPages = p || [])).catch(() => {});
+      this.refetchPages();
     });
     try {
       this.fleet = (await this.rpc.call<FleetHost[]>("System", "fleet", [])) || [];
     } catch { /* keep last */ }
   }
+
+  private refetchPages() {
+    if (!this.pluginsOn) return;
+    void this.rpc.call<PluginPages[]>("Plugins", "pages", []).then((p) => (this.pluginPages = p || [])).catch(() => {});
+  }
+
+  // A plugin was enabled/disabled/forgotten — refetch its pages immediately.
+  @on(PluginsChanged) private onPluginsChanged() { this.refetchPages(); }
 
   @on(RouteChanged)
   private onRoute(e: RouteChanged) {

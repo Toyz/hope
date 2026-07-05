@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/toyz/hope/plugin"
@@ -66,9 +67,19 @@ func main() {
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
 	})
 
-	p.View("sql", "Query", plugin.Query, func(ctx context.Context) (any, error) {
-		in := plugin.Input(ctx)
-		return map[string]any{"columns": []string{"query", "chars"}, "rows": [][]any{{in, len(in)}}}, nil
+	// A real query view: SQL-highlighted editor; the input filters synthetic rows
+	// (a stand-in for "run your own query against this table").
+	p.QueryView("sql", "Query", "sql", func(ctx context.Context) (any, error) {
+		q := strings.ToLower(strings.TrimSpace(plugin.Input(ctx)))
+		rows := [][]any{}
+		for i := range 200 {
+			name := fmt.Sprintf("row-%d", i)
+			val := strconv.Itoa(i * 7 % 1000)
+			if q == "" || strings.Contains(strings.ToLower(name+" "+val), q) {
+				rows = append(rows, []any{i, name, val})
+			}
+		}
+		return map[string]any{"columns": []string{"id", "name", "value"}, "rows": rows}, nil
 	})
 
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {

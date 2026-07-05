@@ -8,13 +8,14 @@
 // Instances are deduplicated by STABLE identity (host + compose project/service),
 // so a redeploy keeps its trust, two of the same image in different stacks stay
 // distinct, and replicas collapse to one entry.
-import { LoomElement, component, styles, css, mount, reactive, prop, watch, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, mount, reactive, prop, watch, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
+import { PluginsChanged } from "../events";
 import { PluginInspector } from "../plugin-inspector";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
@@ -144,6 +145,7 @@ export class PluginsPage extends LoomElement {
       await this.rpc.call("Plugins", "enable", [{ key: p.key }]);
       this.toast.ok(`enabled ${p.name || p.title}`);
       void this.load(true);
+      bus.emit(new PluginsChanged());
     } catch (e: any) {
       this.toast.error(`enable — ${e?.message ?? "failed"}`);
     }
@@ -154,6 +156,7 @@ export class PluginsPage extends LoomElement {
       await this.rpc.call("Plugins", "disable", [{ key: p.key }]);
       this.toast.ok(`disabled ${p.name || p.title}`);
       void this.load(true);
+      bus.emit(new PluginsChanged());
     } catch (e: any) {
       this.toast.error(`disable — ${e?.message ?? "failed"}`);
     }
@@ -181,6 +184,7 @@ export class PluginsPage extends LoomElement {
       await this.rpc.call("Plugins", "forget", [{ key: p.key }]);
       this.toast.ok(`forgot ${p.name || p.key}`);
       void this.load(true);
+      bus.emit(new PluginsChanged());
     } catch (e: any) {
       this.toast.error(`forget — ${e?.message ?? "failed"}`);
     }

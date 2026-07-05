@@ -108,6 +108,7 @@ type ViewDesc struct {
 	Label  string   `json:"label"`
 	Kind   ViewKind `json:"kind"`
 	Icon   string   `json:"icon,omitempty"`
+	Lang   string   `json:"lang,omitempty"` // query views: syntax-highlight language (sql, json, …)
 }
 
 // StreamDesc describes a live stream and how to render it.
