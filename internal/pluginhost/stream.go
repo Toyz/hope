@@ -85,11 +85,7 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 	if rec == nil || !rec.Enabled {
 		return errResp(http.StatusBadRequest, "plugin is not enabled")
 	}
-	members, host, ok := h.r.group(ctx, key)
-	if !ok {
-		return errResp(http.StatusNotFound, "plugin container not found")
-	}
-	ep, err := h.r.dial(ctx, host, representative(members), rec.Token, true)
+	ep, err := h.r.tryDial(ctx, key, rec.Token, true)
 	if err != nil {
 		return errResp(http.StatusInternalServerError, err.Error())
 	}

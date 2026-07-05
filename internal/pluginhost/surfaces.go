@@ -3,6 +3,8 @@ package pluginhost
 import (
 	"encoding/json"
 	"path"
+	"strconv"
+	"strings"
 
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/docker"
@@ -18,6 +20,7 @@ type ContainerSurface struct {
 	Title  string          `json:"title"`
 	Node   json.RawMessage `json:"node"`
 	Schema json.RawMessage `json:"schema"`
+	Param  json.RawMessage `json:"param,omitempty"` // page param merged into calls (dynamic pages)
 }
 
 // SurfacesParams identifies the container being inspected.
@@ -29,13 +32,21 @@ type SurfacesParams struct {
 // layoutDoc / matchDoc / schemaDoc mirror just the fields hope needs from the
 // plugin's hope.layout + hope.schema (the rest is passed through as raw JSON).
 type layoutDoc struct {
-	Contributions []struct {
-		Surface string          `json:"surface"`
-		Title   string          `json:"title"`
-		Icon    string          `json:"icon"`
-		Match   *matchDoc       `json:"match"`
-		Node    json.RawMessage `json:"node"`
-	} `json:"contributions"`
+	Contributions []contributionDoc `json:"contributions"`
+}
+type contributionDoc struct {
+	Surface string          `json:"surface"`
+	Title   string          `json:"title"`
+	Icon    string          `json:"icon"`
+	Match   *matchDoc       `json:"match"`
+	Pages   []pageItemDoc   `json:"pages"`
+	Node    json.RawMessage `json:"node"`
+}
+type pageItemDoc struct {
+	Title    string          `json:"title"`
+	Icon     string          `json:"icon"`
+	Param    json.RawMessage `json:"param"`
+	Children []pageItemDoc   `json:"children"`
 }
 type matchDoc struct {
 	Always   bool              `json:"always"`
@@ -70,6 +81,7 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 		image, labels, _ = hc.Client.ContainerMatchInfo(ctx, p.ContainerID)
 	}
 
+	r.scan(ctx, true) // fresh scan so a just-redeployed plugin resolves, not the stale container
 	out := []ContainerSurface{}
 	for _, rec := range recs {
 		if !rec.Enabled || rec.Host != p.Host {
@@ -152,6 +164,171 @@ func surfaceApplies(m *matchDoc, ownContainer bool, image string, labels map[str
 		}
 	}
 	return true
+}
+
+// PluginPageNode is one rail node in a plugin's page tree: a group (has Children)
+// or a navigable leaf (has Path). Path addresses the page as a dotted index chain
+// "<contribIndex>.<i>.<j>..." so Page can walk straight to it.
+type PluginPageNode struct {
+	Title    string           `json:"title"`
+	Icon     string           `json:"icon,omitempty"`
+	Path     string           `json:"path,omitempty"`
+	Children []PluginPageNode `json:"children,omitempty"`
+}
+
+// PluginPages groups an enabled plugin's page tree for the rail (plugin -> pages).
+type PluginPages struct {
+	Key   string           `json:"key"`
+	Name  string           `json:"name"`
+	Host  string           `json:"host"`
+	Icon  string           `json:"icon"`
+	Pages []PluginPageNode `json:"pages"`
+}
+
+// Pages returns every enabled plugin (fleet-wide) that contributes `page` surfaces,
+// as a rail tree (plugin -> groups -> pages).
+func (r *PluginsRouter) Pages(ctx *rpc.Context) ([]PluginPages, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	recs, _ := r.store.Plugins()
+	out := []PluginPages{}
+	r.scan(ctx, true) // fresh scan so a just-redeployed plugin resolves, not the stale container
+	for _, rec := range recs {
+		if !rec.Enabled {
+			continue
+		}
+		members, host, ok := r.group(ctx, rec.Key)
+		if !ok {
+			continue
+		}
+		ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
+		if err != nil {
+			continue
+		}
+		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
+		if err != nil {
+			continue
+		}
+		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
+		if err != nil {
+			continue
+		}
+		var sd schemaDoc
+		_ = json.Unmarshal(schemaRaw, &sd)
+		var ld layoutDoc
+		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
+			continue
+		}
+		nodes := []PluginPageNode{}
+		for ci, c := range ld.Contributions {
+			if c.Surface != "page" {
+				continue
+			}
+			if len(c.Pages) > 0 {
+				nodes = append(nodes, buildPageNodes(c.Pages, strconv.Itoa(ci))...)
+			} else if len(c.Node) > 0 {
+				title := c.Title
+				if title == "" {
+					title = sd.Name
+				}
+				icon := c.Icon
+				if icon == "" {
+					icon = sd.Icon
+				}
+				nodes = append(nodes, PluginPageNode{Title: title, Icon: icon, Path: strconv.Itoa(ci)})
+			}
+		}
+		if len(nodes) > 0 {
+			out = append(out, PluginPages{Key: rec.Key, Name: sd.Name, Host: host, Icon: sd.Icon, Pages: nodes})
+		}
+	}
+	return out, nil
+}
+
+// buildPageNodes turns nested page items into rail nodes. Every node gets its
+// dotted Path (a leaf's is navigable; a group's is the prefix, used by the rail to
+// highlight the whole active branch).
+func buildPageNodes(items []pageItemDoc, prefix string) []PluginPageNode {
+	out := make([]PluginPageNode, 0, len(items))
+	for i, it := range items {
+		p := prefix + "." + strconv.Itoa(i)
+		n := PluginPageNode{Title: it.Title, Icon: it.Icon, Path: p}
+		if len(it.Children) > 0 {
+			n.Children = buildPageNodes(it.Children, p)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// PageParams addresses one page by its dotted path (from PluginPageNode.Path).
+type PageParams struct {
+	Key  string `json:"key"`
+	Path string `json:"path"`
+}
+
+// Page returns the surface for one page: the contribution's shared node + schema +
+// the selected page's Param (which the renderer merges into every call), so many
+// pages can share one layout and differ only by argument.
+func (r *PluginsRouter) Page(ctx *rpc.Context, p *PageParams) (*ContainerSurface, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if p == nil || p.Key == "" || p.Path == "" {
+		return nil, rpc.BadRequest("key and path are required")
+	}
+	ep, _, err := r.enabledEndpoint(ctx, p.Key)
+	if err != nil {
+		return nil, err
+	}
+	schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
+	if err != nil {
+		return nil, rpc.Internal("plugin schema: %v", err)
+	}
+	layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
+	if err != nil {
+		return nil, rpc.Internal("plugin layout: %v", err)
+	}
+	var sd schemaDoc
+	_ = json.Unmarshal(schemaRaw, &sd)
+	var ld layoutDoc
+	if err := json.Unmarshal(layoutRaw, &ld); err != nil {
+		return nil, rpc.Internal("bad plugin layout: %v", err)
+	}
+
+	segs := strings.Split(p.Path, ".")
+	ci, err := strconv.Atoi(segs[0])
+	if err != nil || ci < 0 || ci >= len(ld.Contributions) {
+		return nil, rpc.BadRequest("no such page")
+	}
+	c := ld.Contributions[ci]
+	if c.Surface != "page" || len(c.Node) == 0 {
+		return nil, rpc.BadRequest("contribution is not a page")
+	}
+
+	// Walk any item path into the (possibly nested) pages to find the leaf's param.
+	title := c.Title
+	var param json.RawMessage
+	items := c.Pages
+	for _, seg := range segs[1:] {
+		idx, err := strconv.Atoi(seg)
+		if err != nil || idx < 0 || idx >= len(items) {
+			return nil, rpc.BadRequest("no such page")
+		}
+		it := items[idx]
+		title = it.Title
+		param = it.Param
+		items = it.Children
+	}
+	if title == "" {
+		title = sd.Name
+	}
+	icon := c.Icon
+	if icon == "" {
+		icon = sd.Icon
+	}
+	return &ContainerSurface{Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node, Schema: schemaRaw, Param: param}, nil
 }
 
 func anyGlob(globs []string, s string) bool {

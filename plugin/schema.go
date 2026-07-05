@@ -142,13 +142,31 @@ type Layout struct {
 }
 
 // Contribution mounts one layout tree onto a Surface. For container/stack
-// surfaces, Match decides which containers it applies to.
+// surfaces, Match decides which containers it applies to. For page surfaces, Pages
+// (optional) turns one node into MANY rail entries that share the layout but each
+// pass a distinct Param.
 type Contribution struct {
-	Surface Surface `json:"surface"`
-	Title   string  `json:"title,omitempty"` // tab/page title
-	Icon    string  `json:"icon,omitempty"`
-	Match   *Match  `json:"match,omitempty"`
-	Node    *Node   `json:"node"`
+	Surface Surface    `json:"surface"`
+	Title   string     `json:"title,omitempty"` // tab/page title
+	Icon    string     `json:"icon,omitempty"`
+	Match   *Match     `json:"match,omitempty"`
+	Pages   []PageItem `json:"pages,omitempty"`
+	Node    *Node      `json:"node"`
+}
+
+// PageItem is one dynamic subpage: it shares the contribution's Node but carries
+// its own Param, which hope merges into every call the page makes — so a plugin
+// can list e.g. every DB table as a rail entry that renders the same view with a
+// different argument. Read it in a handler with plugin.Params(ctx, &v).
+//
+// Children nests items one level (a group node), so e.g. three databases each
+// listing their tables become nested rail entries. A node with Children is a
+// group (not itself a page); a leaf node (no Children) is the navigable page.
+type PageItem struct {
+	Title    string         `json:"title"`
+	Icon     string         `json:"icon,omitempty"`
+	Param    map[string]any `json:"param,omitempty"`
+	Children []PageItem     `json:"children,omitempty"`
 }
 
 // Match decides which containers a container/stack contribution applies to. The

@@ -66,6 +66,7 @@ import "./pages/volumes";
 import "./pages/agents";
 import "./pages/registries";
 import "./pages/plugins";
+import "./pages/plugin-page";
 import "./pages/tunnels";
 import "./pages/api-docs";
 

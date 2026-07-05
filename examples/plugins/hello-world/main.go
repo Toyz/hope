@@ -114,6 +114,30 @@ func main() {
 		}
 	})
 
+	// A view that echoes the selected page's param — proves param-passing from a
+	// dynamic page into a shared view.
+	p.View("picked", "Selection", plugin.KV, func(ctx context.Context) (any, error) {
+		var pr map[string]any
+		_ = plugin.Params(ctx, &pr)
+		if len(pr) == 0 {
+			return map[string]any{"note": "nothing selected"}, nil
+		}
+		return pr, nil
+	})
+
+	// A dynamic page nested one level: two groups, each with leaf pages that share
+	// the SAME layout (the "picked" view) but pass a distinct param. In the rail:
+	// hello-world -> Colors -> Red/Green, Shapes -> Circle.
+	p.DynamicPage("Explorer", plugin.Section("Selected", plugin.Leaf("picked")), []plugin.PageItem{
+		{Title: "Colors", Children: []plugin.PageItem{
+			{Title: "Red", Param: map[string]any{"group": "colors", "value": "red"}},
+			{Title: "Green", Param: map[string]any{"group": "colors", "value": "green"}},
+		}},
+		{Title: "Shapes", Children: []plugin.PageItem{
+			{Title: "Circle", Param: map[string]any{"group": "shapes", "value": "circle"}},
+		}},
+	})
+
 	// Explicit layout: tabs over the views + streams, actions in their own section.
 	// (Omitting this would auto-generate an equivalent container panel.)
 	p.ContainerPanel("Hello", &plugin.Match{}, plugin.Section("",

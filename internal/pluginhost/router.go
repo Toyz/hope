@@ -1,6 +1,7 @@
 package pluginhost
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -270,15 +271,32 @@ func (r *PluginsRouter) enabledEndpoint(ctx *rpc.Context, key string) (*endpoint
 	if rec == nil || !rec.Enabled {
 		return nil, nil, rpc.BadRequest("plugin is not enabled")
 	}
-	members, host, ok := r.group(ctx, key)
-	if !ok {
-		return nil, nil, rpc.BadRequest("plugin container not found (not running?)")
-	}
-	ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
+	ep, err := r.tryDial(ctx, key, rec.Token, false)
 	if err != nil {
-		return nil, nil, rpc.Internal("dial plugin: %v", err)
+		return nil, nil, err
 	}
 	return ep, rec, nil
+}
+
+// tryDial resolves a plugin's container and dials it, retrying once with a fresh
+// fleet scan if the first attempt fails — so a redeploy (new container id, stale
+// discovery cache) self-heals instead of erroring until the cache expires.
+func (r *PluginsRouter) tryDial(ctx context.Context, key, token string, streaming bool) (*endpoint, error) {
+	if members, host, ok := r.group(ctx, key); ok {
+		if ep, err := r.dial(ctx, host, representative(members), token, streaming); err == nil {
+			return ep, nil
+		}
+	}
+	r.scan(ctx, true) // bust the cache and rescan (container may have been redeployed)
+	members, host, ok := r.group(ctx, key)
+	if !ok {
+		return nil, rpc.BadRequest("plugin container not found (not running?)")
+	}
+	ep, err := r.dial(ctx, host, representative(members), token, streaming)
+	if err != nil {
+		return nil, rpc.Internal("dial plugin: %v", err)
+	}
+	return ep, nil
 }
 
 // Manifest dials an enabled plugin for its schema + layout and returns them with

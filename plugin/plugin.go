@@ -239,6 +239,20 @@ func (p *Plugin) ContainerPanel(title string, match *Match, node *Node) *Plugin 
 	return p.Contribute(Contribution{Surface: SurfaceContainer, Title: title, Match: match, Node: node, Icon: p.icon})
 }
 
+// Page contributes a full custom nav page (the `page` surface). hope lists it in
+// the rail under the plugin and renders the node tree as a full page.
+func (p *Plugin) Page(title string, node *Node) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node})
+}
+
+// DynamicPage contributes MANY rail pages that share one layout node but each pass
+// a distinct Param (merged into every call the page makes). items may nest one
+// level (groups of pages) — e.g. databases -> tables. Read the param in a handler
+// with plugin.Params. Regenerate the items in getLayout to reflect live state.
+func (p *Plugin) DynamicPage(title string, node *Node, items []PageItem) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node, Pages: items})
+}
+
 // schema builds the hope.schema result from the registered capabilities, in
 // author declaration order.
 func (p *Plugin) schema() Schema {

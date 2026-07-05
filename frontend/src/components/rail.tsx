@@ -14,6 +14,11 @@ import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
 
+// An enabled plugin's custom page tree (mirrors pluginhost.PluginPages). A node is
+// a navigable page (path) or a group (children).
+interface PluginPageNode { title: string; icon?: string; path?: string; children?: PluginPageNode[] }
+interface PluginPages { key: string; name: string; host: string; icon?: string; pages: PluginPageNode[] }
+
 // A host's roll-up state: the worst of its stacks, or offline.
 function hostTone(h: FleetHost): string {
   if (!h.online) return "off";
@@ -79,6 +84,7 @@ function ctrTone(state: string, hasUpd: boolean): string {
   .rlink.on { background: color-mix(in srgb, var(--upd) 15%, transparent); color: var(--hi); position: relative; }
   .rlink.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
   .rlink.on loom-icon { color: var(--hi); }
+  .node loom-icon { color: var(--dim); flex: none; }
   .rlink loom-icon { color: var(--dim); }
   .rlink .hint { margin-left: auto; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 
@@ -99,12 +105,15 @@ export class HopeRail extends LoomElement {
   @reactive accessor fleet: FleetHost[] = [];
   @reactive accessor apiOn = false; // API explorer enabled (config) — show its rail link
   @reactive accessor pluginsOn = false; // container-plugin system enabled — show its rail link
+  @reactive accessor pluginPages: PluginPages[] = []; // enabled plugins' custom pages (nested)
   @reactive accessor curPath = location.pathname;
   // Expanded host ids and "host/project" stack keys, remembered across the session.
   @persist("hope.rail.hosts") accessor openHosts: string[] = [];
   @persist("hope.rail.stacks") accessor openStacks: string[] = [];
   // Expanded replica groups, keyed "host/project/service".
   @persist("hope.rail.svcs") accessor openSvcs: string[] = [];
+  // Expanded plugin containers + page groups, keyed by plugin key / group path.
+  @persist("hope.rail.pages") accessor openPages: string[] = [];
   @persist("hope.rail.fleet") accessor openFleet = true;
 
   // Worst state across the fleet, for the "fleet" root dot (min severity rank).
@@ -122,7 +131,11 @@ export class HopeRail extends LoomElement {
 
   @mount
   async load() {
-    void capabilities().then((c) => { this.apiOn = !!c.api_enabled; this.pluginsOn = !!c.plugins_enabled; });
+    void capabilities().then((c) => {
+      this.apiOn = !!c.api_enabled;
+      this.pluginsOn = !!c.plugins_enabled;
+      if (this.pluginsOn) void this.rpc.call<PluginPages[]>("Plugins", "pages", []).then((p) => (this.pluginPages = p || [])).catch(() => {});
+    });
     try {
       this.fleet = (await this.rpc.call<FleetHost[]>("System", "fleet", [])) || [];
     } catch { /* keep last */ }
@@ -138,6 +151,19 @@ export class HopeRail extends LoomElement {
     if (host && project) {
       const key = host + "/" + project;
       if (!this.openStacks.includes(key)) this.openStacks = [...this.openStacks, key];
+    }
+    // On a plugin page, expand its host + stack + the plugin container + the
+    // ancestor page groups so the active page is revealed.
+    const ps = this.pluginSel();
+    if (ps) {
+      if (ps.host && !this.openHosts.includes(ps.host)) this.openHosts = [...this.openHosts, ps.host];
+      const skey = ps.host + "/" + ps.project;
+      if (!this.openStacks.includes(skey)) this.openStacks = [...this.openStacks, skey];
+      const pkey = `${ps.host}|${ps.project}/${ps.service}`;
+      const opens = [pkey]; // the plugin container
+      const segs = ps.path.split(".");
+      for (let i = 2; i < segs.length; i++) opens.push(pkey + ":" + segs.slice(0, i).join(".")); // ancestor groups
+      this.openPages = Array.from(new Set([...this.openPages, ...opens]));
     }
   }
 
@@ -157,6 +183,27 @@ export class HopeRail extends LoomElement {
     e.stopPropagation();
     this.openSvcs = this.openSvcs.includes(key) ? this.openSvcs.filter((k) => k !== key) : [...this.openSvcs, key];
   }
+  private togglePages(id: string, e: Event) {
+    e.stopPropagation();
+    this.openPages = this.openPages.includes(id) ? this.openPages.filter((k) => k !== id) : [...this.openPages, id];
+  }
+
+  // When the URL is a plugin page (/plugin/:key/:path), the host/project/service
+  // the plugin lives on + the active page path — so the whole branch highlights.
+  private pluginSel(): { host: string; project: string; service: string; path: string } | null {
+    const p = this.curPath.split("/");
+    if (p[1] !== "plugin" || !p[2] || !p[3]) return null;
+    const key = decodeURIComponent(p[2]); // host|project/service
+    const bar = key.indexOf("|");
+    const rest = bar >= 0 ? key.slice(bar + 1) : "";
+    const slash = rest.indexOf("/");
+    return {
+      host: bar >= 0 ? key.slice(0, bar) : "",
+      project: slash >= 0 ? rest.slice(0, slash) : rest,
+      service: slash >= 0 ? rest.slice(slash + 1) : "",
+      path: p[3],
+    };
+  }
 
   // Which host/stack/container the URL is on (for the selected highlight).
   private cur() {
@@ -169,6 +216,12 @@ export class HopeRail extends LoomElement {
     // so the rail keeps its scope (and Resources stay enabled) on those pages too.
     if (["host", "images", "volumes", "networks", "tunnels", "deploy", "plugins"].includes(page)) {
       return { page, host: p[2] || "", project: "", cid: "" };
+    }
+    // A plugin page: derive host + project from the plugin key so the owning
+    // stack (and container, by service) highlight as the active branch.
+    if (page === "plugin") {
+      const ps = this.pluginSel();
+      if (ps) return { page, host: ps.host, project: ps.project, cid: "" };
     }
     return { page, host: "", project: "", cid: "" };
   }
@@ -266,13 +319,22 @@ export class HopeRail extends LoomElement {
       const reps = bySvc.get(svc)!;
       if (reps.length === 1) {
         const c = reps[0];
-        const con = sel.host === hostId && sel.cid === c.id;
+        const pp = this.pluginPagesFor(hostId, s.project, svc);
+        const ps = this.pluginSel();
+        const pact = !!pp && !!ps && ps.host === hostId && ps.project === s.project && ps.service === svc;
+        const con = (sel.host === hostId && sel.cid === c.id) || pact;
+        const pgOpen = !!pp && this.openPages.includes(pp.key);
         return (
-          <div class={"node h4" + (con ? " sel" : "")} onClick={() => cnav(c)}>
-            <span class="caret leaf"></span>
-            <span class={"dot " + ctrTone(c.state, outIds.has(c.id))}></span>
-            <span class="label">{svc}</span>
-          </div>
+          <>
+            <div class={"node h4" + (con ? " sel" : "")} onClick={() => cnav(c)}>
+              {pp
+                ? <span class={"caret" + (pgOpen ? " open" : "")} onClick={(e: Event) => this.togglePages(pp.key, e)}><loom-icon name="chevron-right" size={11}></loom-icon></span>
+                : <span class="caret leaf"></span>}
+              <span class={"dot " + ctrTone(c.state, outIds.has(c.id))}></span>
+              <span class="label">{svc}</span>
+            </div>
+            {pp && pgOpen ? this.renderContainerPages(hostId, s.project, svc, 76) : null}
+          </>
         );
       }
       // Replica group: one service node with a count that expands to its replicas.
@@ -303,9 +365,51 @@ export class HopeRail extends LoomElement {
               </div>
             );
           }) : null}
+          {rOpen ? this.renderContainerPages(hostId, s.project, svc, 76) : null}
         </>
       );
     });
+  }
+
+  // The plugin (with custom pages) that owns a given container identity, if any.
+  private pluginPagesFor(hostId: string, project: string, service: string): PluginPages | undefined {
+    const key = `${hostId}|${project}/${service}`;
+    return this.pluginPages.find((p) => p.key === key);
+  }
+
+  // A plugin's page tree, rendered as topology nodes directly UNDER its container.
+  private renderContainerPages(hostId: string, project: string, service: string, pad: number) {
+    const pp = this.pluginPagesFor(hostId, project, service);
+    if (!pp) return null;
+    return pp.pages.map((n) => this.renderTopoPageNode(pp.key, n, pad));
+  }
+
+  private renderTopoPageNode(key: string, n: PluginPageNode, pad: number): any {
+    const ps = this.pluginSel();
+    // Active branch: exact for the leaf, prefix for its ancestor groups.
+    const active = !!ps && !!n.path && (ps.path === n.path || ps.path.startsWith(n.path + "."));
+    if (n.children && n.children.length) {
+      const gid = key + ":" + n.path;
+      const open = this.openPages.includes(gid);
+      return (
+        <>
+          <div class={"node" + (active ? " sel" : "")} style={`padding-left:${pad}px`}>
+            <span class={"caret" + (open ? " open" : "")} onClick={(e: Event) => this.togglePages(gid, e)}><loom-icon name="chevron-right" size={11}></loom-icon></span>
+            <loom-icon name={n.icon || "box"} size={12}></loom-icon>
+            <span class="label">{n.title}</span>
+          </div>
+          {open ? n.children.map((c) => this.renderTopoPageNode(key, c, pad + 16)) : null}
+        </>
+      );
+    }
+    const to = `/plugin/${encodeURIComponent(key)}/${n.path}`;
+    return (
+      <div class={"node" + (active ? " sel" : "")} style={`padding-left:${pad}px`} onClick={() => this.router.navigate(to)}>
+        <span class="caret leaf"></span>
+        <loom-icon name={n.icon || "file"} size={12}></loom-icon>
+        <span class="label">{n.title}</span>
+      </div>
+    );
   }
 
   private renderResources(host: string) {

@@ -21,7 +21,7 @@ interface ViewDesc { method: string; label: string; kind: string }
 interface ActionDesc { method: string; label: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[] }
-export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema }
+export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
 
@@ -156,12 +156,20 @@ export class HopePluginSurface extends LoomElement {
     return acc;
   }
 
-  private async fetch(method: string, args?: any) {
+  // callArgs merges the page's param (from a dynamic page) under the call's own
+  // args, so a shared view/action receives the selected page's argument (e.g. the
+  // table name) automatically.
+  private callArgs(extra?: any): any {
+    const merged = { ...(this.surface?.param || {}), ...(extra || {}) };
+    return Object.keys(merged).length ? merged : undefined;
+  }
+
+  private async fetch(method: string, extra?: any) {
     const s = this.surface;
     if (!s) return;
     this.cells = { ...this.cells, [method]: { loading: true } };
     try {
-      const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args }]);
+      const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs(extra) }]);
       this.cells = { ...this.cells, [method]: { loading: false, data } };
     } catch (e: any) {
       this.cells = { ...this.cells, [method]: { loading: false, error: e?.message ?? "call failed" } };
@@ -171,14 +179,14 @@ export class HopePluginSurface extends LoomElement {
   private runAction = async (a: ActionDesc) => {
     const s = this.surface;
     if (!s) return;
-    let args: any = undefined;
+    let values: any = undefined;
     if (a.fields && a.fields.length) {
       const v = await this.prompt.ask({ title: a.label, submitLabel: "Run", fields: a.fields });
       if (!v) return;
-      args = v;
+      values = v;
     }
     try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args }]);
+      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs(values) }]);
       this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
     } catch (e: any) {
       this.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
