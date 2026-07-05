@@ -347,6 +347,9 @@ export class Tunnels {
   connectors(): ConnectorView[] {
     return undefined!;
   }
+  connector(_id: string): ConnectorView {
+    return undefined!;
+  }
   tunnels(): TunnelView[] {
     return undefined!;
   }
@@ -516,6 +519,7 @@ export interface TunnelView {
   project: string;
   svc_name: string;
   container: string;
+  container_id: string; // origin container id, for deep-linking the container view
   port: string;
   host?: string; // client-side tag: which host serves this route (fleet view)
 }

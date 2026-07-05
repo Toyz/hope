@@ -3,45 +3,118 @@
 // list stays put through a refetch, no blank/pop); create is an @mutate;
 // cross-host bulk removal uses callOn (per-item host target). Shared list
 // mechanics live in ResourcePage.
-import { component, styles, css } from "@toyz/loom";
+import { component, styles, css, prop, mount, watch, reactive } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
 import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
-import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
-import { NetworkDetailService } from "../components/network-detail";
+import { NetworkInspector } from "../network-inspector";
 import { System, Deploy } from "../contracts";
 import type { NetworkInfo, FleetNetworksHost } from "../contracts";
-import { resourceStyles } from "./resource-styles";
-
-const ago = (unix: number) => {
-  if (!unix) return "—";
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - unix));
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d`;
-  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
-  return `${Math.floor(s / 31536000)}y`;
-};
+import { shortId } from "../format";
+import { theme } from "../styles";
 
 @route("/networks/:host")
+@route("/networks/:host/:id")
 @component("hope-networks")
-@styles(css`
-  ${resourceStyles}
+@styles(theme, css`
+  :host { display: block; min-height: 100%; background: var(--ink); }
+
+  /* attachment instrument */
+  .disk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 26px; align-items: center; padding: 20px 28px 18px; border-bottom: 1px solid var(--line); }
+  .diskmain { min-width: 0; }
+  .disktotal { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .disktotal .big { font: 600 26px/1 var(--mono); color: var(--hi); }
+  .disktotal .lbl { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .meter { display: flex; height: 8px; width: 100%; background: var(--line); overflow: hidden; }
+  .meter i { display: block; height: 100%; }
+  .meter .inuse { background: var(--upd); } .meter .unused { background: var(--faint); }
+  .legend { display: flex; gap: 22px; margin-top: 12px; flex-wrap: wrap; }
+  .lg { display: flex; align-items: center; gap: 8px; font: 11.5px/1 var(--mono); color: var(--mid); }
+  .lg .sw { width: 9px; height: 9px; flex: none; }
+  .lg .sw.inuse { background: var(--upd); } .lg .sw.unused { background: var(--faint); }
+  .lg b { color: var(--hi); font-weight: 600; } .lg .sz { color: var(--dim); }
+  .reclaim { display: flex; flex-direction: column; gap: 7px; padding-left: 26px; border-left: 1px solid var(--line); text-align: right; }
+  .reclaim .k { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .reclaim .v { font: 600 22px/1 var(--mono); color: var(--warn); }
+  .reclaim .v.zero { color: var(--dim); }
+  .reclaim .sub { font: 11px/1 var(--mono); color: var(--dim); }
+
+  .vtools { display: flex; align-items: center; gap: 10px; padding: 12px 28px; border-bottom: 1px solid var(--line); }
+  .vtools .grow { flex: 1; }
+  .seg { display: flex; }
+  .seg button { height: 28px; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-right: 0; color: var(--dim);
+    font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .seg button:last-child { border-right: 1px solid var(--line); }
+  .seg button .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .seg button:hover { color: var(--mid); }
+  .seg button.on { color: var(--hi); background: var(--raised); border-color: var(--line2); }
+  .seg button.on .n { color: var(--mid); }
+  .vtools hope-search { flex: 0 0 300px; max-width: 42%; }
+
+  .rows { padding-bottom: 24px; }
+  .rhead, .nrow { display: grid; grid-template-columns: minmax(0, 1.8fr) 128px 72px 84px minmax(0, 1fr) 34px; align-items: center; gap: 18px; padding: 0 28px; }
+  .rhead { height: 36px; border-bottom: 1px solid var(--line); }
+  .rhead span { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .nrow { height: 52px; border-bottom: 1px solid var(--line); cursor: pointer; position: relative; }
+  .nrow:hover { background: var(--raised); }
+  .nrow.on { background: color-mix(in srgb, var(--upd) 12%, transparent); }
+  .nrow.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
+  .nname { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .nname .hostchip { font: 9.5px/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--upd);
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 2px 6px; flex: none; }
+  .nname .nm { color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* attach bar — how many containers ride this network */
+  .attbar { display: flex; align-items: center; gap: 10px; }
+  .attbar .track { flex: 1; height: 4px; background: var(--line); overflow: hidden; }
+  .attbar .track i { display: block; height: 100%; background: var(--upd); }
+  .attbar .c { color: var(--mid); font-variant-numeric: tabular-nums; width: 20px; text-align: right; }
+  .driver, .scope { color: var(--dim); }
+  .attby { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .attby .svc { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attby .svc .proj { color: var(--dim); } .attby .svc .extra { color: var(--dim); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line2);
+    font: 10px/1.6 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+  .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .rmc { text-align: right; }
+  .rm { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent;
+    border: 1px solid transparent; color: var(--dim); cursor: pointer; opacity: 0; }
+  .nrow:hover .rm { opacity: 1; }
+  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line2)); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 `)
 export class NetworksPage extends ResourcePage<NetworkInfo> {
   // For cross-host removal only — each item may live on a different host, which
   // @mutate's ambient (single) host target can't express.
   @inject(HopeTransport) accessor rpc!: HopeTransport;
-  @inject(NetworkDetailService) accessor networkDetail!: NetworkDetailService;
+  @inject(NetworkInspector) accessor netInsp!: NetworkInspector;
 
   @rpc(System, "networks", { eager: false }) accessor singleQ!: ApiState<NetworkInfo[]>;
   @rpc(System, "fleetNetworks", { eager: false }) accessor fleetQ!: ApiState<FleetNetworksHost[]>;
   @mutate(Deploy, "createNetwork")
   accessor mkNet!: RpcMutator<[string, string, string, string, boolean, boolean, boolean, string, string], NetworkInfo>;
+
+  @prop({ param: "id" }) accessor routeNet = "";
+  @reactive accessor filter: "all" | "attached" | "empty" = "all";
+
+  @mount
+  private onNetMount() {
+    if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
+    this.refresh();
+    this.syncNet();
+  }
+  @watch("routeNet") private onNetParam() { this.syncNet(); }
+  private syncNet() {
+    if (this.routeNet) {
+      this.netInsp.onChange = () => this.refresh();
+      this.netInsp.apply(this.hostCtx.token, decodeURIComponent(this.routeNet));
+    } else if (this.netInsp.isOpen) {
+      this.netInsp.apply("", "");
+    }
+  }
 
   // Selection keys: host|id (empty networks only).
   protected key = (n: NetworkInfo & { host?: string }) => (n.host ? n.host + "|" : "") + n.id;
@@ -71,8 +144,12 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
 
   protected visible() {
     const q = this.query.trim().toLowerCase();
-    const list = this.items();
-    return q ? list.filter((n) => n.name.toLowerCase().includes(q) || n.driver.toLowerCase().includes(q)) : list;
+    return this.items().filter((n) => {
+      if (this.filter === "attached" && !n.used_by.length) return false;
+      if (this.filter === "empty" && n.used_by.length) return false;
+      if (q && !(n.name + " " + n.driver).toLowerCase().includes(q)) return false;
+      return true;
+    });
   }
 
   private removeSelected = async () => {
@@ -178,72 +255,95 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
     const items = this.items();
     const vis = this.visible();
     const attached = items.filter((n) => n.used_by.length).length;
+    const empty = items.length - attached;
+    const totalConns = items.reduce((a, n) => a + n.used_by.length, 0);
+    const maxConn = Math.max(1, ...vis.map((n) => n.used_by.length));
+    const fleet = this.fleetMode;
+    const openRef = this.routeNet ? decodeURIComponent(this.routeNet) : "";
     const error = this.err();
     const busy = this.loading();
+    const sel = this.selected.length;
+    const pct = (n: number) => (items.length ? (n / items.length) * 100 : 0);
+    const first = busy && items.length === 0; // first load, nothing to show yet
     return (
       <div>
-        {appBar("networks", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={busy} onClick={this.createNet}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
-        ], { onRefresh: () => this.refresh(), refreshing: busy })}
-
-        <main>
-          {error ? <div class="empty">{error}</div> : null}
-
-          {items.length > 0 ? (
-            <div class="summary">
-              <span class="stat"><i class="k">networks</i><i class="v">{items.length}</i></span>
-              <span class="stat"><i class="k">attached</i><i class="v">{attached}</i></span>
-              <span class="stat"><i class="k">empty</i><i class={"v" + (items.length - attached > 0 ? " warnv" : "")}>{items.length - attached}</i></span>
-            </div>
+        <hope-phead heading="Networks" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker networks" : fleet ? "aggregated across the fleet" : `${items.length} network${items.length === 1 ? "" : "s"} on this daemon`}>
+          <hope-button slot="actions" icon="plus" disabled={busy} onClick={this.createNet}>create</hope-button>
+          {sel > 0 ? (
+            <>
+              <hope-button slot="actions" tone="danger" onClick={this.removeSelected}>remove {sel}</hope-button>
+              <hope-button slot="actions" onClick={this.clearSel}>clear</hope-button>
+            </>
           ) : null}
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={busy} onClick={this.userRefresh}></hope-button>
 
-          {this.selected.length > 0 ? (
-            <div class="toolbar">
-              <div class="grow"></div>
-              <div class="selbar">
-                <span class="seln">{this.selected.length} selected</span>
-                <hope-button tone="danger" disabled={busy} onClick={this.removeSelected}>remove</hope-button>
-                <hope-button onClick={this.clearSel}>clear</hope-button>
+          {first ? (
+            <div class="disk"><div class="diskmain"><div class="disktotal"><hope-skel w="52" h="26"></hope-skel><hope-skel w="150" h="10"></hope-skel></div><hope-skel h="8"></hope-skel><div class="legend"><hope-skel w="90" h="11"></hope-skel><hope-skel w="80" h="11"></hope-skel></div></div></div>
+          ) : items.length > 0 ? (
+            <div class="disk">
+              <div class="diskmain">
+                <div class="disktotal"><span class="big num">{items.length}</span><span class="lbl">networks &middot; {totalConns} attachments</span></div>
+                <div class="meter"><i class="inuse" style={`width:${pct(attached)}%`}></i><i class="unused" style={`width:${pct(empty)}%`}></i></div>
+                <div class="legend">
+                  <span class="lg"><span class="sw inuse"></span>attached <b>{attached}</b></span>
+                  <span class="lg"><span class="sw unused"></span>empty <b>{empty}</b></span>
+                </div>
               </div>
+              <div class="reclaim"><span class="k">removable</span><span class={"v num" + (empty ? "" : " zero")}>{empty}</span><span class="sub">empty networks</span></div>
             </div>
           ) : null}
+        </hope-phead>
 
-          {items.length > 0 ? (
+        {error ? <div class="empty">{error}</div> : null}
+
+        {items.length > 0 ? (
+          <div class="vtools">
+            <div class="seg">
+              {(["all", "attached", "empty"] as const).map((f) => (
+                <button class={this.filter === f ? "on" : ""} onClick={() => (this.filter = f)}>{f}<span class="n">{f === "all" ? items.length : f === "attached" ? attached : empty}</span></button>
+              ))}
+            </div>
+            <span class="grow"></span>
             <hope-search placeholder="Search networks…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
-          ) : null}
+          </div>
+        ) : null}
 
-          {vis.length > 0 ? (
-            <hope-table>
-              <table>
-                <colgroup>
-                  <col style="width:40px" /><col /><col style="width:120px" /><col style="width:110px" /><col style="width:28%" /><col style="width:52px" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th class="pl"><span class={"ck" + (this.removable().length > 0 && this.removable().every((n) => this.selected.includes(this.key(n))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                    <th>Name</th><th>Driver</th><th>Scope</th><th>Attached</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vis.map((n) => (
-                    <tr class={"click" + (this.selected.includes(this.key(n)) ? " sel" : "")} onClick={() => this.networkDetail.open({ host: n.host, ref: n.name, onChange: () => this.refresh() })}>
-                      {n.used_by.length ? <td class="pl"></td> : (
-                        <td class="pl" onClick={(e: Event) => this.toggleSel(this.key(n), e)}><span class={"ck" + (this.selected.includes(this.key(n)) ? " on" : "")}></span></td>
-                      )}
-                      <td class="hi">{n.host ? <hope-chip host={true} title={n.host}>{n.host}</hope-chip> : null}{n.name}</td>
-                      <td class="dim">{n.driver}</td>
-                      <td class="dim">{n.scope}</td>
-                      <td>{n.used_by.length ? <span>{n.used_by[0].service || n.used_by[0].name}{n.used_by.length > 1 ? <span class="dim"> +{n.used_by.length - 1}</span> : null}</span> : <span class="dim">—</span>}</td>
-                      <td class="r">{!n.used_by.length ? <button class="rm" title="remove network" onClick={(e: Event) => { e.stopPropagation(); this.del(n); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </hope-table>
-          ) : items.length === 0 && !error && !busy ? (
-            <div class="empty">No networks.</div>
-          ) : null}
-        </main>
+        {first ? (
+          <div class="rows">
+            <div class="rhead"><span>name</span><span>attached</span><span></span><span>driver</span><span>scope</span><span></span></div>
+            {[0, 1, 2, 3, 4].map(() => (
+              <div class="nrow" style="cursor:default">
+                <div class="nname"><hope-skel w="180" h="12"></hope-skel></div>
+                <div class="attbar"><span class="track"></span></div>
+                <div class="driver"><hope-skel w="50" h="12"></hope-skel></div>
+                <div class="scope"><hope-skel w="46" h="12"></hope-skel></div>
+                <div class="attby"><hope-skel w="120" h="12"></hope-skel></div>
+                <div class="rmc"></div>
+              </div>
+            ))}
+          </div>
+        ) : vis.length > 0 ? (
+          <div class="rows">
+            <div class="rhead"><span>name</span><span>attached</span><span></span><span>driver</span><span>scope</span><span></span></div>
+            {vis.map((n) => {
+              const c = n.used_by.length;
+              return (
+                <div class={"nrow" + (openRef === n.name ? " on" : "")} onClick={() => this.netInsp.select(n.host || this.hostCtx.token, n.name, () => this.refresh())}>
+                  <div class="nname">{n.host ? <span class="hostchip">{n.host}</span> : null}<span class="nm" title={n.name}>{n.name}</span></div>
+                  <div class="attbar"><span class="track"><i style={`width:${c ? Math.max(4, (c / maxConn) * 100) : 0}%`}></i></span><span class="c">{c || ""}</span></div>
+                  <div class="driver">{n.driver}</div>
+                  <div class="scope">{n.scope}</div>
+                  <div class="attby">{c ? <span class="svc">{n.used_by[0].project ? <span class="proj">{n.used_by[0].project} / </span> : null}{n.used_by[0].service || n.used_by[0].name || shortId(n.used_by[0].id)}{c > 1 ? <span class="extra"> +{c - 1}</span> : null}</span> : <span class="pill">empty</span>}</div>
+                  <div class="rmc">{c ? null : <button class="rm" title="remove network" onClick={(e: Event) => { e.stopPropagation(); this.del(n); }}><loom-icon name="x" size={14}></loom-icon></button>}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : items.length === 0 && !error && !busy ? (
+          <div class="empty">No networks.</div>
+        ) : !first && !error ? (
+          <div class="empty">{this.query ? <span>No networks match <b>{this.query}</b>.</span> : this.filter === "attached" ? "No attached networks — nothing is riding a user network." : this.filter === "empty" ? "No empty networks — every network has a container." : "No networks."}</div>
+        ) : null}
       </div>
     );
   }

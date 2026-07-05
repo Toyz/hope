@@ -1,6 +1,7 @@
 // Agents page: every connected hope-agent with its build info (version, git
 // sha, Go version, platform), daemon version, and container/image counts.
-import { LoomElement, component, styles, css, reactive, mount, unmount, watch, interval, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, unmount, watch, interval, on, app } from "@toyz/loom";
+import { Refreshing, withRefresh } from "../events";
 import { clipboard, debounce } from "@toyz/loom/element";
 import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
@@ -12,10 +13,10 @@ import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
-import { appBar } from "../app-bar";
 import { System } from "../contracts";
 import type { AgentView, AgentEnroll } from "../contracts";
 import { resourceStyles } from "./resource-styles";
+import { theme } from "../styles";
 
 const ago = (iso: string) => {
   const t = Date.parse(iso);
@@ -30,26 +31,32 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
 
 @route("/agents")
 @component("hope-agents")
-@styles(css`
+@styles(theme, css`
   ${resourceStyles}
 
+  /* header stat-band skeleton children */
+  .skstat { display: flex; flex-direction: column; gap: 8px; }
+
   .agrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
-  .acard { border: 1px solid var(--line); }
-  .acard .ahead { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .acard { background: var(--panel); border: 1px solid var(--line); }
+  .acard.off { border-color: color-mix(in srgb, var(--bad) 22%, var(--line)); }
+
+  /* header bar — status dot + agent id, right-aligned up/seen chip, remove action */
+  .acard .ahead { display: flex; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
   .acard .adot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
   .acard .adot.off { background: var(--bad); }
-  .acard .aid { font: 700 14px/1 var(--mono); color: var(--hi); letter-spacing: .02em; }
-  .acard .aup { margin-left: auto; font: 600 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
-  .acard.off { border-color: color-mix(in srgb, var(--bad) 22%, var(--line)); }
+  .acard .aid { font: 700 13.5px/1 var(--mono); color: var(--hi); letter-spacing: .01em; }
+  .acard .aup { margin-left: auto; font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .acard .aup.seen { color: var(--warn); }
-  .acard .afget { margin-left: 10px; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
-    background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  .acard .afget:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-  .acard .arows { padding: 4px 16px 12px; }
-  .acard .arow { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .acard .afget { margin-left: 8px; }
+
+  /* detail rows — mirror the inspector's .drow/.dk/.dv (fixed-width mono label + hi value) */
+  .acard .arows { padding: 2px 15px 6px; }
+  .acard .arow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 8px 0;
+    border-bottom: 1px solid var(--line); align-items: baseline; }
   .acard .arow:last-child { border-bottom: 0; }
-  .acard .ak { flex: 0 0 92px; font: 600 9.5px/1.6 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
-  .acard .av { flex: 1; min-width: 0; font: 12.5px/1.5 var(--mono); color: var(--hi); word-break: break-all; }
+  .acard .ak { font: 600 9px/1.6 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .acard .av { min-width: 0; font: 12px/1.5 var(--mono); color: var(--hi); word-break: break-all; }
   .acard .av .dim { color: var(--dim); }
   .acard .av .warnv { color: var(--warn); }
 
@@ -228,22 +235,55 @@ export class AgentsPage extends LoomElement {
 
   private load = () => this.agentsQ.refetch();
 
+  // Spin the header refresh only for a user click (Refreshing bus, min-beat), not
+  // the 8s background poll.
+  @reactive accessor refreshing = false;
+  private refreshRC = 0;
+  @on(Refreshing) private onRefreshing(e: Refreshing) {
+    this.refreshRC = Math.max(0, this.refreshRC + (e.active ? 1 : -1));
+    this.refreshing = this.refreshRC > 0;
+  }
+  private userRefresh = () => { void withRefresh(() => this.load()); };
+
 
   update() {
+    const online = this.agents.filter((a) => a.online).length;
+    const running = this.agents.reduce((a, x) => a + x.running, 0);
+    const containers = this.agents.reduce((a, x) => a + x.containers, 0);
+    const first = this.busy && !this.loaded; // first load, nothing to show yet
+    const dot = this.agents.length === 0 ? "" : online === this.agents.length ? "ok" : "warn";
     return (
       <div>
-        {appBar("agents", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openNew}><loom-icon name="plus" size={12}></loom-icon> new agent</button></div>,
-        ], { hostSwitch: false, onRefresh: () => this.load(), refreshing: this.busy })}
+        <hope-phead heading="Agents" dot={dot} meta={first ? "connected hope-agents" : `${this.agents.length} agent${this.agents.length === 1 ? "" : "s"} · ${online} online`}>
+          <hope-button slot="actions" icon="plus" onClick={this.openNew}>new agent</hope-button>
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={this.busy} onClick={this.userRefresh}></hope-button>
+
+          {first ? (
+            <div class="vstats">{[0, 1, 2].map(() => <div class="skstat"><hope-skel w="64" h="9"></hope-skel><hope-skel w="52" h="16"></hope-skel></div>)}</div>
+          ) : this.agents.length > 0 ? (
+            <div class="vstats">
+              <hope-stat label="agents" value={String(this.agents.length)}></hope-stat>
+              <hope-stat label="online" value={String(online)} tone={online === this.agents.length ? "ok" : "warn"}></hope-stat>
+              <hope-stat label="containers" value={String(running)} sub={`/ ${containers}`}></hope-stat>
+            </div>
+          ) : null}
+        </hope-phead>
 
         <main>
           {this.error ? <div class="empty">{this.error}</div> : null}
 
-          {this.agents.length > 0 ? (
-            <div class="summary">
-              <span class="stat"><i class="k">agents</i><i class="v">{this.agents.length}</i></span>
-              <span class="stat"><i class="k">online</i><i class="v">{this.agents.filter((a) => a.online).length}</i></span>
-              <span class="stat"><i class="k">containers</i><i class="v">{this.agents.reduce((a, x) => a + x.running, 0)}<i class="t"> / {this.agents.reduce((a, x) => a + x.containers, 0)}</i></i></span>
+          {first ? (
+            <div class="agrid">
+              {[0, 1, 2].map(() => (
+                <div class="acard">
+                  <div class="ahead"><hope-skel w="120" h="14"></hope-skel></div>
+                  <div class="arows">
+                    {[0, 1, 2, 3, 4].map(() => (
+                      <div class="arow"><hope-skel w="80" h="10"></hope-skel><hope-skel w="140" h="12"></hope-skel></div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : null}
 
@@ -258,7 +298,7 @@ export class AgentsPage extends LoomElement {
                   ) : (
                     <>
                       <span class="aup seen">{a.last_seen ? "seen " + ago(a.last_seen) + " ago" : "offline"}</span>
-                      <button class="afget" title="forget this agent" onClick={() => this.forget(a)}><loom-icon name="x" size={13}></loom-icon></button>
+                      <hope-button class="afget" size="sm" tone="danger" icon="trash" onClick={() => this.forget(a)}></hope-button>
                     </>
                   )}
                 </div>

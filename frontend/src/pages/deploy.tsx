@@ -66,33 +66,15 @@ interface ResDecl { name: string; driver: string; }
   hope-select { display: block; height: 38px; }
 
   /* each service is a collapsible <hope-panel>; the form is its slotted body */
-  .xbtn { display: inline-grid; place-items: center; width: 28px; height: 28px; background: transparent;
-    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  .xbtn:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
-
   .resrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .resrow input { flex: 1; }
   .resrow .drv { flex: 0 0 150px; }
 
-  .add { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px dashed var(--line2);
-    color: var(--dim); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 9px 13px; }
-  .add:hover { color: var(--hi); border-color: var(--mid); }
-
   .foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
   .foot .grow { flex: 1; }
-  .go { font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #06080d;
-    background: var(--upd); border: 1px solid var(--upd); padding: 12px 20px; cursor: pointer; }
-  .go:hover { background: color-mix(in srgb, var(--upd) 88%, #fff); }
-  .ghost { font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mid);
-    background: transparent; border: 1px solid var(--line); padding: 12px 18px; cursor: pointer; }
-  .ghost:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .danger { font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--bad);
-    background: transparent; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); padding: 12px 18px; cursor: pointer; }
-  .danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
 
   .filerow { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .filerow .or { font: 11.5px/1 var(--mono); color: var(--dim); }
-  .ghost.sm, .go.sm { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; }
   .warns { margin: 10px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
     background: color-mix(in srgb, var(--warn) 7%, transparent); }
   .warns .w { font: 11.5px/1.5 var(--mono); color: var(--warn); }
@@ -516,7 +498,7 @@ export class DeployPage extends LoomElement {
             </div>
             <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>
             <div class="f"><label>.env (optional, for ${"{VAR}"})</label><textarea style="min-height:90px" placeholder="TAG=1.25" value={this.importEnv} onInput={(e: any) => (this.importEnv = e.target.value)}></textarea></div>
-            <button class="go sm" onClick={this.doImport}><loom-icon name="box" size={13}></loom-icon> Parse into builder</button>
+            <hope-button tone="primary" icon="box" onClick={this.doImport}>Parse into builder</hope-button>
           </hope-panel>
         )}
 
@@ -526,21 +508,21 @@ export class DeployPage extends LoomElement {
 
         {this.rows.map((r) => (
           <hope-panel label={r.initial.name || "service"} icon="box" collapsible={true} style="margin-top:14px">
-            {this.rows.length > 1 ? <button slot="actions" class="xbtn" title="remove service" onClick={(e: any) => { e.stopPropagation(); this.removeService(r.key); }}><loom-icon name="x" size={14}></loom-icon></button> : null}
+            {this.rows.length > 1 ? <hope-button slot="actions" icon="x" size="sm" title="remove service" onClick={(e: any) => { e.stopPropagation(); this.removeService(r.key); }}></hope-button> : null}
             <hope-service-form initial={r.initial} seed={this.seed} networks={availNets} volumes={availVols} connectors={this.connectors} zones={this.zones} showName={true}></hope-service-form>
           </hope-panel>
         ))}
-        <button class="add" onClick={this.addService}><loom-icon name="plus" size={12}></loom-icon> add service</button>
+        <hope-button icon="plus" size="sm" onClick={this.addService}>add service</hope-button>
 
         <hope-panel label="stack networks" icon="link" style="margin-top:22px">
           {this.netDecls.map((n, i) => (
             <div class="resrow">
               <input type="text" placeholder="network name" value={n.name} onInput={(e: any) => (this.netDecls = patch(this.netDecls, i, { name: e.target.value }))} />
               <div class="drv"><hope-select options={[{ value: "", label: "bridge" }, { value: "overlay", label: "overlay" }, { value: "macvlan", label: "macvlan" }]} value={n.driver} onSelect={(e: any) => (this.netDecls = patch(this.netDecls, i, { driver: e.detail }))}></hope-select></div>
-              <button class="xbtn" onClick={() => (this.netDecls = this.netDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
+              <hope-button icon="x" size="sm" onClick={() => (this.netDecls = this.netDecls.filter((_, j) => j !== i))}></hope-button>
             </div>
           ))}
-          <button class="add" onClick={() => (this.netDecls = [...this.netDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> network</button>
+          <hope-button icon="plus" size="sm" onClick={() => (this.netDecls = [...this.netDecls, { name: "", driver: "" }])}>network</hope-button>
         </hope-panel>
 
         <hope-panel label="stack volumes" icon="copy" style="margin-top:14px">
@@ -548,10 +530,10 @@ export class DeployPage extends LoomElement {
             <div class="resrow">
               <input type="text" placeholder="volume name" value={v.name} onInput={(e: any) => (this.volDecls = patch(this.volDecls, i, { name: e.target.value }))} />
               <div class="drv"><hope-select options={[{ value: "", label: "local" }]} value={v.driver} placeholder="local" onSelect={(e: any) => (this.volDecls = patch(this.volDecls, i, { driver: e.detail }))}></hope-select></div>
-              <button class="xbtn" onClick={() => (this.volDecls = this.volDecls.filter((_, j) => j !== i))}><loom-icon name="x" size={14}></loom-icon></button>
+              <hope-button icon="x" size="sm" onClick={() => (this.volDecls = this.volDecls.filter((_, j) => j !== i))}></hope-button>
             </div>
           ))}
-          <button class="add" onClick={() => (this.volDecls = [...this.volDecls, { name: "", driver: "" }])}><loom-icon name="plus" size={12}></loom-icon> volume</button>
+          <hope-button icon="plus" size="sm" onClick={() => (this.volDecls = [...this.volDecls, { name: "", driver: "" }])}>volume</hope-button>
         </hope-panel>
 
         <div class="foot">

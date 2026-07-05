@@ -2,128 +2,98 @@
 // serve (hostname -> stack/service). Deploy a connector, add/remove routes.
 // Host-aware: in "all hosts" mode the deploy/add dialogs ask which host to target;
 // otherwise they use the actively-selected host.
-import { LoomElement, component, styles, css, reactive, mount, unmount, watch, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, watch, interval, on, prop, app } from "@toyz/loom";
 import { draggable, dropzone } from "@toyz/loom/element";
-import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
+import { ConnectorInspector } from "../connector-inspector";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
-import { HostChanged } from "../events";
+import { HostChanged, Refreshing, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
-import { appBar } from "../app-bar";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
-import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView, OpFrame } from "../contracts";
+import type { ConnectorView, TunnelView, StackSummary, OpResult, HostView, ZoneView } from "../contracts";
 import type { PromptOption } from "../prompt";
-import { resourceStyles } from "./resource-styles";
-
-const short = (id: string) => (id && id.length > 12 ? id.slice(0, 12) : id || "—");
+import { theme } from "../styles";
 
 @route("/tunnels/:host")
+@route("/tunnels/:host/:id")
 @component("hope-tunnels")
-@styles(css`
-  ${resourceStyles}
+@styles(theme, css`
+  :host { display: block; min-height: 100%; background: var(--ink); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
+  .empty b { color: var(--hi); }
 
-  /* a connector and the routes it owns are one bordered unit */
-  .cblock { border: 1px solid var(--line); margin-bottom: 22px; }
-  .chead { display: flex; align-items: center; gap: 12px; padding: 13px 16px; }
-  .chead .cdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
-  .chead .cdot.off { background: var(--bad); }
-  .chead .cdot.warn { background: var(--warn); }
-  .cwho { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .cl1 { display: flex; align-items: center; gap: 9px; }
-  .cl1 .cname { font: 700 14px/1 var(--mono); color: var(--hi); }
-  .cl2 { font: 11.5px/1 var(--mono); color: var(--dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .cl2 .sep { color: var(--faint); }
-  .cl2 .ok { color: var(--ok); }
-  .cl2 .warn { color: var(--warn); }
-  .cl2 .bad { color: var(--bad); }
-  .cgrow { flex: 1; }
-  .caddr { background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer;
-    font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 6px 10px; }
-  .caddr:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .caddr.upd { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
-  .caddr.upd:hover { color: #06080d; background: var(--upd); border-color: var(--upd); }
-  .cx { background: transparent; border: 0; color: var(--dim); cursor: pointer; padding: 4px; display: flex; }
-  .cx:hover { color: var(--bad); }
-  td.host a { color: var(--hi); text-decoration: none; }
-  td.host a:hover { text-decoration: underline; }
-  td.host .sub { color: var(--hi); font-weight: 600; }
-  td.host .rootlbl { color: var(--dim); font-style: italic; }
-  /* domain sub-header groups routes; subdomain rows sit indented under it */
-  tr.dgroup td { padding: 9px 14px; border-bottom: 1px solid var(--line);
-    background: color-mix(in srgb, var(--ink) 45%, var(--panel)); }
-  tr.dgroup a { color: var(--mid); text-decoration: none; font: 600 11px/1 var(--mono); letter-spacing: .06em; }
-  tr.dgroup a:hover { color: var(--hi); }
-  tr.dgroup + tr td, tr.dgroup ~ tr td.host { }
-  td.host { padding-left: 30px; }
-  td.host .svc { color: var(--dim); }
-  tr.route { cursor: grab; }
-  tr.route:active { cursor: grabbing; }
-  tr.route.drop-over td { box-shadow: inset 0 2px 0 var(--upd); }
-  td.origin .svc { color: var(--dim); }
-  td.origin .tlink { display: inline-flex; align-items: center; gap: 3px; color: var(--hi); cursor: pointer; }
-  td.origin .tlink loom-icon { color: var(--dim); }
-  td.origin .tlink:hover { text-decoration: underline; }
-  td.origin .tlink:hover loom-icon { color: var(--hi); }
-  .cblock .rtbl { border: 0; border-top: 1px solid var(--line2); }
-  .cblock .rtbl thead th { background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
-  colgroup col.c-port { width: 90px; }
-  colgroup col.c-act { width: 132px; }
-  .noroutes { padding: 13px 16px; border-top: 1px solid var(--line2); color: var(--dim); font: 12.5px/1.6 var(--mono); }
-  td.rx { text-align: right; white-space: nowrap; }
-  .ord { display: inline-flex; margin-right: 6px; vertical-align: middle; }
-  .ord loom-icon.up { transform: rotate(180deg); }
-  .rmx { background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; padding: 5px 6px; display: inline-flex; }
-  .rmx:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .ord .rmx:hover { color: var(--upd); }
-  .rmx.del:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
-  .rmx:disabled { opacity: .3; cursor: not-allowed; }
-  .rmx:disabled:hover { color: var(--dim); border-color: transparent; background: transparent; }
-  .disabled { padding: 40px; text-align: center; color: var(--dim); font: 13px/1.7 var(--mono); }
-  /* first-load skeleton so slow Cloudflare calls don't blank-then-snap */
-  .skb { display: inline-block; height: 12px; min-width: 36px; background: var(--line); animation: skpulse 1.2s ease-in-out infinite; }
-  .skb.sv { height: 15px; width: 30px; }
-  .skb.w160 { width: 160px; height: 14px; }
-  .skb.w200 { width: 200px; }
-  .skb.w240 { width: 240px; }
-  @keyframes skpulse { 0%, 100% { opacity: .3; } 50% { opacity: .65; } }
-  .chost { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
-    border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; }
-  /* make the identity block open a detail breakdown (mirrors the images page) */
-  .cwho { cursor: pointer; }
-  .cl2 .nets { color: var(--mid); border-bottom: 1px dotted var(--faint); }
-  .cwho:hover .cl2 .nets { color: var(--hi); border-bottom-color: var(--line2); }
+  /* header stat-band children (slotted into <hope-stat>) */
+  .skstat { display: flex; flex-direction: column; gap: 8px; }
+  .colos { display: flex; gap: 6px; flex-wrap: wrap; }
+  .colo { font: 600 10px/1.6 var(--mono); letter-spacing: .08em; color: var(--upd);
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 2px 7px; }
+  .cfver { font: 500 15px/1 var(--mono); color: var(--hi); } .cfver .upd { color: var(--warn); font-size: 12px; }
 
-  /* connector detail modal — same model as the images detail sheet */
-  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
-  .dbox { width: 600px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
-  .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
-  .dhead .dt { font: 700 14px/1.2 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dhead .dgrow { flex: 1; }
-  .dx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
-  .dx:hover { color: var(--hi); }
-  .dfacts { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
-  .dfacts .st { display: flex; flex-direction: column; gap: 5px; padding: 12px 16px; border-right: 1px solid var(--line); }
-  .dfacts .sk { font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
-  .dfacts .sv { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
-  .dfacts .sv.ok { color: var(--ok); } .dfacts .sv.warn { color: var(--warn); } .dfacts .sv.bad { color: var(--bad); }
-  .dbody { padding: 6px 18px 14px; }
-  .drow { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--line); }
-  .drow:last-child { border-bottom: 0; }
-  .drow.top { align-items: flex-start; }
-  .dk { flex: 0 0 84px; font: 600 10px/1.8 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
-  .dv { flex: 1; min-width: 0; font: 12.5px/1.6 var(--mono); color: var(--hi); display: flex; flex-wrap: wrap; align-items: center; gap: 0; }
-  .dv .dim { color: var(--dim); }
-  .netchip { font: 12px/1 var(--mono); color: var(--hi); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; }
+  /* connector section: band header (opens docked inspector) + route table */
+  .tconn { border-bottom: 1px solid var(--line); }
+  .cband { display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: #11161f; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .cband:hover { background: #141b26; }
+  /* active (its inspector is docked): accent the BAND only, not every route row */
+  .tconn.on .cband { box-shadow: inset 2px 0 0 var(--upd); background: color-mix(in srgb, var(--upd) 9%, #11161f); }
+  .tconn.on .cband:hover { background: color-mix(in srgb, var(--upd) 13%, #11161f); }
+  .cband .cdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+  .cband .cdot.warn { background: var(--warn); } .cband .cdot.off { background: var(--bad); }
+  .cband .cname { font: 700 13.5px/1 var(--mono); color: var(--hi); }
+  .cband:hover .cname { text-decoration: underline; }
+  .cband .grow { flex: 1; }
+  .cmeta { display: flex; align-items: center; gap: 18px; }
+  .cm { display: flex; align-items: baseline; gap: 6px; font: 11.5px/1 var(--mono); color: var(--mid); }
+  .cm .lbl { font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .cm b { color: var(--hi); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cm.warn b { color: var(--warn); }
+  .cver { color: var(--dim); font: 11px/1 var(--mono); }
+  .cgo { color: var(--faint); flex: none; } .cband:hover .cgo { color: var(--mid); }
+  .tconn.on .cgo { color: var(--upd); }
+
+  /* domain sub-header: clusters routes for one domain */
+  .rdgroup { padding: 9px 28px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 45%, var(--panel)); }
+  .rdgroup a { color: var(--mid); text-decoration: none; font: 600 11px/1 var(--mono); letter-spacing: .06em; }
+  .rdgroup a:hover { color: var(--hi); text-decoration: underline; }
+  .rrow.drop-over { box-shadow: inset 0 2px 0 var(--upd); }
+  .rrow { cursor: grab; } .rrow:active { cursor: grabbing; }
+  .rhost .rootlbl { color: var(--dim); font-style: italic; }
+  .rthead, .rrow { display: grid; grid-template-columns: minmax(0, 1.5fr) 44px minmax(0, 1.5fr) 110px 70px; align-items: center; gap: 16px; padding: 0 28px; }
+  .rthead { height: 34px; border-bottom: 1px solid var(--line); }
+  .rthead span { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .rthead .r { text-align: right; }
+  .rrow { height: 46px; border-bottom: 1px solid var(--line); }
+  .rrow:last-child { border-bottom: 0; }
+  .rrow:hover { background: var(--raised); }
+  .rhost { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rhost .lock { color: var(--ok); flex: none; }
+  .rhost .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rhost .h a { color: inherit; }
+  .rhost .h a:hover { text-decoration: underline; }
+  .rhost .h b { color: var(--hi); font-weight: 600; } .rhost .h .dom { color: var(--dim); }
+  .rflow { display: flex; align-items: center; justify-content: center; color: var(--faint); }
+  .rflow svg { width: 38px; height: 10px; }
+  .rsvc2 { display: flex; align-items: baseline; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rsvc2 .proj { color: var(--dim); } .rsvc2 .svc { color: var(--hi); cursor: pointer; } .rsvc2 .svc:hover { text-decoration: underline; }
+  .rsvc2 .port { color: var(--mid); } .rsvc2 .via { color: var(--dim); font-size: 10.5px; }
+  .rpath { color: var(--upd); font: 12px/1 var(--mono); } .rpath.none { color: var(--faint); }
+  .racts { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+  .rmx2 { background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; padding: 4px 5px; display: inline-flex; opacity: 0; }
+  .rrow:hover .rmx2 { opacity: 1; }
+  .rmx2:hover { color: var(--hi); border-color: var(--line2); }
+  .rmx2.del:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line2)); }
+  .rmx2:disabled { opacity: 0; }
+  .rmx2 loom-icon.up { transform: rotate(180deg); }
+  .taddr { display: flex; align-items: center; gap: 8px; padding: 12px 28px; color: var(--dim); font: 11.5px/1 var(--mono); cursor: pointer; border-bottom: 1px solid var(--line); }
+  .taddr:hover { color: var(--upd); }
+  .noroutes2 { padding: 16px 28px; color: var(--dim); font: 12.5px/1.6 var(--mono); border-bottom: 1px solid var(--line); }
 `)
 export class TunnelsPage extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -133,6 +103,7 @@ export class TunnelsPage extends LoomElement {
   @inject(ProcService) accessor proc!: ProcService;
   @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ConnectorInspector) accessor connInsp!: ConnectorInspector;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -147,10 +118,10 @@ export class TunnelsPage extends LoomElement {
   @reactive accessor disabled = false;
   @reactive accessor busy = false;
   @reactive accessor hostQuery = "";
-  @reactive accessor detail: ConnectorView | null = null;
+  // Trailing :id opens the docked connector inspector for that connector id
+  // (deep-linkable). id, not name — connector names aren't unique.
+  @prop({ param: "id" }) accessor routeConn = "";
 
-  @watch("detail") private lockBody() { signalModal(this, !!this.detail); }
-  @unmount private releaseBody() { signalModal(this, false); }
   private suppressUntil = 0; // pause the auto-reload right after a local change
 
   get fleetMode() {
@@ -162,6 +133,16 @@ export class TunnelsPage extends LoomElement {
   onHostChanged() {
     if (this.auth.isAuthenticated) this.load();
   }
+
+  // Spin the header refresh only for a user-triggered refresh (via the Refreshing
+  // bus, min-beat), not the 8s background poll (which would spin near-constantly).
+  @reactive accessor refreshing = false;
+  private refreshRC = 0;
+  @on(Refreshing) private onRefreshing(e: Refreshing) {
+    this.refreshRC = Math.max(0, this.refreshRC + (e.active ? 1 : -1));
+    this.refreshing = this.refreshRC > 0;
+  }
+  private userRefresh = () => { void withRefresh(() => this.load()); };
 
   // The host these connectors were listed from (Connectors runs on the active host).
   private activeHostId() {
@@ -175,6 +156,28 @@ export class TunnelsPage extends LoomElement {
       return;
     }
     this.load();
+    this.syncConn();
+  }
+
+  @watch("routeConn")
+  private onConnParam() { this.syncConn(); }
+
+  // Drive the docked connector inspector from the URL's id segment (the connector
+  // id). apply() only sets state + fires the bus event (no navigation), so it
+  // can't loop with select(). The connector's real host is resolved once the list
+  // has loaded (fleet mode aggregates hosts); load() re-syncs to correct it.
+  private syncConn() {
+    if (this.routeConn) {
+      const id = decodeURIComponent(this.routeConn);
+      this.connInsp.onChange = () => this.load();
+      this.connInsp.apply(this.hostOf(this.connById(id)), id);
+    } else if (this.connInsp.isOpen) {
+      this.connInsp.apply("", "");
+    }
+  }
+
+  private connById(id: string): ConnectorView | undefined {
+    return this.connectors.find((c) => c.id === id);
   }
 
   @interval(8000)
@@ -258,6 +261,7 @@ export class TunnelsPage extends LoomElement {
       this.disabled = disabled && cons.length === 0; // only "off" if no host has tunnels
       this.error = "";
       this.loaded = true;
+      if (this.routeConn) this.syncConn(); // now that the list is in, correct the host
     } catch (err: any) {
       const msg = err?.message ?? "Can't list tunnels.";
       if (/disabled/i.test(msg)) this.disabled = true;
@@ -319,73 +323,34 @@ export class TunnelsPage extends LoomElement {
     await this.load();
   };
 
-  // Rename the connector's Cloudflare tunnel. Pure API change — routes and the
-  // connector's networks are untouched (the title reads the live tunnel name).
-  private renameConnector = async (c: ConnectorView) => {
-    const v = await this.prompt.ask({
-      title: "rename tunnel",
-      icon: "link",
-      submitLabel: "Rename",
-      fields: [{ key: "name", label: "new name", placeholder: c.title || c.name, value: c.title || c.name }],
-    });
-    if (!v) return;
-    const name = v.name.trim();
-    if (!name || name === (c.title || c.name)) return;
-    await this.proc.run(`rename ${c.title || c.name}`, async (emit) => {
-      try {
-        emit("renaming Cloudflare tunnel…");
-        const res = await this.rpc.callOn<OpResult>(this.hostOf(c), "Tunnels", "renameConnector", [c.id, name]);
-        if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
-        emit("renamed -> " + name);
-        return true;
-      } catch (e: any) {
-        emit("failed: " + (e?.message || "error"));
-        return false;
-      }
-    });
-    this.load();
-  };
-
-  private removeConnector = async (c: ConnectorView) => {
-    const del = await this.confirm.ask({
-      title: "remove connector",
-      danger: true,
-      confirmLabel: "Remove + delete tunnel",
-      message: `Remove connector "${c.title || c.name}"? This stops and deletes the cloudflared container AND deletes its Cloudflare tunnel (${short(c.tunnel_id)}). Its routes stop working.`,
-    });
-    if (!del) return;
-    await this.proc.run(`remove connector ${c.title || c.name}`, async (emit) => {
-      try {
-        emit("stopping + removing cloudflared…");
-        emit("deleting Cloudflare tunnel…");
-        await this.rpc.callOn<OpResult>(this.hostOf(c), "Tunnels", "removeConnector", [c.id, true]);
-        emit("removed");
-        return true;
-      } catch (e: any) {
-        emit("failed: " + (e?.message ?? "error"));
-        return false;
-      }
-    });
-    await this.load();
-  };
-
-  // Jump to the stack (or container) a route targets, on that route's host.
+  // Jump to the exact container a route targets, on that route's host. Prefer the
+  // resolved origin container id (from the backend), then fall back to matching the
+  // container name in the loaded stacks, then to the stack view.
   private openTarget = (t: TunnelView) => {
     const host = t.host || this.activeHostId();
-    if (t.project) {
-      this.router.navigate(withHost(host, `/stack/${encodeURIComponent(t.project)}`));
+    const cid = this.containerIdFor(t, host);
+    if (cid) {
+      const proj = t.project || this.stacksFor(host).find((s) => s.containers.some((c) => c.id === cid))?.project || UNGROUPED;
+      this.router.navigate(withHost(host, `/stack/${encodeURIComponent(proj)}/${encodeURIComponent(cid)}`));
       return;
     }
-    if (t.container) {
-      for (const s of this.stacks) {
-        const c = s.containers.find((x) => x.name === t.container);
-        if (c) {
-          this.router.navigate(withHost(host, `/container/${encodeURIComponent(c.id)}`));
-          return;
-        }
+    if (t.project) this.router.navigate(withHost(host, `/stack/${encodeURIComponent(t.project)}`));
+  };
+
+  // Resolve a route to a concrete container id: the backend-provided origin id if
+  // present, else the first container matching the container name or the service.
+  private containerIdFor(t: TunnelView, host?: string): string {
+    if (t.container_id) return t.container_id;
+    for (const s of this.stacksFor(host)) {
+      const byName = s.containers.find((c) => c.name === t.container);
+      if (byName) return byName.id;
+      if (t.project && s.project === t.project && t.svc_name) {
+        const bySvc = s.containers.find((c) => (c.service || c.name) === t.svc_name);
+        if (bySvc) return bySvc.id;
       }
     }
-  };
+    return "";
+  }
 
   private duplicateRoute = (t: TunnelView) => {
     const c = this.connectors.find((x) => x.name === t.connector);
@@ -423,10 +388,10 @@ export class TunnelsPage extends LoomElement {
   private ridOf(t: TunnelView) { return encodeURIComponent(t.hostname) + "|" + encodeURIComponent(t.path || ""); }
 
   // Native HTML5 drag, wired via loom's @draggable/@dropzone with row delegation.
-  @draggable({ selector: "tr.route" })
+  @draggable({ selector: ".rrow" })
   private dragRoute(el: HTMLElement) { return el.dataset.rid || ""; }
 
-  @dropzone({ selector: "tr.route", overClass: "drop-over" })
+  @dropzone({ selector: ".rrow", overClass: "drop-over" })
   private dropRoute(data: string, _ev: DragEvent, el: HTMLElement) {
     this.reorderByDrag(data, el.dataset.rid || "");
   }
@@ -443,28 +408,6 @@ export class TunnelsPage extends LoomElement {
     arr.splice(arr.indexOf(from), 1);
     arr.splice(arr.indexOf(to), 0, from);
     await this.applyOrder(from.connector, arr);
-  };
-
-  private updateConnector = async (c: ConnectorView) => {
-    await this.proc.run(`update ${c.title || c.name}`, async (emit, signal) => {
-      let ok = true;
-      try {
-        emit("pulling latest cloudflared…");
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [c.id, "true", "true"], signal, this.hostOf(c))) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) {
-            ok = false;
-            emit("failed: " + (f.error ?? ""));
-          }
-        }
-        emit(ok ? "connector updated" : "done");
-      } catch (e: any) {
-        ok = false;
-        emit("connection lost — connector is restarting…");
-      }
-      return ok;
-    });
-    await this.load();
   };
 
   private removeRoute = async (t: TunnelView) => {
@@ -634,206 +577,159 @@ export class TunnelsPage extends LoomElement {
 
 
   update() {
-    const online = this.connectors.filter((c) => c.online).length;
+    const cons = this.connectors;
+    const online = cons.filter((c) => c.online).length;
+    const allColos = [...new Set(cons.flatMap((c) => c.colos || []))];
+    const ver = cons.find((c) => c.version)?.version || "";
+    const anyUpd = cons.some((c) => c.update_ready);
+    const fleet = this.fleetMode;
+    const openConn = this.routeConn ? decodeURIComponent(this.routeConn) : "";
+    const health = cons.length ? (online === cons.length ? "ok" : "warn") : "";
     return (
       <div>
-        {this.detail ? this.renderConnDetail(this.detail) : null}
-        {appBar("tunnels", [
-          !this.disabled && this.loaded ? (
-            <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={this.busy} onClick={this.deployConnector}><loom-icon name="plus" size={12}></loom-icon> connector</button></div>
-          ) : null,
-        ], { onRefresh: () => this.load(), refreshing: this.busy })}
+        <hope-phead heading="Tunnels" dot={health} scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta="Cloudflare ingress · public hostnames → internal services">
+          {!this.disabled && this.loaded ? <hope-button slot="actions" icon="plus" disabled={this.busy} onClick={this.deployConnector}>connector</hope-button> : null}
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={this.busy} onClick={this.userRefresh}></hope-button>
 
-        <main>
-          {this.disabled ? (
-            <div class="disabled">
-              Cloudflare tunnels are off.<br />
-              Set <b>[cloudflare]</b> in config (enabled + api_token + account_id), then hope can<br />
-              deploy a connector for you or adopt one you run (labeled <b>ink.hope.tunnel=&lt;id&gt;</b>).
+          {!this.loaded ? (
+            <div class="vstats">{[0, 1, 2, 3].map(() => <div class="skstat"><hope-skel w="64" h="9"></hope-skel><hope-skel w="52" h="16"></hope-skel></div>)}</div>
+          ) : !this.disabled && cons.length > 0 ? (
+            <div class="vstats">
+              <hope-stat label="connectors" value={String(online)} sub={`/ ${cons.length} online`} tone={online === cons.length ? "ok" : "warn"}></hope-stat>
+              <hope-stat label="public routes" value={String(this.routes.length)}></hope-stat>
+              {allColos.length ? <hope-stat label="edge presence"><span class="colos">{allColos.slice(0, 6).map((co) => <span class="colo">{co}</span>)}</span></hope-stat> : null}
+              {ver ? <hope-stat label="cloudflared"><span class="cfver">{ver}{anyUpd ? <span class="upd"> · update</span> : null}</span></hope-stat> : null}
             </div>
           ) : null}
+        </hope-phead>
 
-          {this.error ? <div class="empty">{this.error}</div> : null}
+        {this.disabled ? (
+          <div class="disabled">
+            Cloudflare tunnels are off.<br />
+            Set <b>[cloudflare]</b> in config (enabled + api_token + account_id), then hope can<br />
+            deploy a connector for you or adopt one you run (labeled <b>ink.hope.tunnel=&lt;id&gt;</b>).
+          </div>
+        ) : null}
 
-          {!this.disabled && !this.error && !this.loaded ? (
-            <div class="skel">
-              <div class="summary">
-                <span class="stat"><i class="k">connectors</i><i class="skb sv"></i></span>
-                <span class="stat"><i class="k">online</i><i class="skb sv"></i></span>
-                <span class="stat"><i class="k">routes</i><i class="skb sv"></i></span>
-              </div>
-              <div class="cblock">
-                <div class="chead">
-                  <span class="cdot"></span>
-                  <div class="cwho"><div class="cl1"><span class="skb w160"></span></div><div class="cl2"><span class="skb w240"></span></div></div>
-                </div>
-                <div class="noroutes"><span class="skb w200"></span></div>
-              </div>
-            </div>
-          ) : null}
+        {this.error ? <div class="empty">{this.error}</div> : null}
 
-          {!this.disabled && this.loaded ? (
-            <div class="summary">
-              <span class="stat"><i class="k">connectors</i><i class="v">{this.connectors.length}</i></span>
-              <span class="stat"><i class="k">online</i><i class={"v" + (this.connectors.length && online < this.connectors.length ? " warnv" : "")}>{online}</i></span>
-              <span class="stat"><i class="k">routes</i><i class="v">{this.routes.length}</i></span>
-            </div>
-          ) : null}
+        {!this.disabled && this.routes.length > 3 ? (
+          <div style="padding:12px 28px;border-bottom:1px solid var(--line)"><hope-search placeholder="Filter routes by hostname…" text={this.hostQuery} onSearch={(e: any) => (this.hostQuery = e.detail)}></hope-search></div>
+        ) : null}
 
-          {!this.disabled && this.routes.length > 3 ? (
-            <hope-search placeholder="Filter routes by hostname…" text={this.hostQuery} onSearch={(e: any) => (this.hostQuery = e.detail)}></hope-search>
-          ) : null}
+        {!this.loaded && !this.error ? this.renderSkeleton() : null}
 
-          {this.connectors.map((c) => this.renderConnector(c))}
+        {cons.map((c) => this.renderConnector(c, openConn))}
 
-          {!this.disabled && this.loaded && this.connectors.length === 0 && !this.error ? (
-            <div class="empty">No connectors yet. <b>Deploy connector</b> lets hope create a Cloudflare tunnel and run cloudflared for you.</div>
-          ) : null}
-        </main>
+        {!this.disabled && this.loaded && cons.length === 0 && !this.error ? (
+          <div class="empty">No connectors yet. <b>Deploy connector</b> lets hope create a Cloudflare tunnel and run cloudflared for you.</div>
+        ) : null}
       </div>
     );
   }
 
-  // Emphasize the subdomain, dim the shared domain, so same-domain routes cluster
-  // visually (www.helba.ai vs helba.ai).
-  private renderHost(host: string) {
-    const { sub, domain } = this.splitHost(host);
-    if (domain && sub) return <span><b class="sub">{sub}</b><span class="dom">.{domain}</span></span>;
-    if (domain) return <span><span class="rootat">@</span> <span class="dom">{domain}</span></span>;
-    return <span>{host}</span>;
-  }
-
-  // Connector detail sheet — the extra info that used to crowd the header
-  // (networks, edge locations, cloudflared version, full tunnel id), broken
-  // down the same way the images page details a single image.
-  private renderConnDetail(c: ConnectorView) {
-    const routes = this.routes.filter((t) => t.connector === c.name).length;
-    const state = c.online ? "ok" : c.running ? "warn" : "bad";
+  // First-load skeleton: a connector section shaped like the real one so content
+  // swaps in without a layout jump (no popin).
+  private renderSkeleton() {
     return (
-      <div class="dmodal" onClick={() => (this.detail = null)}>
-        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="dhead">
-            <span class="dt" title={c.title || c.name}>{c.title || c.name}</span>
-            {c.default ? <hope-chip tone="upd" size="sm">shared</hope-chip> : null}
-            <span class="dgrow"></span>
-            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
-          </div>
-          <div class="dfacts">
-            <span class="st"><i class="sk">status</i><i class={"sv " + state}>{c.status || (c.running ? "connecting" : "stopped")}</i></span>
-            <span class="st"><i class="sk">conns</i><i class="sv">{c.connections}</i></span>
-            <span class="st"><i class="sk">routes</i><i class="sv">{routes}</i></span>
-            <span class="st"><i class="sk">networks</i><i class="sv">{c.networks?.length || 0}</i></span>
-            {this.hosts.length > 1 ? <span class="st"><i class="sk">host</i><i class="sv">{this.hostOf(c)}</i></span> : null}
-          </div>
-          <div class="dbody">
-            <div class="drow"><span class="dk">tunnel id</span><span class="dv">{c.tunnel_id || <span class="dim">—</span>}</span></div>
-            <div class="drow"><span class="dk">edge</span><span class="dv">{c.colos && c.colos.length ? c.colos.join("  ") : <span class="dim">not connected</span>}</span></div>
-            <div class="drow"><span class="dk">cloudflared</span>
-              <span class="dv">{c.version || <span class="dim">unknown</span>}{c.update_ready ? <span class="dim">  · update available</span> : null}</span>
-            </div>
-            <div class="drow top"><span class="dk">networks</span>
-              <span class="dv">
-                {c.networks && c.networks.length ? c.networks.map((n) => <span class="netchip">{n}</span>) : <span class="dim">none attached yet — added when you publish a route</span>}
-              </span>
-            </div>
-          </div>
+      <div class="tconn">
+        <div class="cband" style="cursor:default">
+          <span class="cdot" style="background:var(--line2)"></span>
+          <hope-skel w="130" h="13"></hope-skel>
+          <span class="grow"></span>
+          <hope-skel w="180" h="11"></hope-skel>
         </div>
+        <div class="rthead"><span>hostname</span><span></span><span>service</span><span>path</span><span class="r"></span></div>
+        {[0, 1, 2, 3].map(() => (
+          <div class="rrow" style="cursor:default">
+            <div class="rhost"><hope-skel w="150" h="12"></hope-skel></div>
+            <div class="rflow"></div>
+            <div class="rsvc2"><hope-skel w="120" h="12"></hope-skel></div>
+            <div class="rpath"><hope-skel w="44" h="12"></hope-skel></div>
+            <div class="racts"></div>
+          </div>
+        ))}
       </div>
     );
   }
 
-  // One connector block: its card, then the routes it serves (ingress order).
-  private renderConnector(c: ConnectorView) {
+  // One connector section: a band header + a full-bleed table of the routes it
+  // serves (public hostname -> internal service), matching the other pages. The
+  // band opens the docked connector inspector (detail + update/rename/remove).
+  private renderConnector(c: ConnectorView, openConn = "") {
+    const on = openConn === c.id;
     const all = this.routes.filter((t) => t.connector === c.name);
     const q = this.hostQuery.trim().toLowerCase();
     const shown = q ? all.filter((t) => t.hostname.toLowerCase().includes(q) || (t.svc_name || "").toLowerCase().includes(q) || (t.project || "").toLowerCase().includes(q)) : all;
+    const edge = (c.colos || []).slice(0, 2).join("·");
     return (
-      <div class="cblock">
-        <div class="chead">
+      <div class={"tconn" + (on ? " on" : "")}>
+        <div class="cband" onClick={() => this.connInsp.select(this.hostOf(c), c.id, () => this.load())}>
           <span class={"cdot" + (c.online ? "" : c.running ? " warn" : " off")}></span>
-          <div class="cwho" title="open connector details" onClick={() => (this.detail = c)}>
-            <div class="cl1">
-              <span class="cname">{c.title || c.name}</span>
-              {c.default ? <hope-chip tone="upd" size="sm">shared</hope-chip> : null}
-              {this.hosts.length > 1 ? <span class="chost" title="host this connector runs on">{this.hostOf(c)}</span> : null}
-            </div>
-            <div class="cl2">
-              <span class={c.online ? "ok" : c.running ? "warn" : "bad"}>{c.status || (c.running ? "connecting" : "stopped")}</span>
-              <span class="sep">·</span>{c.connections} conns
-              {c.colos && c.colos.length ? <span><span class="sep">·</span>edge {c.colos.join(" ")}</span> : null}
-              <span class="sep">·</span>tunnel {short(c.tunnel_id)}
-              <span class="sep">·</span>
-              {c.networks && c.networks.length ? <span class="nets">{c.networks.length} network{c.networks.length === 1 ? "" : "s"}</span> : <span>no networks yet</span>}
-            </div>
+          <span class="cname">{c.title || c.name}</span>
+          {c.default ? <hope-chip tone="upd" size="sm">shared</hope-chip> : null}
+          {this.hosts.length > 1 ? <hope-chip size="sm">{this.hostOf(c)}</hope-chip> : null}
+          {c.update_ready ? <hope-chip tone="warn" size="sm">update</hope-chip> : null}
+          <span class="grow"></span>
+          <div class="cmeta">
+            <span class="cm"><span class="lbl">conns</span><b>{c.connections}</b></span>
+            <span class="cm"><span class="lbl">routes</span><b>{all.length}</b></span>
+            {edge ? <span class="cm"><span class="lbl">edge</span><b>{edge}</b></span> : null}
+            {c.version ? <span class="cver">cloudflared {c.version}</span> : null}
           </div>
-          <span class="cgrow"></span>
-          {c.update_ready ? <button class="caddr upd" title="a newer cloudflared is available — pull + recreate" onClick={() => this.updateConnector(c)}>update</button> : null}
-          <button class="caddr" title="rename this tunnel" onClick={() => this.renameConnector(c)}>rename</button>
-          <button class="caddr" onClick={() => this.addRoute(c)}>+ route</button>
-          <button class="cx" title="remove connector" onClick={() => this.removeConnector(c)}><loom-icon name="x" size={15}></loom-icon></button>
+          <loom-icon class="cgo" name="chevron-right" size={15}></loom-icon>
         </div>
         {all.length === 0 ? (
-          <div class="noroutes">No routes yet — <b>+ route</b> to publish a service through this connector.</div>
+          <div class="noroutes2">No routes yet — <b>add route</b> to publish a service through this connector.</div>
         ) : shown.length === 0 ? (
-          <div class="noroutes">No routes match "{this.hostQuery}".</div>
+          <div class="noroutes2">No routes match "{this.hostQuery}".</div>
         ) : (
-          <table class="rtbl">
-            <colgroup>
-              <col class="c-name" />
-              <col class="c-meta" />
-              <col class="c-port" />
-              <col class="c-act" />
-            </colgroup>
-            <thead>
-              <tr><th>Hostname</th><th>Target</th><th>Port</th><th></th></tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const rows: any[] = [];
-                // Group routes by domain (each domain header once) — routes for the
-                // same domain aren't necessarily contiguous in ingress order, and
-                // cross-hostname order doesn't affect Cloudflare matching.
-                const groups = new Map<string, TunnelView[]>();
-                const order: string[] = [];
-                for (const t of shown) {
-                  const { domain } = this.splitHost(t.hostname);
-                  const dkey = domain || t.hostname;
-                  if (!groups.has(dkey)) { groups.set(dkey, []); order.push(dkey); }
-                  groups.get(dkey)!.push(t);
-                }
-                for (const dkey of order) {
+          <>
+            <div class="rthead"><span>hostname</span><span></span><span>service</span><span>path</span><span class="r"></span></div>
+            {(() => {
+              // Cluster routes under their domain (one header per domain) — same
+              // ingress isn't contiguous, and cross-domain order doesn't matter to
+              // Cloudflare. Drag/move reorder within a connector persists per-domain.
+              const groups = new Map<string, TunnelView[]>();
+              const order: string[] = [];
+              for (const t of shown) {
+                const { domain } = this.splitHost(t.hostname);
+                const dkey = domain || t.hostname;
+                if (!groups.has(dkey)) { groups.set(dkey, []); order.push(dkey); }
+                groups.get(dkey)!.push(t);
+              }
+              const rows: any[] = [];
+              for (const dkey of order) {
+                rows.push(<div class="rdgroup"><a href={`https://${dkey}`} target="_blank" rel="noreferrer">{dkey}</a></div>);
+                for (const t of groups.get(dkey)!) {
+                  const { sub, domain } = this.splitHost(t.hostname);
+                  const idx = all.indexOf(t);
                   rows.push(
-                    <tr class="dgroup"><td colSpan={4}><a href={`https://${dkey}`} target="_blank" rel="noreferrer">{dkey}</a></td></tr>,
-                  );
-                  for (const t of groups.get(dkey)!) {
-                    const { sub, domain } = this.splitHost(t.hostname);
-                    const idx = all.indexOf(t);
-                    rows.push(
-                      <tr class="route" data-rid={this.ridOf(t)} data-cid={t.connector}>
-                      <td class="host">
-                        <a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <span class="sub">{sub}</span> : <span class="rootlbl">root</span>}</a>
-                        {t.path ? <span class="svc"> {t.path}</span> : null}
-                      </td>
-                      <td class="origin">{t.project ? <span class="tlink" onClick={() => this.openTarget(t)}>{t.project} / {t.svc_name}<loom-icon name="chevron-right" size={11}></loom-icon></span> : t.container ? <span class="tlink" onClick={() => this.openTarget(t)}>{t.container}<loom-icon name="chevron-right" size={11}></loom-icon></span> : <span class="svc">{t.service}</span>}</td>
-                      <td class="rmeta">{t.port || "—"}</td>
-                      <td class="rx">
+                    <div class="rrow" data-rid={this.ridOf(t)} data-cid={t.connector}>
+                      <div class="rhost">
+                        <loom-icon class="lock" name="lock" size={12}></loom-icon>
+                        <span class="h"><a href={`https://${t.hostname}`} target="_blank" rel="noreferrer">{domain && sub ? <b>{sub}</b> : domain ? <span class="rootlbl">root</span> : <b>{t.hostname}</b>}</a></span>
+                      </div>
+                      <div class="rflow"><loom-icon name="arrow-right" size={14}></loom-icon></div>
+                      <div class="rsvc2">{t.project ? <span><span class="proj">{t.project} / </span><span class="svc" title="open container" onClick={() => this.openTarget(t)}>{t.svc_name}</span></span> : <span class="svc" title="open container" onClick={() => this.openTarget(t)}>{t.container || t.service}</span>}{t.port ? <span class="port">:{t.port}</span> : null}</div>
+                      <div class={"rpath" + (t.path ? "" : " none")}>{t.path || "—"}</div>
+                      <div class="racts">
                         {all.length > 1 ? (
-                          <span class="ord">
-                            <button class="rmx" title="move up" disabled={idx === 0} onClick={() => this.moveRoute(t, "up")}><loom-icon class="up" name="chevron-down" size={13}></loom-icon></button>
-                            <button class="rmx" title="move down" disabled={idx === all.length - 1} onClick={() => this.moveRoute(t, "down")}><loom-icon name="chevron-down" size={13}></loom-icon></button>
-                          </span>
+                          <>
+                            <button class="rmx2" title="move up" disabled={idx === 0} onClick={() => this.moveRoute(t, "up")}><loom-icon class="up" name="chevron-down" size={12}></loom-icon></button>
+                            <button class="rmx2" title="move down" disabled={idx === all.length - 1} onClick={() => this.moveRoute(t, "down")}><loom-icon name="chevron-down" size={12}></loom-icon></button>
+                          </>
                         ) : null}
-                        <button class="rmx" title="duplicate route" onClick={() => this.duplicateRoute(t)}><loom-icon name="copy" size={13}></loom-icon></button>
-                        <button class="rmx del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={14}></loom-icon></button>
-                      </td>
-                    </tr>,
-                    );
-                  }
+                        <button class="rmx2 del" title="remove route" onClick={() => this.removeRoute(t)}><loom-icon name="x" size={13}></loom-icon></button>
+                      </div>
+                    </div>,
+                  );
                 }
-                return rows;
-              })()}
-            </tbody>
-          </table>
+              }
+              return rows;
+            })()}
+            <div class="taddr" onClick={() => this.addRoute(c)}><loom-icon name="plus" size={12}></loom-icon> add route</div>
+          </>
         )}
       </div>
     );

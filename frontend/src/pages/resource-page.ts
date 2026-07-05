@@ -18,7 +18,7 @@ import { ConfirmService } from "../confirm";
 import { PromptService } from "../prompt";
 import { ToastService } from "../toast";
 import { ProcService } from "../proc";
-import { HostChanged } from "../events";
+import { HostChanged, Refreshing, withRefresh } from "../events";
 import type { ResourceUser } from "../contracts";
 
 export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extends LoomElement {
@@ -55,6 +55,18 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
   private onHostChanged() {
     if (this.auth.isAuthenticated) this.refresh();
   }
+
+  // Spin the header refresh action only while an actual refresh is in flight —
+  // driven by the shared Refreshing bus (ref-counted, min-beat), NOT the raw
+  // loading flag (which a background poll keeps true → looks stuck). Bind the
+  // refresh button's spin to `refreshing` and call `userRefresh` on click.
+  @reactive accessor refreshing = false;
+  private refreshRC = 0;
+  @on(Refreshing) private onRefreshing(e: Refreshing) {
+    this.refreshRC = Math.max(0, this.refreshRC + (e.active ? 1 : -1));
+    this.refreshing = this.refreshRC > 0;
+  }
+  userRefresh = () => { void withRefresh(() => this.refresh()); };
 
   // Lock body scroll while the detail modal is open (all resource pages share it).
   @watch("detail") private lockBody() { signalModal(this, !!this.detail); }

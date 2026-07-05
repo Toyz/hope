@@ -624,6 +624,11 @@ func (r *SystemRouter) AddRegistry(ctx *rpc.Context, p *AddRegistryParams) (any,
 	if r.localDock.IsConfigRegistry(p.Server) {
 		return nil, rpc.BadRequest("%q is defined in config and can't be edited here", p.Server)
 	}
+	// Verify the credentials against the registry before saving, so a typo'd
+	// password is rejected here instead of silently failing on the next pull.
+	if err := r.localDock.VerifyRegistry(ctx, p.Server, p.Username, p.Password); err != nil {
+		return nil, rpc.BadRequest("login to %s failed: %v", p.Server, err)
+	}
 	if err := r.store.PutRegistry(p.Server, p.Username, p.Password); err != nil {
 		return nil, rpc.Internal("persist registry: %v", err)
 	}

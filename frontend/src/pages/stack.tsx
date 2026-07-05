@@ -15,10 +15,11 @@ import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
-import { markClass, stackSeverity, severityMark, healthLabel, severityTone } from "../styles";
+import { markClass, stackSeverity, severityMark, healthLabel } from "../styles";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
+import { LogPanel } from "../log-panel";
 import { withHost } from "../host-url";
 import { innerPort } from "../format";
 import { UNGROUPED } from "../const";
@@ -70,6 +71,7 @@ function aggMark(items: ContainerSummary[]): string {
 }
 
 @route("/stack/:host/:project")
+@route("/stack/:host/:project/:container")
 @component("hope-stack")
 @styles(css`
   :host { display: block; min-height: 100%; background: var(--ink); }
@@ -88,14 +90,11 @@ function aggMark(items: ContainerSummary[]): string {
     font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
   .bar .act button:hover { color: var(--hi); }
 
-  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
-
-  .shead { margin-bottom: 22px; }
-  .row1 { display: flex; align-items: center; gap: 16px; }
-  .ttl { display: flex; align-items: center; gap: 12px; }
-  .ttl .mark { width: 9px; height: 9px; }
-  .ttl h1 { font: 600 22px/1 var(--mono); margin: 0; letter-spacing: .01em; }
-  .toolbar { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  main { padding: 0 0 90px; }
+  /* header + stats use the shared <hope-phead> / theme .vstats. The stack's
+     header actions slot into <hope-phead slot="actions">; the ··· kebab keeps
+     .more/.menu/.tbtn below. */
+  .snap, .routes-wrap { margin: 0 28px 18px; }
   .tbtn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
     font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
   .tbtn loom-icon { color: var(--dim); }
@@ -133,14 +132,10 @@ function aggMark(items: ContainerSummary[]): string {
   .summary .v.updv { color: var(--upd); }
   .summary .wd { padding: 0 16px; font: 12px/1 var(--mono); color: var(--faint); word-break: break-all; }
 
-  .logs { margin-bottom: 22px; border: 1px solid var(--line2); }
-  .logshead { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px;
-    border-bottom: 1px solid var(--line); background: var(--raised); }
-  .logshead .label { font: 600 11px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
-  .logsbody { border: 0; height: 50vh; }
-  .logsbody.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
+  table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  thead th:first-child, tbody td:first-child { padding-left: 28px; }
+  thead th:last-child, tbody td:last-child { padding-right: 28px; }
   thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
     text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
   tbody td { padding: 0 14px; height: 46px; border-bottom: 1px solid var(--line); font: 13px/1.3 var(--mono); }
@@ -150,6 +145,10 @@ function aggMark(items: ContainerSummary[]): string {
   tr.crow { cursor: pointer; }
   .link { color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   tr.crow:hover .link { color: #fff; }
+  /* the container currently docked in the inspector — active-row marker */
+  tr.crow.on td { background: color-mix(in srgb, var(--upd) 12%, transparent); }
+  tr.crow.on td.svc { box-shadow: inset 2px 0 0 var(--upd); }
+  tr.crow.on .link { color: #fff; }
   td.svc.rep .link { color: var(--mid); }
   /* group (expandable) rows read as headers */
   tr.grp { cursor: pointer; }
@@ -315,6 +314,7 @@ export class StackPage extends LoomElement {
   @inject(DeployIntent) accessor intent!: DeployIntent;
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(Inspector) accessor inspector!: Inspector;
+  @inject(LogPanel) accessor logPanel!: LogPanel;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
@@ -357,9 +357,6 @@ export class StackPage extends LoomElement {
   @reactive accessor opLog = "";
   @reactive accessor composeText = "";
   @reactive accessor expanded: Record<string, boolean> = {};
-  @reactive accessor logsTitle = "";
-  @reactive accessor logsLines: string[] = [];
-  @reactive accessor wrap = false;
   @reactive accessor stats: Record<string, ContainerStat> = {};
   @reactive accessor statsBusy = false;
   @reactive accessor updates: Record<string, ImageUpdate> = {};
@@ -376,21 +373,23 @@ export class StackPage extends LoomElement {
   @reactive accessor stopRemove = false; // "also remove" toggle in the stop dialog
   @reactive accessor pullOpen = false; // pull-images picker dialog
   @reactive accessor pullExcluded: string[] = []; // services excluded from the pull
+  @reactive accessor opPick: "" | "restart" | "start" = ""; // generic lifecycle-op picker (stack scope)
+  @reactive accessor opExcluded: string[] = []; // services excluded from the picked op
   @reactive accessor cloneOpen = false; // clone-to-hosts picker dialog
   @reactive accessor cloneSel: string[] = []; // target host ids for the clone
   @reactive accessor cloneSpec: StackSpec | null = null; // fetched on open
   @reactive accessor cloneBinds: string[] = []; // bind-mount targets that block the clone
   @reactive accessor cloneLoading = false;
-  @query(".logsbody") accessor logsBodyEl!: HTMLElement | null;
 
   // Lock body scroll while any of the stack's full-screen dialogs is open.
   private syncBodyLock() {
-    signalModal(this, !!this.composeText || !!this.tunnelModalSvc || this.rdOpen || this.stopOpen || this.pullOpen || this.cloneOpen);
+    signalModal(this, !!this.composeText || !!this.tunnelModalSvc || this.rdOpen || this.stopOpen || this.pullOpen || this.cloneOpen || !!this.opPick);
   }
   @watch("composeText") private lockCompose() { this.syncBodyLock(); }
   @watch("tunnelModalSvc") private lockTunnel() { this.syncBodyLock(); }
   @watch("rdOpen") private lockRd() { this.syncBodyLock(); }
   @watch("stopOpen") private lockStop() { this.syncBodyLock(); }
+  @watch("opPick") private lockOpPick() { this.syncBodyLock(); }
   @watch("pullOpen") private lockPull() { this.syncBodyLock(); }
   @watch("cloneOpen") private lockClone() { this.syncBodyLock(); }
 
@@ -399,16 +398,20 @@ export class StackPage extends LoomElement {
   get isUngrouped() {
     return this.project === UNGROUPED;
   }
-  private logsCtrl: AbortController | null = null;
   private opCtrl?: AbortController;
 
   // Route param bound reactively; watching it reloads on any change, including
   // stack -> stack navigation (the outlet re-injects params without remounting).
   @prop({ param: "project" }) accessor routeProject = "";
+  // The optional trailing container id: /stack/:host/:project/:container. Present
+  // it opens the docked inspector for that container (deep-linkable, survives a
+  // recreate by navigating to the new id); absent, the panel closes.
+  @prop({ param: "container" }) accessor routeContainer = "";
 
   @mount
   onMount() {
     if (this.routeProject) this.enter(this.routeProject);
+    this.syncInspector();
   }
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
@@ -435,7 +438,7 @@ export class StackPage extends LoomElement {
     );
     return (
       <div class="racts">
-        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.openLogs("logs", [c.id], c.service || c.name); }}><loom-icon name="terminal" size={14}></loom-icon></button>
+        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.openContainer(c.id, c.service || c.name, "logs"); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
@@ -477,7 +480,7 @@ export class StackPage extends LoomElement {
     );
     return (
       <div class="racts">
-        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.openLogs("serviceLogs", [project, g.service], `${project}/${g.service}`); }}><loom-icon name="terminal" size={14}></loom-icon></button>
+        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${project}/${g.service}`, "serviceLogs", [project, g.service]); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
@@ -507,6 +510,23 @@ export class StackPage extends LoomElement {
     if (this.routeProject) this.enter(this.routeProject);
   }
 
+  // Drive the docked inspector from the URL's container segment. apply() only sets
+  // state + fires the bus event (no navigation), so this can't loop with select().
+  @watch("routeContainer")
+  private onContainer() {
+    this.syncInspector();
+  }
+
+  private syncInspector() {
+    const cid = this.routeContainer;
+    if (cid) {
+      const c = (this.stack?.containers || []).find((x) => x.id === cid);
+      this.inspector.apply(this.hostCtx.token, this.project, cid, c ? (c.service || c.name) : this.inspector.name);
+    } else if (this.inspector.isOpen) {
+      this.inspector.apply("", "", "", "");
+    }
+  }
+
   // Refresh the CPU/MEM snapshot periodically while the stack page is open.
   @interval(10000)
   private tickStats() {
@@ -533,7 +553,6 @@ export class StackPage extends LoomElement {
     this.project = project;
     this.stats = {};
     this.updates = {};
-    this.closeLogs();
     this.expanded = {};
     this.opLog = "";
     this.composeText = "";
@@ -728,16 +747,32 @@ export class StackPage extends LoomElement {
       this.rdOpen = true;
       return;
     }
-    if (op === "stop") {
-      const ok = await this.confirm.ask({
-        title: "stop",
-        danger: true,
-        confirmLabel: "Stop stack",
-        message: `Stop the entire "${this.project}" stack — all ${this.stack?.total ?? ""} containers?`,
-      });
-      if (!ok) return;
+    // restart/start open a service picker (choose what to act on), same as
+    // redeploy/stop — no more all-or-nothing on a whole production stack.
+    if (op === "restart" || op === "start") {
+      this.opExcluded = [];
+      this.opPick = op;
+      return;
     }
     this.runStackOp(op);
+  };
+
+  private opToggle = (service: string) => {
+    this.opExcluded = this.opExcluded.includes(service) ? this.opExcluded.filter((s) => s !== service) : [...this.opExcluded, service];
+  };
+
+  // Run the picked lifecycle op on the selected services. Whole stack -> the
+  // efficient stack-wide op; a subset -> one op per container.
+  private opRun = () => {
+    const s = this.stack;
+    const op = this.opPick;
+    if (!s || !op) return;
+    const svcName = (c: ContainerSummary) => c.service || c.name;
+    const ids = s.containers.filter((c) => !this.opExcluded.includes(svcName(c))).map((c) => c.id);
+    this.opPick = "";
+    if (!ids.length) return;
+    if (ids.length === s.containers.length) this.runStackOp(op as StackOp);
+    else this.runContainerOps(ids, op as ContainerOp, s.project, `stack:${op}`);
   };
 
   // Toggle a whole service in/out of the redeploy.
@@ -918,12 +953,15 @@ export class StackPage extends LoomElement {
 
   private groupOp = async (g: Group, op: ContainerOp, e?: Event) => {
     e?.stopPropagation();
-    if (op === "stop" || op === "kill") {
+    // A group op bounces every replica of the service — confirm the destructive
+    // ones (restart included: it restarts all N at once).
+    if (op === "stop" || op === "kill" || op === "restart") {
+      const verb: Record<string, string> = { stop: "Stop", kill: "Kill", restart: "Restart" };
       const ok = await this.confirm.ask({
         title: op,
         danger: true,
-        confirmLabel: op === "kill" ? "Kill all" : "Stop all",
-        message: `${op === "kill" ? "Kill" : "Stop"} all ${g.items.length} "${g.service}" replicas?`,
+        confirmLabel: `${verb[op]} all`,
+        message: `${verb[op]} all ${g.items.length} "${g.service}" replicas?`,
       });
       if (!ok) return;
     }
@@ -947,53 +985,15 @@ export class StackPage extends LoomElement {
 
   @unmount
   onUnmount() {
-    this.logsCtrl?.abort();
     this.opCtrl?.abort();
     signalModal(this, false); // release the body lock if we leave mid-dialog
   }
 
-  private openLogs = (method: "logs" | "stackLogs" | "serviceLogs", args: string[], title: string, e?: Event) => {
-    e?.stopPropagation();
-    this.logsCtrl?.abort();
-    this.logsCtrl = new AbortController();
-    this.logsTitle = title;
-    this.logsLines = [];
-    this.streamLogs(method, args, this.logsCtrl.signal);
-  };
-
-  private async streamLogs(method: string, args: string[], signal: AbortSignal) {
-    try {
-      for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", method, args, signal)) {
-        if (f.type === "ping") continue; // keepalive — no log payload
-        const line = (f.source ? `${f.source}  ` : "") + stripAnsi(f.data).replace(/\n$/, "");
-        const next = this.logsLines.concat(line);
-        this.logsLines = next.length > 800 ? next.slice(next.length - 800) : next;
-        this.scrollBottom();
-      }
-    } catch (err: any) {
-      if (!signal.aborted) this.logsLines = this.logsLines.concat(`stream error: ${err?.message ?? err}`);
-    }
-  }
-
-  private closeLogs = () => {
-    this.logsCtrl?.abort();
-    this.logsCtrl = null;
-    this.logsTitle = "";
-    this.logsLines = [];
-  };
-
-  // scrollBottom keeps the log tail pinned to the latest line. Skips if the
-  // user has scrolled up to read history.
-  private scrollBottom() {
-    requestAnimationFrame(() => {
-      const el = this.logsBodyEl;
-      if (el) el.scrollTop = el.scrollHeight;
-    });
-  }
-
-  private openContainer(id: string, name = "") {
-    // Dock the container in the inspector instead of leaving the stack view.
-    this.inspector.open(this.hostCtx.token, id, name);
+  private openContainer(id: string, name = "", tab = "") {
+    // Dock the container in the inspector — via the URL, so it's deep-linkable
+    // and the open row stays in sync with the address bar. `tab` opens it straight
+    // on a view (e.g. "logs" from the row's logs button).
+    this.inspector.select(this.hostCtx.token, this.project, id, name, tab);
   }
 
   // Point-in-time CPU/memory snapshot of the stack's running containers.
@@ -1005,7 +1005,9 @@ export class StackPage extends LoomElement {
       for (const s of rows) map[s.id] = s;
       this.stats = map;
     } catch (err: any) {
-      this.toast.error(`snapshot — ${err?.message ?? "failed"}`);
+      // Background poll on an @interval — a transient miss (aborted mid-resize,
+      // container gone) must not spam toasts. Keep the last snapshot, log quietly.
+      console.debug("stack stats snapshot failed", err);
     } finally {
       this.statsBusy = false;
     }
@@ -1255,70 +1257,89 @@ export class StackPage extends LoomElement {
     const restarting = s ? s.containers.filter((c) => c.state === "restarting").length : 0;
     const stopped = s ? s.total - s.running - restarting : 0;
     const sev = s ? stackSeverity(s.running, s.total, s.restarting) : "ok";
+    // Top-level dot tone for <hope-phead> — mirrors the chip's severity, folding
+    // "down"/"restarting" onto the red dot and a healthy-with-update onto blue.
+    const dotTone = s
+      ? sev === "ok"
+        ? this.outdatedCount() > 0 ? "upd" : "ok"
+        : sev === "warn" ? "warn" : "bad"
+      : "";
+    const first = !s && !this.error && this.stacksQ.loading; // first load, nothing yet
     return (
       <div>
         <main>
           {this.error ? <div class="err">{this.error}</div> : null}
-          {s ? (
+          {first ? (
             <div>
-              <div class="shead">
-                <div class="row1">
-                  <div class="ttl">
-                    <span class={"mark " + severityMark(sev, this.outdatedCount() > 0)}></span>
-                    <h1>{this.isUngrouped ? "ungrouped" : s.project}</h1>
-                    <hope-chip tone={severityTone(sev)}>{healthLabel(sev)}</hope-chip>
-                    {this.isUngrouped ? <hope-chip title="free-floating containers, not a compose stack">loose</hope-chip> : null}
-                  </div>
-                  <div class="toolbar">
-                    {this.isUngrouped ? (
-                      <button class="tbtn danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</button>
-                    ) : (
-                      <>
-                        <hope-button icon="terminal" onClick={(e: Event) => this.openLogs("stackLogs", [s.project], `${s.project} · all logs`, e)}>logs</hope-button>
-                        <hope-button icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
-                        <hope-button icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
-                        {this.isUngrouped ? null : <hope-button icon="edit" onClick={() => this.editStack()}>edit</hope-button>}
-                        <div class="more">
-                          <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
-                          {this.menuOpen ? (
-                            <div class="menu">
-                              <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
-                              <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
-                              {this.isUngrouped ? null : <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.addServiceToStack(); }}><loom-icon name="plus" size={13}></loom-icon><span>add service</span></button>}
-                              <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
-                              <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
-                              {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
-                              {this.isUngrouped ? null : <button class="mitem" onClick={this.openClone}><loom-icon name="copy" size={13}></loom-icon><span>clone to host…</span></button>}
-                              {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
-                            </div>
-                          ) : null}
+              <hope-phead heading={this.isUngrouped ? "ungrouped" : this.project} scope={this.hostCtx.token || "local"}>
+                <div class="vstats">
+                  <div class="s"><div class="k">services</div><div class="v"><hope-skel w="26" h="15"></hope-skel></div></div>
+                  <div class="s"><div class="k">containers</div><div class="v"><hope-skel w="52" h="15"></hope-skel></div></div>
+                </div>
+              </hope-phead>
+              <table>
+                <colgroup>
+                  <col style="width:28%" /><col style="width:9%" /><col style="width:7%" /><col style="width:7%" /><col style="width:13%" /><col style="width:20%" /><col style="width:16%" />
+                </colgroup>
+                <thead>
+                  <tr><th>Service</th><th>State</th><th class="snap">CPU</th><th class="snap">MEM</th><th>Status</th><th class="ports">Ports</th><th style="text-align:right">Actions</th></tr>
+                </thead>
+                <tbody>
+                  {[0, 1, 2, 3, 4].map(() => (
+                    <tr class="crow" style="cursor:default">
+                      <td class="svc"><span class="cell"><span class="mark"></span><hope-skel w="150" h="13"></hope-skel></span></td>
+                      <td class="state"><hope-skel w="52" h="13"></hope-skel></td>
+                      <td class="snap num"><hope-skel w="40" h="13"></hope-skel></td>
+                      <td class="snap num"><hope-skel w="44" h="13"></hope-skel></td>
+                      <td class="statusc"><hope-skel w="90" h="13"></hope-skel></td>
+                      <td class="ports"><hope-skel w="120" h="13"></hope-skel></td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : s ? (
+            <div>
+              <hope-phead
+                heading={this.isUngrouped ? "ungrouped" : s.project}
+                dot={dotTone}
+                scope={this.hostCtx.token || "local"}
+                meta={[healthLabel(sev), this.isUngrouped ? "loose" : "", s.working_dir].filter(Boolean).join(" · ")}
+              >
+                {this.isUngrouped ? (
+                  <hope-button slot="actions" tone="danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</hope-button>
+                ) : (
+                  <>
+                    <hope-button slot="actions" icon="terminal" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${s.project} · all logs`, "stackLogs", [s.project]); }}>logs</hope-button>
+                    <hope-button slot="actions" icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
+                    <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
+                    <hope-button slot="actions" icon="edit" onClick={() => this.editStack()}>edit</hope-button>
+                    <div slot="actions" class="more">
+                      <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
+                      {this.menuOpen ? (
+                        <div class="menu">
+                          <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
+                          <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
+                          {this.isUngrouped ? null : <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.addServiceToStack(); }}><loom-icon name="plus" size={13}></loom-icon><span>add service</span></button>}
+                          <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.pullExcluded = []; this.pullOpen = true; }}><loom-icon name="download" size={13}></loom-icon><span>pull images</span></button>
+                          <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}><loom-icon name="stop" size={13}></loom-icon><span>stop…</span></button>
+                          {s.compose_available ? <button class="mitem" onClick={this.viewCompose}><loom-icon name="file" size={13}></loom-icon><span>compose file</span></button> : null}
+                          {this.isUngrouped ? null : <button class="mitem" onClick={this.openClone}><loom-icon name="copy" size={13}></loom-icon><span>clone to host…</span></button>}
+                          {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
                         </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div class="summary">
-                  <span class="stat"><i class="k">services</i><i class="v">{grp.length}</i></span>
-                  <span class="stat"><i class="k">containers</i><i class="v">{s.running}<i class="t">/{s.total}</i></i></span>
-                  {stopped > 0 ? <span class="stat"><i class="k">stopped</i><i class="v warnv">{stopped}</i></span> : null}
-                  {restarting > 0 ? <span class="stat"><i class="k">restarting</i><i class="v badv">{restarting}</i></span> : null}
-                  {this.outdatedCount() > 0 ? <span class="stat"><i class="k">updates</i><i class="v updv">{this.outdatedCount()}</i></span> : null}
-                  <span class="wd">{s.working_dir || "—"}</span>
-                </div>
-              </div>
-
-              {this.logsTitle ? (
-                <div class="logs">
-                  <div class="logshead">
-                    <span class="label">{this.logsTitle}</span>
-                    <div class="cacts">
-                      <button class="btn" onClick={() => (this.wrap = !this.wrap)}>{this.wrap ? "no wrap" : "wrap"}</button>
-                      <button class="btn" onClick={this.closeLogs}>close</button>
+                      ) : null}
                     </div>
-                  </div>
-                  <pre class={"logsbody" + (this.wrap ? " wrap" : "")}>{this.logsLines.join("\n") || "Waiting for output…"}</pre>
+                  </>
+                )}
+                <div class="vstats">
+                  <div class="s"><div class="k">services</div><div class="v">{grp.length}</div></div>
+                  <div class="s"><div class="k">containers</div><div class="v">{s.running}<span class="t">/{s.total}</span></div></div>
+                  {stopped > 0 ? <div class="s"><div class="k">stopped</div><div class="v" style="color:var(--warn)">{stopped}</div></div> : null}
+                  {restarting > 0 ? <div class="s"><div class="k">restarting</div><div class="v" style="color:var(--bad)">{restarting}</div></div> : null}
+                  {this.outdatedCount() > 0 ? <div class="s"><div class="k">updates</div><div class="v" style="color:var(--upd)">{this.outdatedCount()}</div></div> : null}
                 </div>
-              ) : null}
+              </hope-phead>
 
               <table>
                 <colgroup>
@@ -1346,7 +1367,7 @@ export class StackPage extends LoomElement {
                     if (g.items.length === 1) {
                       const c = g.items[0];
                       return [
-                        <tr class="crow" onClick={() => this.openContainer(c.id, c.service || c.name)}>
+                        <tr class={"crow" + (this.routeContainer === c.id ? " on" : "")} onClick={() => this.openContainer(c.id, c.service || c.name)}>
                           <td class="svc">
                             <span class="cell">
                               <span class={"mark " + markClass(c.state)}></span>
@@ -1369,10 +1390,11 @@ export class StackPage extends LoomElement {
                     const open = !!this.expanded[g.service];
                     const gs = this.groupStat(g.items);
                     const rows = [
-                      <tr class={"grp" + (open ? " open" : "")} onClick={() => this.toggle(g.service)} title={open ? "collapse replicas" : "expand replicas"}>
+                      <tr class={"grp" + (open ? " open" : "") + (g.items.some((c) => c.id === this.routeContainer) ? " on" : "")}
+                        onClick={() => this.openContainer((g.items.find((c) => c.id === this.routeContainer) || g.items[0]).id, g.service)}>
                         <td class="svc">
                           <span class="cell">
-                            <loom-icon class="caret" name="chevron-right" size={14}></loom-icon>
+                            <loom-icon class="caret" name="chevron-right" size={14} onClick={(e: Event) => { e.stopPropagation(); this.toggle(g.service); }}></loom-icon>
                             <span class={"mark " + aggMark(g.items)}></span>
                             <span class="gname">{g.service}</span>
                             <span class="badge"><b>{g.items.length}</b> pods</span>
@@ -1391,7 +1413,7 @@ export class StackPage extends LoomElement {
                     if (open) {
                       for (const c of g.items) {
                         rows.push(
-                          <tr class="rep crow" onClick={() => this.openContainer(c.id, c.service || c.name)}>
+                          <tr class={"rep crow" + (this.routeContainer === c.id ? " on" : "")} onClick={() => this.openContainer(c.id, c.service || c.name)}>
                             <td class="svc rep">
                               <span class="cell">
                                 <span class={"mark " + markClass(c.state)}></span>
@@ -1433,6 +1455,7 @@ export class StackPage extends LoomElement {
           ) : null}
         </main>
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
+        {this.opPick && s ? this.renderOpPicker(s) : null}
         {this.stopOpen && s ? this.renderStop(s) : null}
         {this.pullOpen && s ? this.renderPull(s) : null}
         {this.cloneOpen ? this.renderClone() : null}
@@ -1487,6 +1510,50 @@ export class StackPage extends LoomElement {
             <span class="grow"></span>
             <button class="tbtn" onClick={() => (this.rdOpen = false)}>cancel</button>
             <button class="tbtn warnbtn" disabled={count === 0} onClick={this.rdRun}>redeploy {count}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Generic lifecycle-op picker (restart / start / kill) — a service checklist so
+  // you choose what to act on, mirroring the redeploy/stop dialogs.
+  private renderOpPicker(s: StackSummary) {
+    const op = this.opPick;
+    const groups = this.groups(s);
+    const count = groups.filter((g) => !this.opExcluded.includes(g.service)).reduce((a, g) => a + g.items.length, 0);
+    const danger = op !== "start";
+    const icon = op === "start" ? "play" : "rotate";
+    const verb = op === "start" ? "Start" : "Restart";
+    return (
+      <div class="rdmodal" onClick={() => (this.opPick = "")}>
+        <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="rdhead">
+            <loom-icon name={icon} size={15} color={danger ? "var(--bad)" : "var(--ok)"}></loom-icon>
+            <span class="rdt">{op} {s.project}</span>
+            <span class="grow"></span>
+            <button class="rdx" onClick={() => (this.opPick = "")}><loom-icon name="x" size={15}></loom-icon></button>
+          </div>
+          <p class="rdmsg">{verb} the checked services. Uncheck any to leave it as-is.</p>
+          <div class="rdbody">
+            {groups.map((g) => {
+              const on = !this.opExcluded.includes(g.service);
+              return (
+                <div class={"rdrow" + (on ? "" : " off")} onClick={() => this.opToggle(g.service)}>
+                  <span class={"ck" + (on ? " on" : "")}></span>
+                  <span class={"mark " + aggMark(g.items)}></span>
+                  <span class="rdname">{g.service}</span>
+                  <span class="grow"></span>
+                  {g.items.length > 1 ? <span class="rdpods">{g.items.length} pods</span> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div class="rdacts">
+            <span class="rdnote">{count} of {s.total}</span>
+            <span class="grow"></span>
+            <button class="tbtn" onClick={() => (this.opPick = "")}>cancel</button>
+            <button class={"tbtn " + (danger ? "danger" : "warnbtn")} disabled={count === 0} onClick={this.opRun}>{op} {count}</button>
           </div>
         </div>
       </div>

@@ -44,13 +44,6 @@ export type ConnectorOpt = Option;
   .hostpair hope-select { flex: 1; min-width: 0; }
   .hostpair .dot { color: var(--dim); font: 600 14px/1 var(--mono); }
   .row .v-ro { flex: 0 0 auto; }
-  .add { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 2px;
-    background: transparent; border: 1px dashed var(--line2); color: var(--dim); cursor: pointer;
-    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 7px 11px; }
-  .add:hover { color: var(--hi); border-color: var(--mid); }
-  .rm { display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none; background: transparent;
-    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
   .lab .grow { flex: 1; }
   .lab .hint { font: 500 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: none; color: var(--dim); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
@@ -76,10 +69,6 @@ export type ConnectorOpt = Option;
   .netadd { display: flex; flex-direction: column; gap: 8px; }
   .netadd .newnet { display: flex; align-items: center; gap: 7px; }
   .netadd .newnet input { flex: 1; }
-  .netadd .newnet .attach { flex: 0 0 auto; height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 13px;
-    background: transparent; border: 1px solid var(--line2); color: var(--dim); cursor: pointer;
-    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
-  .netadd .newnet .attach:hover { color: var(--hi); border-color: var(--mid); }
   .tog { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
   .tog .sw { width: 32px; height: 17px; border: 1px solid var(--line2); background: var(--ink); position: relative; flex: none; }
   .tog .sw::after { content: ""; position: absolute; top: 1px; left: 1px; width: 13px; height: 13px; background: var(--dim); transition: transform .12s, background .12s; }
@@ -311,11 +300,11 @@ export class HopeServiceForm extends LoomElement {
                 <div class="p-proto">
                   <hope-select options={[{ value: "tcp", label: "tcp" }, { value: "udp", label: "udp" }]} value={p.proto} onSelect={(e: any) => (this.ports = this.up(this.ports, i, { proto: e.detail }))}></hope-select>
                 </div>
-                <button class="rm" onClick={() => (this.ports = this.del(this.ports, i))}><loom-icon name="x" size={14}></loom-icon></button>
+                <hope-button icon="x" size="sm" onClick={() => (this.ports = this.del(this.ports, i))}></hope-button>
               </div>
             ))}
           </div>
-          <button class="add" onClick={() => (this.ports = [...this.ports, { host: "", container: "", proto: "tcp" }])}><loom-icon name="plus" size={12}></loom-icon> port</button>
+          <hope-button icon="plus" size="sm" onClick={() => (this.ports = [...this.ports, { host: "", container: "", proto: "tcp" }])}>port</hope-button>
         </div>
 
         <div class="sec">
@@ -331,11 +320,11 @@ export class HopeServiceForm extends LoomElement {
                 <input type="text" placeholder="volume name or /host/path" value={v.source} onInput={(e: any) => (this.vols = this.up(this.vols, i, { source: e.target.value }))} />
                 <input type="text" placeholder="/container/path" value={v.target} onInput={(e: any) => (this.vols = this.up(this.vols, i, { target: e.target.value }))} />
                 <span class={"tog v-ro" + (v.ro ? " on" : "")} title="read-only" onClick={() => (this.vols = this.up(this.vols, i, { ro: !v.ro }))}><span class="sw"></span><span class="tl">ro</span></span>
-                <button class="rm" onClick={() => (this.vols = this.del(this.vols, i))}><loom-icon name="x" size={14}></loom-icon></button>
+                <hope-button icon="x" size="sm" onClick={() => (this.vols = this.del(this.vols, i))}></hope-button>
               </div>
             ))}
           </div>
-          <button class="add" onClick={() => (this.vols = [...this.vols, { source: "", target: "", ro: false }])}><loom-icon name="plus" size={12}></loom-icon> volume</button>
+          <hope-button icon="plus" size="sm" onClick={() => (this.vols = [...this.vols, { source: "", target: "", ro: false }])}>volume</hope-button>
         </div>
 
         <div class="sec">
@@ -368,7 +357,7 @@ export class HopeServiceForm extends LoomElement {
             ) : null}
             <div class="newnet">
               <input type="text" placeholder="new network name" onKeyDown={(e: any) => { if (e.key === "Enter") { this.addNet(e.target.value); e.target.value = ""; } }} />
-              <button class="attach" onClick={(e: any) => { const inp = e.currentTarget.previousElementSibling; this.addNet(inp.value); inp.value = ""; }}><loom-icon name="plus" size={12}></loom-icon> attach</button>
+              <hope-button icon="plus" size="sm" onClick={(e: any) => { const inp = (e.currentTarget as HTMLElement).previousElementSibling as HTMLInputElement; this.addNet(inp.value); inp.value = ""; }}>attach</hope-button>
             </div>
           </div>
         </div>
@@ -391,11 +380,11 @@ export class HopeServiceForm extends LoomElement {
                   )}
                   <input class="p-host" type="text" placeholder="container port" value={t.port} onInput={(e: any) => (this.tuns = this.up(this.tuns, i, { port: e.target.value }))} />
                   <input class="p-proto" type="text" placeholder="/path" value={t.path} onInput={(e: any) => (this.tuns = this.up(this.tuns, i, { path: e.target.value }))} />
-                  <button class="rm" onClick={() => (this.tuns = this.del(this.tuns, i))}><loom-icon name="x" size={14}></loom-icon></button>
+                  <hope-button icon="x" size="sm" onClick={() => (this.tuns = this.del(this.tuns, i))}></hope-button>
                 </div>
               ))}
             </div>
-            <button class="add" onClick={() => (this.tuns = [...this.tuns, { connector: this.connectors[0]?.value || "", sub: "", domain: this.zones[0] || "", hostname: "", port: this.ports[0]?.container || "", path: "" }])}><loom-icon name="plus" size={12}></loom-icon> route</button>
+            <hope-button icon="plus" size="sm" onClick={() => (this.tuns = [...this.tuns, { connector: this.connectors[0]?.value || "", sub: "", domain: this.zones[0] || "", hostname: "", port: this.ports[0]?.container || "", path: "" }])}>route</hope-button>
           </div>
         ) : null}
 

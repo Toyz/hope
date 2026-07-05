@@ -2,11 +2,13 @@
 // current scope (fleet / host / stack|resource), a command/search stub, and the
 // global refresh + exit. Navigation itself lives in the rail; this bar is
 // orientation + global actions.
-import { LoomElement, component, styles, css, reactive, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, on, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { withHost } from "../host-url";
+import { PaletteToggle } from "../events";
+import { modLabel } from "../platform";
 import { theme } from "../styles";
 
 type Crumb = { label: string; to?: string; muted?: boolean };
@@ -73,7 +75,7 @@ export class HopeTopbar extends LoomElement {
     const crumbs = this.crumbs();
     return (
       <>
-        <div class="brand"><b>hope</b><span class="v">v0.9</span></div>
+        <div class="brand"><b>hope</b><span class="v">{__HOPE_VERSION__}</span></div>
         <div class="crumb">
           {crumbs.map((c, i) => (
             <>
@@ -82,10 +84,10 @@ export class HopeTopbar extends LoomElement {
             </>
           ))}
         </div>
-        <div class="search" title="search (coming soon)">
+        <div class="search" title={`jump to (${modLabel("K")})`} onClick={() => bus.emit(new PaletteToggle())}>
           <loom-icon name="search" size={13}></loom-icon>
           <span class="q">Jump to host, stack, container…</span>
-          <span class="k">&#8984;K</span>
+          <span class="k">{modLabel("K")}</span>
         </div>
         <hope-refresh></hope-refresh>
         <button class="btn" onClick={() => this.auth.logout()}><loom-icon name="logout" size={12}></loom-icon> exit</button>

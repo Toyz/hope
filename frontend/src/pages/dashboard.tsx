@@ -123,10 +123,51 @@ interface HostSec {
   .fleetsec .ferr { padding: 12px 14px; color: var(--bad); font: 500 12px/1.4 var(--mono); word-break: break-word; }
 
   main { padding: 0 0 90px; }
-  /* header / stats / table come from the shared theme (.vhead/.vstats/.vtable) */
-  .uchip { display: inline-flex; align-items: center; gap: 5px; color: var(--upd); font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  /* header / stats / table come from the shared theme (.vhead/.vstats/.vtable).
+     hope-stat renders its own .k/.v, so a clickable stat value is now a bare
+     .vlink button slotted straight into the band (no .s .v wrapper) — restyle it
+     to match the theme's .vstats .s .v.vlink. */
+  .vstats .vlink { background: transparent; border: 0; padding: 0; text-align: left; color: var(--upd); cursor: pointer;
+    font: 500 15px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .vstats .vlink:hover { text-decoration: underline; }
+  .uchip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line));
+    background: transparent; color: var(--upd); cursor: pointer; font: 600 9.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .uchip:hover { background: color-mix(in srgb, var(--upd) 14%, transparent); }
+  .uchip:disabled { opacity: .5; cursor: default; }
   .uchip loom-icon { color: var(--upd); }
   .dash { color: var(--faint); }
+
+  /* compact header filter (fleet) */
+  .hsearch { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; border: 1px solid var(--line2); }
+  .hsearch loom-icon { color: var(--dim); flex: none; }
+  .hsearch input { width: 190px; background: transparent; border: 0; color: var(--hi); font: 12px/1 var(--mono); }
+  .hsearch input:focus { outline: none; }
+  .hsearch input::placeholder { color: var(--dim); }
+
+  /* fleet host cards use the shared .card / .cards system; these are the extras */
+  .hcards { padding: 20px 28px 40px; }
+  .card-row .uparrow { color: var(--upd); flex: none; }
+  .hc-offlbl { color: var(--bad); font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .hc-more, .hc-empty { padding: 8px 14px; color: var(--dim); font: 11px/1 var(--mono); }
+  .card-f.hc-ok { color: var(--dim); font: 11px/1 var(--mono); }
+  .card-f.hc-ok .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+  .hc-updbtn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line));
+    background: transparent; color: var(--upd); cursor: pointer; font: 600 9.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .hc-updbtn:hover { background: color-mix(in srgb, var(--upd) 14%, transparent); }
+
+  /* updates table */
+  .uhead { display: flex; align-items: center; gap: 12px; padding: 20px 28px 10px; }
+  .uhead .eyebrow { color: var(--dim); font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; }
+  .uhead .ago { color: var(--dim); font: 500 10px/1 var(--mono); }
+  .uhead .grow { flex: 1; }
+  .uhead .ucount { color: var(--upd); font: 600 12px/1 var(--mono); }
+  .usvcs { display: flex; flex-wrap: wrap; gap: 3px 14px; color: var(--dim); font: 12px/1.5 var(--mono); }
+  .usvc.more { color: var(--mid); }
+  .vtable td.uact { text-align: right; white-space: nowrap; }
+  .ubtn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line));
+    background: transparent; color: var(--upd); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .ubtn:hover { background: color-mix(in srgb, var(--upd) 14%, transparent); }
+  .ubtn:disabled { opacity: .5; cursor: default; }
 
   /* docker host strip */
   .hostbar { display: flex; flex-wrap: wrap; align-items: stretch; border: 1px solid var(--line);
@@ -266,8 +307,25 @@ interface HostSec {
   .brow .usvcs .svc b { color: var(--mid); font-weight: 600; }
   .brow .usvcs .more { color: var(--faint); }
   .brow .ucnt { font: 600 12px/1 var(--mono); color: var(--upd); font-variant-numeric: tabular-nums; }
-  .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
+  .ck { display: inline-block; width: 15px; height: 15px; flex: none; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; position: relative; }
   .ck.on { background: var(--upd); border-color: var(--upd); box-shadow: inset 0 0 0 3px var(--panel); }
+  .ck.part { border-color: var(--upd); }
+  .ck.part::after { content: ""; position: absolute; left: 3px; right: 3px; top: 6px; height: 2px; background: var(--upd); }
+
+  /* hierarchical update picker: host > stack > service rows */
+  .urow { display: flex; align-items: center; gap: 11px; padding: 9px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .urow:last-child { border-bottom: 0; }
+  .urow:hover { background: var(--raised); }
+  .urow .grow { flex: 1; }
+  .urow .un { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .urow.uhost { background: color-mix(in srgb, var(--upd) 5%, transparent); }
+  .urow.ustack .uname { font: 600 13px/1 var(--mono); color: var(--hi); }
+  .urow.usvc { padding-left: 42px; }
+  .urow.usvc .usvcname { font: 12px/1 var(--mono); color: var(--mid); }
+  .urow.usvc .uimg { color: var(--dim); font: 11px/1 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+  .urow.nested.ustack { padding-left: 42px; }
+  .urow.nested.usvc { padding-left: 66px; }
+  .uempty { padding: 20px 16px; color: var(--dim); font: 12px/1 var(--mono); }
   .uacts { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .uacts .grow { flex: 1; }
@@ -311,6 +369,7 @@ export class DashboardPage extends LoomElement {
   @reactive accessor updModalOpen = false;
   @reactive accessor updSel: string[] = [];
   @reactive accessor updModalHost = ""; // scope the picker to one host ("" = all)
+  @reactive accessor updModalProject = ""; // scope the picker to one stack ("" = all)
 
   private toggleHost = (id: string) => {
     this.collapsed = this.collapsed.includes(id)
@@ -430,43 +489,57 @@ export class DashboardPage extends LoomElement {
   // Mock-style host header: health dot + hostname + state chip + daemon line, with
   // the host actions (check updates, df) on the right. The single source for these
   // actions — the old status bar + daemon strip are gone on the single-host view.
-  private hostHeader(h0: HostSec) {
+  private hostHeader(h0: HostSec, first: boolean) {
     const info = this.host;
     const dot = this.hostDotTone(h0);
     const label = !h0.online ? "offline" : h0.loops > 0 ? "restarting" : h0.issues > 0 ? "degraded" : h0.outdated > 0 ? "updates" : "healthy";
     const os = info ? `${info.OperatingSystem || info.OSType || ""}${info.Architecture ? " · " + info.Architecture : ""}` : "";
     return (
-      <div class="vhead">
-        <span class={"dot " + dot}></span>
-        <h1>{(info && info.Name) || this.hostCtx.token || "host"}</h1>
-        <hope-chip tone={this.attnTone(h0.loops, h0.issues)}>{label}</hope-chip>
-        {info ? <span class="meta">docker {info.ServerVersion || "—"}{os ? " · " + os : ""}</span> : null}
-        <span class="grow"></span>
-        <button class="act" disabled={this.updBusy} title="check every image for updates" onClick={this.refreshUpdates}>
-          <loom-icon class={this.updBusy ? "spin" : ""} name="rotate" size={12}></loom-icon>check
-        </button>
-        <button class="act" disabled={this.diskBusy} title="compute disk usage" onClick={this.refreshDisk}>
-          <loom-icon class={this.diskBusy ? "spin" : ""} name="database" size={12}></loom-icon>{this.diskBusy ? "scanning" : "df"}
-        </button>
-      </div>
+      <hope-phead
+        heading={(info && info.Name) || this.hostCtx.token || "host"}
+        dot={first ? "" : dot}
+        scope={this.hostCtx.token || "local"}
+        meta={first ? "" : info ? `docker ${info.ServerVersion || "—"}${os ? " · " + os : ""}` : ""}
+      >
+        {!first ? <hope-chip slot="actions" tone={this.attnTone(h0.loops, h0.issues)}>{label}</hope-chip> : null}
+        {!first && h0.ranked.length > 8 ? (
+          <div slot="actions" class="hsearch">
+            <loom-icon name="search" size={13}></loom-icon>
+            <input placeholder="filter stacks…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
+          </div>
+        ) : null}
+        <hope-button slot="actions" icon="rotate" spin={this.updBusy} disabled={this.updBusy} title="check every image for updates" onClick={this.refreshUpdates}>check</hope-button>
+        <hope-button slot="actions" icon="database" spin={this.diskBusy} disabled={this.diskBusy} title="compute disk usage" onClick={this.refreshDisk}>{this.diskBusy ? "scanning" : "df"}</hope-button>
+        {this.hostStats(h0, first)}
+      </hope-phead>
     );
   }
 
-  // Clean single-host stat strip (mock-style gap columns, hairline under). Replaces
+  // Clean single-host stat band (mock-style gap columns, hairline under). Replaces
   // the old bordered daemon strip.
-  private hostStats(h0: HostSec) {
+  private hostStats(h0: HostSec, first: boolean) {
+    if (first) {
+      return (
+        <div class="vstats">
+          <hope-stat label="stacks"><hope-skel w="30" h="15"></hope-skel></hope-stat>
+          <hope-stat label="containers"><hope-skel w="52" h="15"></hope-skel></hope-stat>
+          <hope-stat label="images"><hope-skel w="30" h="15"></hope-skel></hope-stat>
+          <hope-stat label="cpu"><hope-skel w="56" h="15"></hope-skel></hope-stat>
+          <hope-stat label="memory"><hope-skel w="60" h="15"></hope-skel></hope-stat>
+        </div>
+      );
+    }
     const info = this.host;
     const dt = this.diskTotals();
-    const cell = (k: string, v: any) => <div class="s"><div class="k">{k}</div><div class="v">{v}</div></div>;
     return (
       <div class="vstats">
-        {cell("stacks", h0.ranked.length)}
-        {cell("containers", <>{h0.up}<span class="t">/{h0.tot}</span></>)}
-        {cell("images", info?.Images ?? 0)}
-        {cell("cpu", <>{info?.NCPU ?? "—"}<span class="t"> cores</span></>)}
-        {cell("memory", gb(info?.MemTotal))}
-        {dt ? cell("disk", gb(dt.total)) : null}
-        {h0.outdated > 0 ? cell("updates", <span style="color:var(--upd)">{h0.outdated}</span>) : null}
+        <hope-stat label="stacks" value={String(h0.ranked.length)}></hope-stat>
+        <hope-stat label="containers" value={String(h0.up)} sub={"/" + h0.tot}></hope-stat>
+        <hope-stat label="images" value={String(info?.Images ?? 0)}></hope-stat>
+        <hope-stat label="cpu" value={String(info?.NCPU ?? "—")} sub=" cores"></hope-stat>
+        <hope-stat label="memory" value={gb(info?.MemTotal)}></hope-stat>
+        {dt ? <hope-stat label="disk" value={gb(dt.total)}></hope-stat> : null}
+        {h0.outdated > 0 ? <hope-stat label="updates"><button class="vlink" title="select what to update on this host" onClick={() => this.openUpdModal()}>{h0.outdated}</button></hope-stat> : null}
       </div>
     );
   }
@@ -490,13 +563,82 @@ export class DashboardPage extends LoomElement {
                 <td><span class="nm"><span class={"mark " + severityMark(s.sev, hasUpd)}></span>{s.project}</span></td>
                 <td><hope-chip tone={severityTone(s.sev)} size="sm">{healthLabel(s.sev)}</hope-chip></td>
                 <td class="r">{s.running}<span class="t" style="color:var(--dim)">/{s.total}</span></td>
-                <td>{hasUpd ? <span class="uchip"><loom-icon name="download" size={11}></loom-icon>update</span> : <span class="dash">—</span>}</td>
+                <td>{hasUpd ? <button class="uchip" title="review + update this stack" onClick={(e: Event) => { e.stopPropagation(); this.openUpdModal(undefined, s.project); }}><loom-icon name="download" size={11}></loom-icon>update</button> : <span class="dash">—</span>}</td>
                 <td class="chev"><loom-icon name="chevron-right" size={14}></loom-icon></td>
               </tr>
             );
           })}
         </tbody>
       </table>
+    );
+  }
+
+  // First-load placeholder for the single-host stack table — same columns as
+  // stackTable so content swaps in without a layout jump.
+  private stackTableSkeleton() {
+    return (
+      <table class="vtable">
+        <thead>
+          <tr><th>stack</th><th>state</th><th class="r">containers</th><th>updates</th><th></th></tr>
+        </thead>
+        <tbody>
+          {[0, 1, 2, 3, 4].map(() => (
+            <tr style="cursor:default">
+              <td><hope-skel w="160" h="13"></hope-skel></td>
+              <td><hope-skel w="60" h="16"></hope-skel></td>
+              <td class="r"><hope-skel w="40" h="13"></hope-skel></td>
+              <td><hope-skel w="20" h="13"></hope-skel></td>
+              <td></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  // One host, as a card in the fleet ("all hosts") view — rollup dot + name +
+  // running count, its top stacks, and issue/update chips. Clicking opens the host.
+  private hostCard(h: HostSec) {
+    return (
+      <div class="card click" onClick={() => this.router.navigate(`/host/${encodeURIComponent(h.id)}`)}>
+        <div class="card-h">
+          <span class={"dot " + this.hostDotTone(h)}></span>
+          <h3>{h.id}</h3>
+          <span class="kind">{h.kind}</span>
+          <span class="grow"></span>
+          {h.online ? <span class="roll">{h.up}<span class="t">/{h.tot}</span></span> : <span class="hc-offlbl">offline</span>}
+        </div>
+        {h.online ? (
+          <div class="card-b">
+            {h.ranked.length === 0 ? <div class="hc-empty">no stacks</div> : null}
+            {h.ranked.slice(0, 8).map((s) => (
+              <div class="card-row click" onClick={(e: Event) => { e.stopPropagation(); this.goCross(h.id, s.project); }}>
+                <span class={"mark " + severityMark(s.sev, h.updProjects.has(s.project))}></span>
+                <span class="nm">{s.project}</span>
+                {h.updProjects.has(s.project) ? <loom-icon class="uparrow" name="download" size={11}></loom-icon> : null}
+                <span class="rt">{s.running}<span class="t">/{s.total}</span></span>
+              </div>
+            ))}
+            {h.ranked.length > 8 ? <div class="hc-more">+{h.ranked.length - 8} more</div> : null}
+          </div>
+        ) : (
+          <div class="card-b"><div class="hc-empty">{h.error || "unreachable"}</div></div>
+        )}
+        {h.online ? (
+          h.issues > 0 || h.outdated > 0 ? (
+            <div class="card-f">
+              {h.issues > 0 ? <hope-chip tone={this.attnTone(h.loops, h.issues)} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
+              {h.outdated > 0 ? (
+                <button class="hc-updbtn" title="review + update this host's outdated stacks" onClick={(e: Event) => { e.stopPropagation(); this.openUpdModal(h.id); }}>
+                  <loom-icon name="download" size={11}></loom-icon>{h.outdated} update{h.outdated === 1 ? "" : "s"}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div class="card-f hc-ok"><span class="dot ok"></span> all healthy &middot; up to date</div>
+          )
+        ) : null}
+      </div>
     );
   }
 
@@ -720,24 +862,27 @@ export class DashboardPage extends LoomElement {
   ) {
     const linkable = opts.linkable ?? true;
     return (
-      <div class={"row urow" + (linkable ? "" : " static")} onClick={() => (linkable ? opts.onClick() : null)}>
-        <span class="mark upd"></span>
-        <span class="name">{opts.host ? <hope-chip host={true} title={opts.host}>{opts.host}</hope-chip> : null}{g.project}</span>
-        <span class="svcs">
-          {g.services.slice(0, 8).map((s) => (
-            <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>
-          ))}
-          {g.services.length > 8 ? <span class="svc more">+{g.services.length - 8}</span> : null}
-        </span>
-        <span class="why upd">{g.count}</span>
-        {linkable ? (
-          <button class="upgo" disabled={!!this.updBusyProj} title="pull latest + recreate the outdated containers"
-            onClick={(e: Event) => this.updateStack(g.project, opts.host, e)}>
-            <loom-icon name="download" size={12}></loom-icon>{this.updBusyProj === g.project ? "…" : "update"}
-          </button>
-        ) : <span></span>}
-        {linkable ? <loom-icon class="chev" name="chevron-right" size={15}></loom-icon> : <span></span>}
-      </div>
+      <tr class={linkable ? "" : "static"} onClick={() => (linkable ? opts.onClick() : null)}>
+        <td>
+          <span class="nm">
+            {opts.host ? <hope-chip host={true} size="sm">{opts.host}</hope-chip> : null}
+            <span class="mark upd"></span>{g.project}
+          </span>
+        </td>
+        <td class="usvcs">
+          {g.services.slice(0, 8).map((s) => <span class="usvc">{s.service}{s.count > 1 ? ` ×${s.count}` : ""}</span>)}
+          {g.services.length > 8 ? <span class="usvc more">+{g.services.length - 8}</span> : null}
+        </td>
+        <td class="r"><span style="color:var(--upd)">{g.count}</span></td>
+        <td class="uact">
+          {linkable ? (
+            <button class="ubtn" disabled={!!this.updBusyProj} title="pull latest + recreate the outdated containers"
+              onClick={(e: Event) => this.updateStack(g.project, opts.host, e)}>
+              <loom-icon name="download" size={11}></loom-icon>{this.updBusyProj === g.project ? "…" : "update"}
+            </button>
+          ) : null}
+        </td>
+      </tr>
     );
   }
 
@@ -778,9 +923,6 @@ export class DashboardPage extends LoomElement {
     );
   }
 
-  private openContainer(id: string) {
-    this.router.navigate(withHost(this.hostCtx.token, `/container/${encodeURIComponent(id)}`));
-  }
 
   // Projects with at least one outdated container (respects the loose flag).
   private updSet(): Set<string> {
@@ -820,38 +962,88 @@ export class DashboardPage extends LoomElement {
   }
   private updKey = (g: { project: string; host?: string }) => (g.host ? g.host + "|" : "") + g.project;
 
-  // The groups the picker shows — scoped to one host when opened from a host chip.
-  private modalGroups() {
-    return this.allUpdateGroups().filter((g) => !this.updModalHost || g.host === this.updModalHost);
+  // The outdated updates as a host > stack > container tree, scoped to the modal's
+  // host/stack. Each leaf is one container (id) we can redeploy on its own — the
+  // basis for the granular "pick what to update" picker.
+  private updTree(): Array<{ host: string; projects: Array<{ project: string; items: Array<{ id: string; service: string; image: string }> }> }> {
+    const src = this.fleetMode
+      ? (this.fleet ?? []).map((h) => ({ host: h.id, ups: (h.updates ?? []).filter((u) => u.status === "outdated") }))
+      : [{ host: "", ups: this.outdated() }];
+    return src
+      .filter((h) => !this.updModalHost || h.host === this.updModalHost)
+      .map((h) => {
+        const byProj: Record<string, Array<{ id: string; service: string; image: string }>> = {};
+        for (const u of h.ups) {
+          const p = u.project || UNGROUPED;
+          (byProj[p] ??= []).push({ id: u.id, service: u.service || u.name || u.image, image: u.image });
+        }
+        let projects = Object.entries(byProj).map(([project, items]) => ({
+          project,
+          items: items.sort((a, b) => a.service.localeCompare(b.service)),
+        }));
+        if (this.updModalProject) projects = projects.filter((p) => p.project === this.updModalProject);
+        projects.sort((a, b) => a.project.localeCompare(b.project));
+        return { host: h.host, projects };
+      })
+      .filter((h) => h.projects.length)
+      .sort((a, b) => a.host.localeCompare(b.host));
+  }
+  private updAllIds(): string[] {
+    return this.updTree().flatMap((h) => h.projects.flatMap((p) => p.items.map((i) => i.id)));
   }
 
-  // Open the bulk picker. With a host, scope the list to that host (from clicking
-  // a host section's update chip); without, show every host. All start selected.
-  private openUpdModal = (host?: string) => {
+  // Open the granular picker. Scope it to one host (a host card) or one stack (a
+  // stack row); no scope shows the whole fleet. Everything starts selected.
+  private openUpdModal = (host?: string, project?: string) => {
     this.updModalHost = host || "";
-    this.updSel = this.modalGroups().map(this.updKey);
+    this.updModalProject = project || "";
+    this.updSel = this.updAllIds();
     this.updModalOpen = true;
   };
-  private toggleUpd = (key: string) => {
-    this.updSel = this.updSel.includes(key) ? this.updSel.filter((k) => k !== key) : [...this.updSel, key];
+  private toggleUpd = (id: string) => {
+    this.updSel = this.updSel.includes(id) ? this.updSel.filter((k) => k !== id) : [...this.updSel, id];
+  };
+  // Toggle a whole set of ids (a stack or a host): if all on, clear them; else add all.
+  private toggleUpdSet = (ids: string[]) => {
+    const allOn = ids.length > 0 && ids.every((id) => this.updSel.includes(id));
+    this.updSel = allOn ? this.updSel.filter((id) => !ids.includes(id)) : [...new Set([...this.updSel, ...ids])];
+  };
+  // "on" | "part" | "" for a set of ids, for the tri-state checkbox.
+  private setState = (ids: string[]): string => {
+    const n = ids.filter((id) => this.updSel.includes(id)).length;
+    return n === 0 ? "" : n === ids.length ? "on" : "part";
   };
 
-  // Pull latest + recreate the outdated containers of every selected stack, one
-  // after another in a single proc dialog so the whole sweep streams in one place.
+  // Update exactly what's picked. Whole-stack redeploy when every container in a
+  // stack is selected (one image pull); otherwise redeploy the individually picked
+  // containers. Everything streams into one proc dialog.
   private bulkUpdate = async () => {
-    const groups = this.modalGroups().filter((g) => this.updSel.includes(this.updKey(g)));
-    if (!groups.length) return;
+    const jobs: Array<{ host: string; label: string; method: "redeployStack" | "redeploy"; arg: string }> = [];
+    for (const h of this.updTree()) {
+      for (const p of h.projects) {
+        const ids = p.items.map((i) => i.id);
+        const picked = ids.filter((id) => this.updSel.includes(id));
+        if (picked.length === 0) continue;
+        const pfx = (h.host ? h.host + " / " : "") + p.project;
+        if (picked.length === ids.length && p.project !== UNGROUPED) {
+          jobs.push({ host: h.host, label: pfx, method: "redeployStack", arg: p.project });
+        } else {
+          for (const it of p.items) if (this.updSel.includes(it.id)) jobs.push({ host: h.host, label: pfx + " / " + it.service, method: "redeploy", arg: it.id });
+        }
+      }
+    }
+    if (!jobs.length) return;
     this.updModalOpen = false;
     let ok = true;
-    await this.proc.run(`update ${groups.length} stack${groups.length === 1 ? "" : "s"}`, async (emit, signal) => {
-      for (const g of groups) {
-        emit(`── ${g.host ? g.host + " / " : ""}${g.project} ──`);
-        let sok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeployStack", [g.project, "true", "false"], signal, g.host)) {
+    await this.proc.run(`update ${jobs.length} item${jobs.length === 1 ? "" : "s"}`, async (emit, signal) => {
+      for (const j of jobs) {
+        emit(`── ${j.label} ──`);
+        let jok = true;
+        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", j.method, [j.arg, "true", "false"], signal, j.host || undefined)) {
           if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
+          else if (f.type === "done" && !f.ok) { jok = false; emit("failed: " + (f.error ?? "")); }
         }
-        if (!sok) ok = false;
+        if (!jok) ok = false;
       }
       emit("done");
       return ok;
@@ -860,47 +1052,70 @@ export class DashboardPage extends LoomElement {
   };
 
   private renderUpdModal() {
-    const groups = this.modalGroups();
-    const sel = this.updSel;
-    const scoped = !!this.updModalHost;
-    const allOn = groups.length > 0 && groups.every((g) => sel.includes(this.updKey(g)));
+    const tree = this.updTree();
+    const allIds = this.updAllIds();
+    const total = this.updSel.filter((id) => allIds.includes(id)).length;
+    const title = this.updModalProject ? this.updModalProject : this.updModalHost ? this.updModalHost : "Fleet";
     return (
       <div class="dmodal" onClick={() => (this.updModalOpen = false)}>
         <div class="ubox" onClick={(e: Event) => e.stopPropagation()}>
           <div class="uhead">
             <loom-icon name="download" size={15}></loom-icon>
-            <span class="ut">Update stacks</span>
-            {scoped ? <hope-chip host={true}>{this.updModalHost}</hope-chip> : null}
-            <span class="usub">{groups.length} with newer images</span>
+            <span class="ut">Update</span>
+            <hope-chip>{title}</hope-chip>
+            <span class="usub">select what to update</span>
             <span class="grow"></span>
             <button class="dx" onClick={() => (this.updModalOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
-          <div class="usela" onClick={() => (this.updSel = allOn ? [] : groups.map(this.updKey))}>
-            <span class={"ck" + (allOn ? " on" : "")}></span>
-            <span>{allOn ? "deselect all" : "select all"}</span>
+          <div class="usela" onClick={() => this.toggleUpdSet(allIds)}>
+            <span class={"ck " + this.setState(allIds)}></span>
+            <span>{this.setState(allIds) === "on" ? "deselect all" : "select all"} &middot; {allIds.length} container{allIds.length === 1 ? "" : "s"}</span>
           </div>
           <div class="ulist">
-            {groups.map((g) => {
-              const key = this.updKey(g);
-              const on = sel.includes(key);
+            {tree.map((h) => {
+              const hostIds = h.projects.flatMap((p) => p.items.map((i) => i.id));
               return (
-                <div class={"brow" + (on ? " on" : "")} onClick={() => this.toggleUpd(key)}>
-                  <span class={"ck" + (on ? " on" : "")}></span>
-                  <span class="uname">{g.host && !scoped ? <hope-chip host={true}>{g.host}</hope-chip> : null}{g.project}</span>
-                  <span class="usvcs">
-                    {g.services.slice(0, 6).map((s) => <span class="svc">{s.service}{s.count > 1 ? <b> ×{s.count}</b> : null}</span>)}
-                    {g.services.length > 6 ? <span class="svc more">+{g.services.length - 6}</span> : null}
-                  </span>
-                  <span class="ucnt">{g.count}</span>
-                </div>
+                <>
+                  {this.fleetMode && !this.updModalHost ? (
+                    <div class="urow uhost" onClick={() => this.toggleUpdSet(hostIds)}>
+                      <span class={"ck " + this.setState(hostIds)}></span>
+                      <hope-chip host={true}>{h.host}</hope-chip>
+                      <span class="grow"></span>
+                      <span class="un">{hostIds.length}</span>
+                    </div>
+                  ) : null}
+                  {h.projects.map((p) => {
+                    const ids = p.items.map((i) => i.id);
+                    const nested = this.fleetMode && !this.updModalHost;
+                    return (
+                      <>
+                        <div class={"urow ustack" + (nested ? " nested" : "")} onClick={() => this.toggleUpdSet(ids)}>
+                          <span class={"ck " + this.setState(ids)}></span>
+                          <span class="uname">{p.project}</span>
+                          <span class="grow"></span>
+                          <span class="un">{ids.length}</span>
+                        </div>
+                        {p.items.map((it) => (
+                          <div class={"urow usvc" + (nested ? " nested" : "")} onClick={() => this.toggleUpd(it.id)}>
+                            <span class={"ck " + (this.updSel.includes(it.id) ? "on" : "")}></span>
+                            <span class="usvcname">{it.service}</span>
+                            <span class="grow"></span>
+                            <span class="uimg">{it.image}</span>
+                          </div>
+                        ))}
+                      </>
+                    );
+                  })}
+                </>
               );
             })}
+            {tree.length === 0 ? <div class="uempty">nothing outdated here</div> : null}
           </div>
           <div class="uacts">
             <span class="grow"></span>
             <button class="pbtn" onClick={() => (this.updModalOpen = false)}>cancel</button>
-            <button class="pbtn go" disabled={sel.length === 0} onClick={this.bulkUpdate}>
-              <loom-icon name="download" size={12}></loom-icon>update {sel.length}
+            <button class="pbtn go" disabled={total === 0} onClick={this.bulkUpdate}>
+              <loom-icon name="download" size={12}></loom-icon>update {total}
             </button>
           </div>
         </div>
@@ -1056,92 +1271,57 @@ export class DashboardPage extends LoomElement {
     const checked = multi ? this.fleetChecked() : this.updates?.checked_at;
     const refresh = multi ? this.refreshFleet : this.refreshUpdates;
     const busy = multi ? this.fleetBusy : this.updBusy;
+    const first = this.loading && !this.loaded; // first load, no host/fleet data yet
 
     return (
       <div>
-        {multi ? (
-        <div class="bar">
-          <div class="s"><span class="k">hosts</span><span class="v">{online}<span class="t">/{secs.length}</span></span></div>
-          <div class="s"><span class="k">stacks</span><span class="v">{stackC}</span></div>
-          <div class="s"><span class="k">up</span><span class="v">{runC}<span class="t">/{totC}</span></span></div>
-          <div class={"s verdict " + vClass}>
-            <span class={"mark " + vClass}></span>
-            {vText}
-          </div>
-          <div class="grow"></div>
-          {updC > 0 ? (
-            <div class="s act">
-              <button class="upind" title="review and update outdated stacks" onClick={() => this.openUpdModal()}>
-                <loom-icon name="download" size={13}></loom-icon><span>{updC} updates</span>
-              </button>
-            </div>
-          ) : null}
-          <div class="s act">
-            <button class="upcheck" disabled={busy} title="check every image for updates now" onClick={refresh}>
-              <loom-icon class={busy ? "spin" : ""} name="rotate" size={13}></loom-icon>
-              <span>check</span>
-            </button>
-          </div>
-        </div>
-        ) : null}
-
         {this.loading ? <div class="loadbar"><i></i></div> : null}
         <main>
-          {!multi && secs.length ? this.hostHeader(secs[0]) : null}
-          {multi
-            ? this.statStrip([
-                { k: "hosts", v: <>{online}<i class="t">/{secs.length}</i></> },
-                { k: "stacks", v: stackC },
-                { k: "containers", v: <>{runC}<i class="t">/{totC}</i></> },
-                { k: "issues", v: issues.length, cls: issues.length ? vClass : "" },
-                { k: "updates", v: updC, cls: updC ? "upd" : "" },
-              ])
-            : secs.length ? this.hostStats(secs[0]) : null}
-
-          <div class="vpad">
-          {this.storeBanner()}
-          {this.error ? <div class="empty">{this.error}</div> : null}
-          {multi && !this.loaded ? <div class="loading">loading fleet…</div> : null}
-
-          {stackC > 0 || this.query ? (
-            <hope-search placeholder="Search stacks and services…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
-          ) : null}
-
-          {issues.length > 0 ? (
-            <section>
-              <div class="head">
-                <span class="label">Attention</span>
-                <span class="rule"></span>
-                <span class={"n " + vClass}>{issues.length}</span>
-              </div>
-              <div class="rows">
-                {issues.map((x) => this.attentionRow(x.s, { host: x.host, onClick: () => (multi ? this.goCross(x.host!, x.s.project) : this.go(x.s.project)) }))}
-              </div>
-            </section>
-          ) : null}
-
-          {updGroups.length > 0 ? (
-            <section>
-              <div class="head">
-                <span class="label">Updates</span>
-                <span class="rule"></span>
-                {checked ? <span class="ago">checked {ago(checked)}</span> : null}
-                <button class="rfr" disabled={busy} title="check now" onClick={refresh}>
-                  <loom-icon class={busy ? "spin" : ""} name="rotate" size={13}></loom-icon>
-                </button>
-                <span class="n upd">{updC}</span>
-              </div>
-              <div class="rows">
-                {updGroups.map((g) => this.updateRow(g, { host: multi ? g.host : undefined, onClick: () => (multi ? this.goCross(g.host, g.project) : this.go(g.project)), linkable: g.project !== UNGROUPED }))}
-              </div>
-            </section>
-          ) : null}
-          </div>
-
-          {multi ? secs.map((h) => this.hostGroup(h, true)) : this.stackTable(secs[0])}
-
-          {this.loaded && stackC === 0 && !this.query && multi && !this.error ? (
-            <div class="empty">No stacks across the fleet.</div>
+          {multi ? (
+            /* fleet — a card per host is the content; updates + issues live inside
+               the cards, not as separate full-width bands */
+            <>
+              <hope-phead heading="Fleet" dot={first ? "" : (issues.length ? vClass : updC ? "upd" : "ok")} scope="fleet">
+                {!first && stackC > 10 ? (
+                  <div slot="actions" class="hsearch">
+                    <loom-icon name="search" size={13}></loom-icon>
+                    <input placeholder="filter stacks…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
+                  </div>
+                ) : null}
+                {!first && issues.length ? <hope-chip slot="actions" tone={vClass}>{vText}</hope-chip> : null}
+                <hope-button slot="actions" icon="rotate" spin={busy} disabled={busy} title="check every image for updates" onClick={refresh}>check</hope-button>
+                {first ? (
+                  <div class="vstats">
+                    <hope-stat label="hosts"><hope-skel w="42" h="15"></hope-skel></hope-stat>
+                    <hope-stat label="stacks"><hope-skel w="30" h="15"></hope-skel></hope-stat>
+                    <hope-stat label="containers"><hope-skel w="52" h="15"></hope-skel></hope-stat>
+                    <hope-stat label="issues"><hope-skel w="24" h="15"></hope-skel></hope-stat>
+                    <hope-stat label="updates"><hope-skel w="24" h="15"></hope-skel></hope-stat>
+                  </div>
+                ) : (
+                  <div class="vstats">
+                    <hope-stat label="hosts" value={String(online)} sub={"/" + secs.length}></hope-stat>
+                    <hope-stat label="stacks" value={String(stackC)}></hope-stat>
+                    <hope-stat label="containers" value={String(runC)} sub={"/" + totC}></hope-stat>
+                    <hope-stat label="issues" value={String(issues.length)} tone={issues.length ? vClass : ""}></hope-stat>
+                    <hope-stat label="updates">{updC > 0 ? <button class="vlink" title="select what to update across the fleet" onClick={() => this.openUpdModal()}>{updC}</button> : <span>0</span>}</hope-stat>
+                  </div>
+                )}
+              </hope-phead>
+              {this.error ? <div class="empty vpad">{this.error}</div> : null}
+              {!this.loaded ? <div class="loading vpad">loading fleet…</div> : null}
+              <div class="cards hcards">{secs.map((h) => this.hostCard(h))}</div>
+              {this.loaded && stackC === 0 && !this.query && !this.error ? <div class="empty vpad">No stacks across the fleet.</div> : null}
+            </>
+          ) : secs.length ? (
+            /* single host — same shape as fleet: header (+ inline filter) + stats +
+               the main content (its stacks as a table; state + update columns carry
+               the attention/updates signal, so no separate bands) */
+            <>
+              {this.hostHeader(secs[0], first)}
+              {this.error ? <div class="empty vpad">{this.error}</div> : null}
+              {first ? this.stackTableSkeleton() : this.stackTable(secs[0])}
+            </>
           ) : null}
         </main>
         {this.updModalOpen ? this.renderUpdModal() : null}

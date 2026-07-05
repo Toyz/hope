@@ -1,202 +1,96 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
-import { component, styles, css, reactive, watch, unmount } from "@toyz/loom";
+import { component, styles, css, reactive, watch, unmount, prop, mount, query } from "@toyz/loom";
+import type { HopeRegistries } from "../components/registries";
 import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
 import { rpc } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
-import { appBar } from "../app-bar";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
-import { ImageDetailService } from "../components/image-detail";
+import { ImageInspector } from "../image-inspector";
 import { System } from "../contracts";
-import type { ImageInfo, OpFrame, FleetImagesHost, RegistryView } from "../contracts";
+import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
 import { bytes, shortId } from "../format";
+import { theme } from "../styles";
 
 type Filter = "all" | "used" | "unused" | "dangling";
 
-// Well-known registries: a quick-pick that prefills the server and tells the
-// operator exactly what to put in each field (most get this wrong — e.g. Docker
-// Hub wants an access token, not the account password). Some registries have a
-// per-account server (ECR, GAR): those declare `parts` we collect as fields and
-// `build` into the final server, instead of making the user hand-edit a template.
-type RegPart = { key: string; label: string; placeholder: string };
-type KnownRegistry = {
-  id: string; label: string; server: string; user: string; pass: string; note: string;
-  fixedUser?: string; // a literal username the registry requires (AWS, _json_key, nologin…) — prefilled
-  parts?: RegPart[]; // per-account server parts collected as fields
-  build?: (v: Record<string, string>) => string; // compose the server from those parts
-};
-const KNOWN_REGISTRIES: KnownRegistry[] = [
-  { id: "dockerhub", label: "Docker Hub", server: "docker.io", user: "your Docker Hub username", pass: "access token", note: "Create an access token at Docker Hub → Account Settings → Personal access tokens. Use the token, not your account password." },
-  { id: "ghcr", label: "GitHub (GHCR)", server: "ghcr.io", user: "your GitHub username", pass: "personal access token", note: "Use a GitHub PAT with the read:packages scope as the password." },
-  { id: "quay", label: "Quay", server: "quay.io", user: "quay username or robot account", pass: "token / robot password", note: "A robot account (Quay → Account → Robot Accounts) is the safest fit — its name is the username, its token the password." },
-  { id: "gitlab", label: "GitLab", server: "registry.gitlab.com", user: "username or deploy-token name", pass: "personal or deploy token", note: "Use a deploy token (Settings → Repository → Deploy tokens) with the read_registry scope, or a PAT." },
-  { id: "digitalocean", label: "DigitalOcean (DOCR)", server: "registry.digitalocean.com", user: "your DO API token", pass: "the same DO API token", note: "DigitalOcean uses your API token (or a read-only registry token) as BOTH the username and the password." },
-  {
-    id: "ecr", label: "AWS ECR (private)", server: "ACCOUNT.dkr.ecr.REGION.amazonaws.com", user: "AWS", pass: "aws ecr get-login-password output", fixedUser: "AWS",
-    note: "Username is literally AWS. Password is the output of `aws ecr get-login-password` — it EXPIRES (~12h), so re-add when it rotates.",
-    parts: [
-      { key: "account", label: "AWS account ID", placeholder: "123456789012" },
-      { key: "region", label: "Region", placeholder: "us-east-1" },
-    ],
-    build: (v) => `${v.account || "ACCOUNT"}.dkr.ecr.${v.region || "REGION"}.amazonaws.com`,
-  },
-  { id: "ecrpublic", label: "AWS ECR Public", server: "public.ecr.aws", user: "AWS", pass: "aws ecr-public get-login-password output", fixedUser: "AWS", note: "Username is AWS. Password is `aws ecr-public get-login-password --region us-east-1` — it EXPIRES (~12h), so re-add when it rotates." },
-  {
-    id: "gar", label: "Google Artifact Registry", server: "REGION-docker.pkg.dev", user: "_json_key", pass: "service-account JSON key", fixedUser: "_json_key",
-    note: "Username is _json_key; paste the whole service-account JSON key file as the password.",
-    parts: [{ key: "region", label: "Location", placeholder: "us (or europe, us-central1)" }],
-    build: (v) => `${v.region || "REGION"}-docker.pkg.dev`,
-  },
-  {
-    id: "acr", label: "Azure (ACR)", server: "REGISTRY.azurecr.io", user: "token name or service principal", pass: "token password / SP secret",
-    note: "Use a repository-scoped token (ACR → Tokens) or a service principal — its name/ID is the username, its secret the password.",
-    parts: [{ key: "name", label: "Registry name", placeholder: "myregistry" }],
-    build: (v) => `${v.name || "REGISTRY"}.azurecr.io`,
-  },
-  {
-    id: "ocir", label: "Oracle (OCIR)", server: "REGION.ocir.io", user: "<tenancy-namespace>/<username>", pass: "OCI auth token",
-    note: "Username is `<tenancy-namespace>/<username>` (federated: add /oracleidentitycloudservice/). Password is an OCI auth token. Region is the region KEY.",
-    parts: [{ key: "region", label: "Region key", placeholder: "iad, phx, fra…" }],
-    build: (v) => `${v.region || "REGION"}.ocir.io`,
-  },
-  {
-    id: "ibm", label: "IBM Cloud (ICR)", server: "REGION.icr.io", user: "iamapikey", pass: "IBM Cloud API key", fixedUser: "iamapikey",
-    note: "Username is `iamapikey`; password is an IBM Cloud API key. Region is the ICR region (us, de, uk, jp, au…).",
-    parts: [{ key: "region", label: "Region", placeholder: "us (→ us.icr.io)" }],
-    build: (v) => `${v.region || "REGION"}.icr.io`,
-  },
-  {
-    id: "scaleway", label: "Scaleway", server: "rg.REGION.scw.cloud", user: "nologin", pass: "Scaleway secret key", fixedUser: "nologin",
-    note: "Username is literally `nologin`; password is a Scaleway secret key (API key).",
-    parts: [{ key: "region", label: "Region", placeholder: "fr-par (or nl-ams, pl-waw)" }],
-    build: (v) => `rg.${v.region || "REGION"}.scw.cloud`,
-  },
-  {
-    id: "aliyun", label: "Alibaba (ACR)", server: "registry.REGION.aliyuncs.com", user: "your Alibaba Cloud account", pass: "registry password",
-    note: "Username is your Alibaba Cloud account (or RAM user); password is the registry access password you set in ACR.",
-    parts: [{ key: "region", label: "Region", placeholder: "cn-hangzhou, us-west-1…" }],
-    build: (v) => `registry.${v.region || "REGION"}.aliyuncs.com`,
-  },
-];
-
 @route("/images/:host")
+@route("/images/:host/:id")
 @component("hope-images")
-@styles(css`
+@styles(theme, css`
   :host { display: block; min-height: 100%; background: var(--ink); }
 
-  .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
-    border-bottom: 1px solid var(--line); background: var(--ink); }
-  .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
-  .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
-  .bar .back:hover { color: var(--hi); }
-  .bar .crumb { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
-  .bar .grow { flex: 1; }
-  .bar .act { padding: 0; border-left: 1px solid var(--line); }
-  .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
-    font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
-  .bar .act button:hover { color: var(--hi); background: var(--raised); }
-  .bar .nav .navlink { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); cursor: pointer; }
-  .bar .nav .navlink:hover { color: var(--hi); }
-  .bar .nav .navlink.on { color: var(--hi); }
+  /* ── signature: disk composition instrument ── */
+  .disk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 26px; align-items: center; padding: 20px 28px 18px; border-bottom: 1px solid var(--line); }
+  .diskmain { min-width: 0; }
+  .disktotal { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .disktotal .big { font: 600 26px/1 var(--mono); letter-spacing: .01em; color: var(--hi); }
+  .disktotal .lbl { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .meter { display: flex; height: 8px; width: 100%; background: var(--line); overflow: hidden; }
+  .meter i { display: block; height: 100%; }
+  .meter .inuse { background: var(--upd); } .meter .unused { background: var(--faint); } .meter .dangling { background: var(--warn); }
+  .legend { display: flex; gap: 22px; margin-top: 12px; flex-wrap: wrap; }
+  .lg { display: flex; align-items: center; gap: 8px; font: 11.5px/1 var(--mono); color: var(--mid); }
+  .lg .sw { width: 9px; height: 9px; flex: none; }
+  .lg .sw.inuse { background: var(--upd); } .lg .sw.unused { background: var(--faint); } .lg .sw.dangling { background: var(--warn); }
+  .lg b { color: var(--hi); font-weight: 600; } .lg .sz { color: var(--dim); }
+  .reclaim { display: flex; flex-direction: column; gap: 7px; padding-left: 26px; border-left: 1px solid var(--line); text-align: right; }
+  .reclaim .k { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .reclaim .v { font: 600 22px/1 var(--mono); color: var(--warn); }
+  .reclaim .sub { font: 11px/1 var(--mono); color: var(--dim); }
 
-  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
+  /* ── filter + search ── */
+  .vtools { display: flex; align-items: center; gap: 10px; padding: 12px 28px; border-bottom: 1px solid var(--line); }
+  .vtools .grow { flex: 1; }
+  .seg { display: flex; }
+  .seg button { height: 28px; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-right: 0; color: var(--dim);
+    font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .seg button:last-child { border-right: 1px solid var(--line); }
+  .seg button .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .seg button:hover { color: var(--mid); }
+  .seg button.on { color: var(--hi); background: var(--raised); border-color: var(--line2); }
+  .seg button.on .n { color: var(--mid); }
+  .vtools hope-search { flex: 0 0 300px; max-width: 42%; }
 
-  .summary { display: flex; align-items: center; border: 1px solid var(--line); margin-bottom: 20px; }
-  .summary .stat { display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; border-right: 1px solid var(--line); }
-  .summary .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
-  .summary .v { font: 600 15px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
-  .summary .v.warnv { color: var(--warn); }
-  .summary .v .t { color: var(--dim); font-weight: 400; }
-
-  /* cross-fleet images overview */
-  .fimg { margin-bottom: 14px; }
-  .fimg .fhead { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); padding: 12px 16px; }
-  .fimg .fhead .grow { flex: 1; }
-  .fimg .hdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .fimg .hdot.local { background: var(--upd); }
-  .fimg .hdot.agent { background: var(--ok); }
-  .fimg .hname { font: 600 13px/1 var(--mono); letter-spacing: .04em; color: var(--hi); }
-  .fimg .fstats { display: flex; align-items: center; gap: 0; }
-  .fimg .fstats .stat { display: flex; flex-direction: column; gap: 5px; padding: 2px 16px; border-left: 1px solid var(--line); }
-  .fimg .fstats .stat:first-child { border-left: 0; padding-left: 8px; }
-  .fimg .fstats .k { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
-  .fimg .fstats .v { font: 600 14px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
-  .fimg .fstats .v.warnv { color: var(--warn); }
-  .fimg .fstats .v .t { color: var(--dim); font-weight: 400; }
-  .fimg .foff { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--bad); }
-
-  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-  .toolbar .grow { flex: 1; }
-  .filters { display: flex; gap: 2px; }
-  .fchip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; background: transparent;
-    border: 1px solid var(--line); color: var(--dim); cursor: pointer;
-    font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
-  .fchip:hover { color: var(--hi); border-color: var(--line2); }
-  .fchip.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .fchip .fn { color: var(--dim); font-variant-numeric: tabular-nums; }
-  .fchip.on .fn { color: var(--mid); }
-  .pbtn { padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
-    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer;
-    white-space: nowrap; flex-shrink: 0; transition: color .1s, border-color .1s, background .1s; }
-  .pbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .pbtn.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
-  .pbtn.warn:hover { color: #06080d; background: var(--warn); border-color: var(--warn); }
-  .pbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-  .pbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
-  .rm { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent;
-    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); background: var(--raised); }
-
-  table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--line); }
-  colgroup col.c-sel { width: 40px; }
-  colgroup col.c-repo { width: 29%; }
-  colgroup col.c-id { width: 12%; }
-  colgroup col.c-size { width: 9%; }
-  colgroup col.c-age { width: 9%; }
-  colgroup col.c-use { width: 29%; }
-  colgroup col.c-act { width: 7%; }
-  th.sel, td.sel { padding-left: 16px; padding-right: 0; cursor: pointer; }
-  /* box widgets overflow their narrow column; clip so no stray ellipsis mark shows */
-  th:has(.ck), td:has(.ck), td:has(.rm) { text-overflow: clip; }
-  td.sel:hover .ck { border-color: var(--mid); }
-  .ck { display: inline-block; width: 15px; height: 15px; border: 1px solid var(--line2); cursor: pointer; vertical-align: middle; }
-  .ck:hover { border-color: var(--mid); }
-  .toolbar .seln { font: 600 12px/1 var(--mono); color: var(--upd); }
-  .toolbar .selsz { font: 12px/1 var(--mono); color: var(--dim); margin-right: 4px; }
-  .ck.on { background: var(--upd); border-color: var(--upd);
-    -webkit-mask: none; box-shadow: inset 0 0 0 3px var(--panel); }
-  tr.irow.sel td { background: color-mix(in srgb, var(--upd) 8%, transparent); }
-
-  .selbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 11px 14px;
-    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line)); background: color-mix(in srgb, var(--upd) 7%, var(--panel)); }
-  .selbar .seln { font: 600 12px/1 var(--mono); color: var(--upd); }
-  .selbar .selsz { font: 12px/1 var(--mono); color: var(--dim); }
-  .selbar .grow { flex: 1; }
-  thead th { font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim);
-    text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
-  th.r, td.r { text-align: right; }
-  tbody td { padding: 0 14px; height: 44px; border-bottom: 1px solid var(--line); font: 12.5px/1.3 var(--mono);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--raised); }
-  td.repo { color: var(--hi); }
-  td.repo .untag { color: var(--dim); }
-  td.repo .extra { color: var(--dim); margin-left: 7px; font-size: 11px; }
-  td.id, td.size, td.age { color: var(--mid); font-variant-numeric: tabular-nums; }
-  tr.irow { cursor: pointer; }
-  td.usedby { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mid); }
-  .ucount { color: var(--mid); }
-  .ub { display: inline-block; font: 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; cursor: pointer; }
-  .ub:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .ub .ubp { color: var(--dim); }
-  .ubmore { color: var(--dim); }
+  /* ── image rows (disk instrument) ── */
+  .rows { padding-bottom: 24px; }
+  .rhead, .irow { display: grid; grid-template-columns: minmax(0, 1.7fr) 128px 92px 64px minmax(0, 1fr) 34px; align-items: center; gap: 18px; padding: 0 28px; }
+  .rhead { height: 36px; border-bottom: 1px solid var(--line); }
+  .rhead span { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .irow { height: 52px; border-bottom: 1px solid var(--line); cursor: pointer; position: relative; }
+  .irow:hover { background: var(--raised); }
+  .irow.on { background: color-mix(in srgb, var(--upd) 12%, transparent); }
+  .irow.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
+  .repo { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .repo .hostchip { font: 9.5px/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--upd);
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 2px 6px; flex: none; }
+  .repo .tag { color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .repo .tag .untag { color: var(--dim); }
+  .repo .more { color: var(--dim); font-size: 11px; flex: none; }
+  .sizebar { display: flex; align-items: center; }
+  .sizebar .track { flex: 1; height: 4px; background: var(--line); overflow: hidden; }
+  .sizebar .track i { display: block; height: 100%; background: var(--mid); }
+  .sizebar.big .track i { background: var(--upd); }
+  .size { color: var(--mid); font-variant-numeric: tabular-nums; text-align: right; }
+  .age { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .usedby { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .usedby .svc { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usedby .svc .proj { color: var(--dim); }
+  .usedby .svc .extra { color: var(--dim); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line2);
+    font: 10px/1.6 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line2)); }
+  .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .rmc { text-align: right; }
+  .rm { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent;
+    border: 1px solid transparent; color: var(--dim); cursor: pointer; opacity: 0; }
+  .irow:hover .rm { opacity: 1; }
+  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line2)); }
 
   /* image detail modal */
-  .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   .dbox { width: 600px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
   .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
   .dhead .dt { font: 600 14px/1.2 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -222,143 +116,69 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
   .dnote { font: 11px/1.4 var(--mono); color: var(--warn); max-width: 360px; }
   .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
 
-  /* registries manager modal */
-  .rbox { width: 620px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
-  .rsub { padding: 10px 18px; border-bottom: 1px solid var(--line); font: 11px/1.5 var(--mono); color: var(--dim); }
-  .rlist { max-height: 40vh; overflow-y: auto; }
-  .rrow { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
-  .rrow:last-child { border-bottom: 0; }
-  .rrow .rmain { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
-  .rrow .rserver { font: 600 13px/1 var(--mono); color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rrow .rmeta { font: 11px/1 var(--mono); color: var(--dim); }
-  .rrow .rmeta .nopw { color: var(--warn); }
-  .rempty { padding: 26px 18px; text-align: center; color: var(--dim); font: 12px/1.5 var(--mono); border-bottom: 1px solid var(--line); }
-  .rform { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 18px; border-top: 1px solid var(--line);
-    background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
-  .rform .rf { display: flex; flex-direction: column; gap: 5px; }
-  .rform .rf.full { grid-column: 1 / -1; }
-  .rform label { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
-  .rform input { background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); padding: 10px 11px; }
-  .rform input:focus { outline: none; border-color: var(--line2); }
-  .rform .rf.act { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
-  .rform .rf.act .grow { flex: 1; }
-  .rform hope-select { display: block; }
-  .rform .rserverpreview { background: var(--ink); border: 1px dashed var(--line2); color: var(--mid);
-    font: 12.5px/1 var(--mono); padding: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rform .rnote { font: 11.5px/1.6 var(--mono); color: var(--dim); padding: 10px 12px; border: 1px solid var(--line);
-    background: color-mix(in srgb, var(--ink) 40%, transparent); }
-  .rform .rnote.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
-    background: color-mix(in srgb, var(--warn) 7%, transparent); }
+  /* registries manager modal — hosts the shared <hope-registries> component */
+  .regsheet { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
+    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  .regsheetbox { width: 720px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd); }
+  .regsheethd { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line);
+    font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }
+  .regsheethd loom-icon { color: var(--upd); }
+  .regsheethd .grow { flex: 1; }
+  .regsheetx { display: inline-grid; place-items: center; width: 30px; height: 30px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .regsheetx:hover { color: var(--hi); }
+  .regsheetbd { padding: 8px 0 16px; overflow-y: auto; max-height: 78vh; }
 `)
 export class ImagesPage extends ResourcePage<ImageInfo> {
   // Streams (prune/redeploy) + cross-host ops target hosts explicitly.
   @inject(HopeTransport) accessor rpc!: HopeTransport;
-  @inject(ImageDetailService) accessor imageDetail!: ImageDetailService;
+  @inject(ImageInspector) accessor imageInsp!: ImageInspector;
 
   @rpc(System, "images", { eager: false }) accessor singleQ!: ApiState<ImageInfo[]>;
   @rpc(System, "fleetImages", { eager: false }) accessor fleetQ!: ApiState<FleetImagesHost[]>;
 
   @reactive accessor filter: Filter = "all";
+  // Optional trailing id: /images/:host/:id opens the docked image inspector for
+  // that image (deep-linkable, and how a container's image field jumps here).
+  @prop({ param: "id" }) accessor routeImage = "";
+
+  // Overrides ResourcePage.onMount — replicate its auth-check + refresh, then open
+  // the deep-linked image. (A bare @mount here would shadow the base and skip the
+  // initial data fetch.)
+  @mount
+  private onImageMount() {
+    if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
+    this.refresh();
+    this.syncImage();
+  }
+
+  @watch("routeImage")
+  private onImageParam() { this.syncImage(); }
+
+  // Drive the docked image inspector from the URL's id segment. apply() only sets
+  // state + fires the bus event (no navigation), so it can't loop with select().
+  private syncImage() {
+    if (this.routeImage) {
+      this.imageInsp.onChange = () => this.refresh();
+      this.imageInsp.apply(this.hostCtx.token, decodeURIComponent(this.routeImage));
+    } else if (this.imageInsp.isOpen) {
+      this.imageInsp.apply("", "");
+    }
+  }
 
   // Registries manager (modal). hope is the fleet's registry-auth authority:
   // creds added here apply to the local daemon and every connected agent, and
   // persist (encrypted) when a state db is mounted. Config-defined registries
   // are read-only.
   @reactive accessor showRegs = false;
+  @query("hope-registries") accessor regEl!: HopeRegistries;
 
   @watch("showRegs") private lockRegs() { signalModal(this, this.showRegs); }
   @unmount private releaseRegs() { signalModal(this, false); }
-  @reactive accessor regs: RegistryView[] = [];
-  @reactive accessor regBusy = false;
-  @reactive accessor rServer = "";
-  @reactive accessor rUser = "";
-  @reactive accessor rPass = "";
-  @reactive accessor rPreset = ""; // selected known-registry id (quick-pick)
-  @reactive accessor rParts: Record<string, string> = {}; // per-account server parts (ECR/GAR)
 
-  private openRegs = async () => {
-    this.showRegs = true;
-    await this.loadRegs();
-  };
-  private closeRegs = () => {
-    this.showRegs = false;
-    this.rServer = this.rUser = this.rPass = this.rPreset = "";
-    this.rParts = {};
-  };
-
-  // Pick a known registry from the dropdown: prefill the server + fixed username
-  // and switch the field hints. Empty id = custom (clears the prefilled server).
-  private selectPreset = (id: string) => {
-    this.rPreset = id;
-    this.rParts = {};
-    this.rUser = ""; // don't carry a previous preset's fixed username (e.g. _json_key) over
-    const k = KNOWN_REGISTRIES.find((x) => x.id === id);
-    if (!k) {
-      this.rServer = "";
-      return;
-    }
-    this.rServer = k.build ? k.build({}) : k.server;
-    if (k.fixedUser) this.rUser = k.fixedUser;
-  };
-
-  // The already-configured registry matching a known preset's server (if any),
-  // so the picker can flag it and we can block re-adding a read-only config one.
-  private configuredFor(k: KnownRegistry): RegistryView | undefined {
-    if (k.build) return undefined; // per-account server (ECR/GAR) — can't pre-match
-    return this.regs.find((r) => r.server === k.server);
-  }
-
-  // Update a per-account server part (ECR/GAR) and recompute the server from it.
-  private setPart = (k: KnownRegistry, key: string, val: string) => {
-    this.rParts = { ...this.rParts, [key]: val.trim() };
-    if (k.build) this.rServer = k.build(this.rParts);
-  };
-  private loadRegs = async () => {
-    try {
-      this.regs = (await this.rpc.call<RegistryView[]>("System", "registries", [])) || [];
-    } catch (err: any) {
-      this.toast.error(`load registries — ${err?.message ?? "failed"}`);
-    }
-  };
-
-  private addReg = async () => {
-    const server = this.rServer.trim();
-    const user = this.rUser.trim();
-    if (!server || !user || !this.rPass) {
-      this.toast.error("server, username and password are required");
-      return;
-    }
-    this.regBusy = true;
-    try {
-      const res = await this.rpc.call<{ ok: boolean; persisted: boolean }>("System", "addRegistry", [server, user, this.rPass]);
-      this.toast.ok(res?.persisted ? `added ${server}` : `added ${server} (not persisted — no state db mounted)`);
-      this.rServer = this.rUser = this.rPass = this.rPreset = "";
-      this.rParts = {};
-      await this.loadRegs();
-    } catch (err: any) {
-      this.toast.error(`add ${server} — ${err?.message ?? "failed"}`);
-    } finally {
-      this.regBusy = false;
-    }
-  };
-
-  private removeReg = async (r: RegistryView) => {
-    const ok = await this.confirm.ask({
-      title: "remove registry",
-      danger: true,
-      confirmLabel: "Remove",
-      message: `Stop authenticating pulls from ${r.server} across the fleet.`,
-      stats: [{ label: "registry", value: r.server }, ...(r.username ? [{ label: "user", value: r.username }] : [])],
-    });
-    if (!ok) return;
-    try {
-      await this.rpc.call("System", "removeRegistry", [r.server]);
-      this.toast.ok(`removed ${r.server}`);
-      await this.loadRegs();
-    } catch (err: any) {
-      this.toast.error(`remove ${r.server} — ${err?.message ?? "failed"}`);
-    }
-  };
+  // The shared <hope-registries> component self-loads and owns add/remove, so the
+  // page just toggles the modal shell.
+  private openRegs = () => { this.showRegs = true; };
+  private closeRegs = () => { this.showRegs = false; };
 
   // Selection key — the same image id can exist on multiple hosts in the all
   // view, so key by host+id, not id alone.
@@ -675,246 +495,154 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     this.refresh();
   };
 
-  private renderRegForm() {
-    const preset = KNOWN_REGISTRIES.find((k) => k.id === this.rPreset);
-    const cfg = preset ? this.configuredFor(preset) : undefined;
-    const blocked = !!cfg && !cfg.editable; // config-sourced -> read-only, can't shadow it
-    return (
-      <div class="rform">
-        <div class="rf full">
-          <label>Known registries</label>
-          <hope-select
-            options={[
-              { value: "", label: "Custom / other…" },
-              ...KNOWN_REGISTRIES.map((k) => {
-                const c = this.configuredFor(k);
-                return { value: k.id, label: k.label + (c ? (c.editable ? " · added" : " · config") : "") };
-              }),
-            ]}
-            value={this.rPreset}
-            placeholder="Custom / other…"
-            onSelect={(e: any) => this.selectPreset(e.detail)}
-          ></hope-select>
-        </div>
-        {preset?.parts ? (
-          <>
-            {preset.parts.map((p) => (
-              <div class="rf">
-                <label>{p.label}</label>
-                <input type="text" placeholder={p.placeholder} autocomplete="off" value={this.rParts[p.key] || ""} onInput={(e: any) => this.setPart(preset, p.key, e.target.value)} />
-              </div>
-            ))}
-            <div class="rf full">
-              <label>Registry server</label>
-              <div class="rserverpreview">{this.rServer}</div>
-            </div>
-          </>
-        ) : (
-          <div class="rf full">
-            <label>Registry server</label>
-            <input type="text" placeholder="registry.example.com" value={this.rServer} onInput={(e: any) => { this.rServer = e.target.value; }} />
-          </div>
-        )}
-        <div class="rf">
-          <label>Username</label>
-          <input type="text" placeholder={preset ? preset.user : "username"} autocomplete="off" value={this.rUser} onInput={(e: any) => (this.rUser = e.target.value)} />
-        </div>
-        <div class="rf">
-          <label>Password / token</label>
-          <input type="password" placeholder={preset ? preset.pass : "password or access token"} autocomplete="new-password" value={this.rPass} onInput={(e: any) => (this.rPass = e.target.value)} />
-        </div>
-        {preset ? <div class="rf full"><div class="rnote">{preset.note}</div></div> : null}
-        {cfg ? (
-          <div class="rf full">
-            <div class={"rnote" + (blocked ? " warn" : "")}>
-              {blocked
-                ? `${cfg.server} is already configured from config (read-only) — remove it there to change it.`
-                : `${cfg.server} is already added — saving updates its stored credentials.`}
-            </div>
-          </div>
-        ) : null}
-        <div class="rf act">
-          <span class="grow"></span>
-          <button class="pbtn" disabled={this.regBusy || blocked} onClick={this.addReg}>{this.regBusy ? "adding…" : blocked ? "read-only" : cfg ? "update registry" : "add registry"}</button>
-        </div>
-      </div>
-    );
-  }
-
-  private renderRegs() {
-    return (
-      <div class="dmodal" onClick={this.closeRegs}>
-        <div class="rbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="dhead">
-            <span class="dt">registries</span>
-            <span class="grow"></span>
-            <button class="dx" onClick={this.closeRegs}><loom-icon name="x" size={15}></loom-icon></button>
-          </div>
-          <div class="rsub">Credentials for private image pulls. hope authenticates these on the local daemon and every connected agent. Config-defined entries are read-only.</div>
-          <div class="rlist">
-            {this.regs.length ? (
-              this.regs.map((r) => (
-                <div class="rrow">
-                  <div class="rmain">
-                    <span class="rserver" title={r.server}>{r.server}</span>
-                    <span class="rmeta">
-                      {r.username || <span class="dim">no user</span>}
-                      {r.has_password ? null : <span class="nopw"> · no password</span>}
-                    </span>
-                  </div>
-                  <hope-chip tone={r.editable ? "ok" : ""} size="sm">{r.source}</hope-chip>
-                  {r.editable ? (
-                    <button class="rm" title="remove registry" onClick={() => this.removeReg(r)}><loom-icon name="x" size={14}></loom-icon></button>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <div class="rempty">No registries configured. Add one below to pull private images.</div>
-            )}
-          </div>
-          {this.renderRegForm()}
-        </div>
-      </div>
-    );
-  }
-
   // Cross-fleet images overview: a section per host with its counts; "manage"
   // drills into that host's full images page (filters, prune, selection).
   update() {
     const vis = this.visible();
-    const total = this.items().reduce((a, i) => a + i.size, 0);
-    const danglingImgs = this.items().filter((i) => i.dangling);
-    const unusedImgs = this.items().filter((i) => !i.in_use);
-    const dangling = danglingImgs.length;
-    const unused = unusedImgs.length;
-    const danglingSize = danglingImgs.reduce((a, i) => a + i.size, 0);
-    const unusedSize = unusedImgs.reduce((a, i) => a + i.size, 0);
+    const items = this.items();
+    // Disjoint disk buckets for the composition meter (priority: in use > dangling > unused).
+    let inUseSz = 0, unusedSz = 0, dangSz = 0, inUseN = 0, unusedN = 0, dangN = 0;
+    for (const i of items) {
+      if (i.in_use) { inUseSz += i.size; inUseN++; }
+      else if (i.dangling) { dangSz += i.size; dangN++; }
+      else { unusedSz += i.size; unusedN++; }
+    }
+    const total = inUseSz + unusedSz + dangSz;
+    const reclaim = unusedSz + dangSz;
+    const dangling = items.filter((i) => i.dangling).length;
+    const unusedAll = items.filter((i) => !i.in_use).length;
+    const maxSize = Math.max(1, ...vis.map((i) => i.size));
+    const pct = (n: number) => (total ? (n / total) * 100 : 0);
+    const fcount = (f: Filter) => (f === "all" ? items.length : items.filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length);
+    const fleet = this.fleetMode;
+    const sel = this.selected.length;
+    const busy = this.loading();
+    const first = busy && items.length === 0; // first load, nothing to show yet
+    // The open image's ref can be a sha id (row click) or a tag (a container's
+    // image field jumped here) — match either so the active row highlights.
+    const openRef = this.routeImage ? decodeURIComponent(this.routeImage) : "";
 
     return (
       <div>
-        {appBar("images", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" onClick={this.openRegs}><loom-icon name="plus" size={12}></loom-icon> registries</button></div>,
-        ], { onRefresh: () => this.refresh(), refreshing: this.loading() })}
+        <hope-phead heading="Images" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker images" : fleet ? "aggregated across the fleet" : `${items.length} image${items.length === 1 ? "" : "s"} on this daemon`}>
+          <hope-button slot="actions" icon="plus" onClick={this.openRegs}>registries</hope-button>
+          {sel > 0 ? (
+            <>
+              {!fleet && this.selImages().some((i) => i.used_by.length) ? <hope-button slot="actions" onClick={this.redeployFreeSelected}>redeploy &amp; free</hope-button> : null}
+              <hope-button slot="actions" tone="danger" onClick={this.removeSelected}>remove {sel}</hope-button>
+              <hope-button slot="actions" onClick={this.clearSel}>clear</hope-button>
+            </>
+          ) : fleet ? (
+            <>
+              {items.some((i) => i.dangling && i.used_by.length) ? <hope-button slot="actions" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune</hope-button> : null}
+              {dangling > 0 ? <hope-button slot="actions" onClick={() => this.pruneFleet(false)}>prune dangling</hope-button> : null}
+              {unusedAll > 0 ? <hope-button slot="actions" tone="danger" onClick={() => this.pruneFleet(true)}>prune unused</hope-button> : null}
+            </>
+          ) : (
+            <>
+              {items.some((i) => i.dangling && i.used_by.length) ? <hope-button slot="actions" onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button> : null}
+              {dangling > 0 ? <hope-button slot="actions" onClick={() => this.prune(false)}>prune dangling</hope-button> : null}
+              {unusedAll > 0 ? <hope-button slot="actions" tone="danger" onClick={() => this.prune(true)}>prune unused</hope-button> : null}
+            </>
+          )}
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={busy} onClick={this.userRefresh}></hope-button>
 
-        <main>
-          {this.err() ? <div class="empty">{this.err()}</div> : null}
-
-          {this.items().length > 0 ? (
-            <div class="summary">
-              <span class="stat"><i class="k">images</i><i class="v">{this.items().length}</i></span>
-              <span class="stat"><i class="k">total size</i><i class="v">{bytes(total)}</i></span>
-              {unused > 0 ? <span class="stat"><i class="k">unused</i><i class="v warnv">{unused}<i class="t"> · {bytes(unusedSize)}</i></i></span> : null}
-              {dangling > 0 ? <span class="stat"><i class="k">dangling</i><i class="v warnv">{dangling}<i class="t"> · {bytes(danglingSize)}</i></i></span> : null}
-            </div>
-          ) : null}
-
-          {this.items().length > 0 ? (
-            <div class="toolbar">
-              <div class="filters">
-                {(["all", "used", "unused", "dangling"] as Filter[]).map((f) => (
-                  <button class={"fchip" + (this.filter === f ? " on" : "")} onClick={() => (this.filter = f)}>
-                    {f}
-                    <span class="fn">{f === "all" ? this.items().length : this.items().filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length}</span>
-                  </button>
-                ))}
+          {first ? (
+            <div class="disk"><div class="diskmain"><div class="disktotal"><hope-skel w="90" h="26"></hope-skel><hope-skel w="150" h="10"></hope-skel></div><hope-skel h="8"></hope-skel><div class="legend"><hope-skel w="120" h="11"></hope-skel><hope-skel w="120" h="11"></hope-skel><hope-skel w="120" h="11"></hope-skel></div></div></div>
+          ) : items.length > 0 ? (
+            <div class="disk">
+              <div class="diskmain">
+                <div class="disktotal"><span class="big num">{bytes(total)}</span><span class="lbl">on disk &middot; {items.length} images</span></div>
+                <div class="meter">
+                  <i class="inuse" style={`width:${pct(inUseSz)}%`}></i>
+                  <i class="unused" style={`width:${pct(unusedSz)}%`}></i>
+                  <i class="dangling" style={`width:${pct(dangSz)}%`}></i>
+                </div>
+                <div class="legend">
+                  <span class="lg"><span class="sw inuse"></span>in use <b>{inUseN}</b> <span class="sz">&middot; {bytes(inUseSz)}</span></span>
+                  <span class="lg"><span class="sw unused"></span>unused <b>{unusedN}</b> <span class="sz">&middot; {bytes(unusedSz)}</span></span>
+                  <span class="lg"><span class="sw dangling"></span>dangling <b>{dangN}</b> <span class="sz">&middot; {bytes(dangSz)}</span></span>
+                </div>
               </div>
-              <div class="grow"></div>
-              {this.selected.length > 0 ? (
-                <>
-                  <span class="seln">{this.selected.length} selected</span>
-                  <span class="selsz">~{bytes(this.selImages().reduce((a, i) => a + i.size, 0))}</span>
-                  {!this.fleetMode && this.selImages().some((i) => i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployFreeSelected}>redeploy &amp; free</hope-button> : null}
-                  <hope-button tone="danger" onClick={this.removeSelected}>remove</hope-button>
-                  <hope-button onClick={this.clearSel}>clear</hope-button>
-                </>
-              ) : this.fleetMode ? (
-                <>
-                  {this.items().some((i) => i.dangling && i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune · all</hope-button> : null}
-                  {dangling > 0 ? <hope-button onClick={() => this.pruneFleet(false)}>prune dangling · all</hope-button> : null}
-                  {unused > 0 ? <hope-button tone="danger" onClick={() => this.pruneFleet(true)}>prune unused · all</hope-button> : null}
-                </>
-              ) : (
-                <>
-                  {this.items().some((i) => i.dangling && i.used_by.length) ? <hope-button tone="warn" onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button> : null}
-                  {dangling > 0 ? <hope-button onClick={() => this.prune(false)}>prune dangling</hope-button> : null}
-                  {unused > 0 ? <hope-button tone="danger" onClick={() => this.prune(true)}>prune unused</hope-button> : null}
-                </>
-              )}
+              <div class="reclaim">
+                <span class="k">reclaimable</span>
+                <span class="v num">{bytes(reclaim)}</span>
+                <span class="sub">prune unused + dangling</span>
+              </div>
             </div>
           ) : null}
+        </hope-phead>
 
-          {this.items().length > 0 ? (
-            <hope-search placeholder="Search image tags and ids…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
-          ) : null}
+        {this.err() ? <div class="empty">{this.err()}</div> : null}
 
-          {vis.length > 0 ? (
-            <table>
-              <colgroup>
-                <col class="c-sel" />
-                <col class="c-repo" />
-                <col class="c-id" />
-                <col class="c-size" />
-                <col class="c-age" />
-                <col class="c-use" />
-                <col class="c-act" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th class="sel"><span class={"ck" + (this.removable().length > 0 && this.removable().every((i) => this.selected.includes(this.key(i))) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                  <th>Repository</th>
-                  <th>Image ID</th>
-                  <th class="r">Size</th>
-                  <th>Age</th>
-                  <th>Used by</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {vis.map((i) => (
-                  <tr class={"irow" + (this.selected.includes(this.key(i)) ? " sel" : "")} onClick={() => this.imageDetail.open({ host: i.host, ref: i.id, onChange: () => this.refresh() })}>
+        {items.length > 0 ? (
+          <div class="vtools">
+            <div class="seg">
+              {(["all", "used", "unused", "dangling"] as Filter[]).map((f) => (
+                <button class={this.filter === f ? "on" : ""} onClick={() => (this.filter = f)}>{f === "used" ? "in use" : f}<span class="n">{fcount(f)}</span></button>
+              ))}
+            </div>
+            <span class="grow"></span>
+            <hope-search placeholder="Search tags and ids…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
+          </div>
+        ) : null}
+
+        {first ? (
+          <div class="rows">
+            <div class="rhead"><span>repository</span><span>size</span><span></span><span>age</span><span>used by</span><span></span></div>
+            {[0, 1, 2, 3, 4].map(() => (
+              <div class="irow" style="cursor:default">
+                <div class="repo"><hope-skel w="200" h="12"></hope-skel></div>
+                <div class="sizebar"><span class="track"></span></div>
+                <div class="size"><hope-skel w="56" h="12"></hope-skel></div>
+                <div class="age"><hope-skel w="30" h="12"></hope-skel></div>
+                <div class="usedby"><hope-skel w="120" h="12"></hope-skel></div>
+                <div class="rmc"></div>
+              </div>
+            ))}
+          </div>
+        ) : vis.length > 0 ? (
+          <div class="rows">
+            <div class="rhead"><span>repository</span><span>size</span><span></span><span>age</span><span>used by</span><span></span></div>
+            {vis.map((i) => {
+              const big = i.size >= maxSize * 0.66;
+              return (
+                <div class={"irow" + (openRef && (openRef === i.id || shortId(i.id) === openRef || i.tags.includes(openRef)) ? " on" : "")} onClick={() => this.imageInsp.select(i.host || this.hostCtx.token, i.id, () => this.refresh())}>
+                  <div class="repo">
+                    {i.host ? <span class="hostchip">{i.host}</span> : null}
+                    <span class="tag" title={i.tags.join(", ")}>{i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}</span>
+                    {i.tags.length > 1 ? <span class="more">+{i.tags.length - 1}</span> : null}
+                  </div>
+                  <div class={"sizebar" + (big ? " big" : "")}><span class="track"><i style={`width:${Math.max(2, (i.size / maxSize) * 100)}%`}></i></span></div>
+                  <div class="size num">{bytes(i.size)}</div>
+                  <div class="age num">{age(i.created)}</div>
+                  <div class="usedby">
                     {i.used_by.length ? (
-                      <td class="sel"></td>
-                    ) : (
-                      <td class="sel" onClick={(e: Event) => this.toggleSel(this.key(i), e)}>
-                        <span class={"ck" + (this.selected.includes(this.key(i)) ? " on" : "")}></span>
-                      </td>
-                    )}
-                    <td class="repo" title={i.tags.join(", ")}>
-                      {i.host ? <hope-chip host={true} title={i.host}>{i.host}</hope-chip> : null}
-                      {i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}
-                      {i.tags.length > 1 ? <span class="extra">+{i.tags.length - 1}</span> : null}
-                    </td>
-                    <td class="id">{shortId(i.id)}</td>
-                    <td class="size r">{bytes(i.size)}</td>
-                    <td class="age">{age(i.created)}</td>
-                    <td class="usedby">
-                      {i.used_by.length ? (
-                        <span class="ucount">
-                          {i.used_by[0].service || i.used_by[0].name || shortId(i.used_by[0].id)}
-                          {i.used_by.length > 1 ? <span class="ubmore"> +{i.used_by.length - 1}</span> : null}
-                        </span>
-                      ) : i.dangling ? (
-                        <hope-chip tone="warn" size="sm">dangling</hope-chip>
-                      ) : (
-                        <hope-chip size="sm">unused</hope-chip>
-                      )}
-                    </td>
-                    <td class="r">
-                      {i.in_use ? null : (
-                      <button class="rm" title="remove image" onClick={(e: Event) => { e.stopPropagation(); this.removeImg(i); }}>
-                        <loom-icon name="x" size={14}></loom-icon>
-                      </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : !this.loading() && !this.err() ? (
-            <div class="empty">{this.query ? "No images match." : "No images on this daemon."}</div>
-          ) : null}
-        </main>
-        {this.showRegs ? this.renderRegs() : null}
+                      <span class="svc">{i.used_by[0].project ? <span class="proj">{i.used_by[0].project} / </span> : null}{i.used_by[0].service || i.used_by[0].name || shortId(i.used_by[0].id)}{i.used_by.length > 1 ? <span class="extra"> +{i.used_by.length - 1}</span> : null}</span>
+                    ) : i.dangling ? <span class="pill warn">dangling</span> : <span class="pill">unused</span>}
+                  </div>
+                  <div class="rmc">{i.in_use ? null : <button class="rm" title="remove image" onClick={(e: Event) => { e.stopPropagation(); this.removeImg(i); }}><loom-icon name="x" size={14}></loom-icon></button>}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : !this.loading() && !this.err() ? (
+          <div class="empty">{this.query ? <span>No images match <b>{this.query}</b>.</span> : items.length === 0 ? "No images on this daemon." : this.filter === "used" ? "No images in use." : this.filter === "unused" ? "No unused images — every image backs a container." : this.filter === "dangling" ? "No dangling images — nothing to prune." : "No images on this daemon."}</div>
+        ) : null}
+        {this.showRegs ? (
+          <div class="regsheet" onClick={this.closeRegs}>
+            <div class="regsheetbox" onClick={(e: Event) => e.stopPropagation()}>
+              <div class="regsheethd">
+                <loom-icon name="database" size={15}></loom-icon>
+                <span>registries</span>
+                <span class="grow"></span>
+                <hope-button size="sm" icon="plus" onClick={() => this.regEl?.openAdd()}>add registry</hope-button>
+                <button class="regsheetx" onClick={this.closeRegs}><loom-icon name="x" size={16}></loom-icon></button>
+              </div>
+              <div class="regsheetbd"><hope-registries></hope-registries></div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }

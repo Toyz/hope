@@ -1,7 +1,7 @@
 // Volumes page: every Docker volume on the active host (or fleet) with the
 // containers mounting it. @rpc queries (SWR — no blank on refetch), @mutate
 // create, cross-host removal via callOn. Shared list mechanics in ResourcePage.
-import { component, styles, css, reactive } from "@toyz/loom";
+import { component, styles, css, reactive, prop, mount, watch } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -9,12 +9,11 @@ import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
-import { withHost } from "../host-url";
+import { VolumeInspector } from "../volume-inspector";
 import { System, Deploy } from "../contracts";
 import type { VolumeInfo, FleetVolumesHost } from "../contracts";
-import { resourceStyles } from "./resource-styles";
 import { bytes } from "../format";
-import { appBar } from "../app-bar";
+import { theme } from "../styles";
 
 const agoStr = (iso: string) => {
   if (!iso) return "—";
@@ -31,18 +30,99 @@ const agoStr = (iso: string) => {
 type Filter = "all" | "mounted" | "unused";
 
 @route("/volumes/:host")
+@route("/volumes/:host/:id")
 @component("hope-volumes")
-@styles(css`
-  ${resourceStyles}
+@styles(theme, css`
+  :host { display: block; min-height: 100%; background: var(--ink); }
+
+  /* storage composition instrument */
+  .disk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 26px; align-items: center; padding: 20px 28px 18px; border-bottom: 1px solid var(--line); }
+  .diskmain { min-width: 0; }
+  .disktotal { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .disktotal .big { font: 600 26px/1 var(--mono); color: var(--hi); }
+  .disktotal .lbl { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .meter { display: flex; height: 8px; width: 100%; background: var(--line); overflow: hidden; }
+  .meter i { display: block; height: 100%; }
+  .meter .inuse { background: var(--upd); } .meter .unused { background: var(--faint); }
+  .legend { display: flex; gap: 22px; margin-top: 12px; flex-wrap: wrap; }
+  .lg { display: flex; align-items: center; gap: 8px; font: 11.5px/1 var(--mono); color: var(--mid); }
+  .lg .sw { width: 9px; height: 9px; flex: none; }
+  .lg .sw.inuse { background: var(--upd); } .lg .sw.unused { background: var(--faint); }
+  .lg b { color: var(--hi); font-weight: 600; } .lg .sz { color: var(--dim); }
+  .reclaim { display: flex; flex-direction: column; gap: 7px; padding-left: 26px; border-left: 1px solid var(--line); text-align: right; }
+  .reclaim .k { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .reclaim .v { font: 600 22px/1 var(--mono); color: var(--warn); }
+  .reclaim .sub { font: 11px/1 var(--mono); color: var(--dim); }
+
+  .vtools { display: flex; align-items: center; gap: 10px; padding: 12px 28px; border-bottom: 1px solid var(--line); }
+  .vtools .grow { flex: 1; }
+  .seg { display: flex; }
+  .seg button { height: 28px; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-right: 0; color: var(--dim);
+    font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .seg button:last-child { border-right: 1px solid var(--line); }
+  .seg button .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .seg button:hover { color: var(--mid); }
+  .seg button.on { color: var(--hi); background: var(--raised); border-color: var(--line2); }
+  .seg button.on .n { color: var(--mid); }
+  .vtools hope-search { flex: 0 0 300px; max-width: 42%; }
+
+  .rows { padding-bottom: 24px; }
+  .rhead, .vrow { display: grid; grid-template-columns: minmax(0, 1.8fr) 128px 92px 96px minmax(0, 1fr) 34px; align-items: center; gap: 18px; padding: 0 28px; }
+  .rhead { height: 36px; border-bottom: 1px solid var(--line); }
+  .rhead span { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .vrow { height: 52px; border-bottom: 1px solid var(--line); cursor: pointer; position: relative; }
+  .vrow:hover { background: var(--raised); }
+  .vrow.on { background: color-mix(in srgb, var(--upd) 12%, transparent); }
+  .vrow.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
+  .vname { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .vname .hostchip { font: 9.5px/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--upd);
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 2px 6px; flex: none; }
+  .vname .nm { color: var(--hi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sizebar { display: flex; align-items: center; }
+  .sizebar .track { flex: 1; height: 4px; background: var(--line); overflow: hidden; }
+  .sizebar .track i { display: block; height: 100%; background: var(--mid); }
+  .sizebar.big .track i { background: var(--upd); }
+  .size { color: var(--mid); font-variant-numeric: tabular-nums; text-align: right; }
+  .driver { color: var(--dim); }
+  .mountedby { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .mountedby .svc { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mountedby .svc .proj { color: var(--dim); } .mountedby .svc .extra { color: var(--dim); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--line2);
+    font: 10px/1.6 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+  .pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .rmc { text-align: right; }
+  .rm { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent;
+    border: 1px solid transparent; color: var(--dim); cursor: pointer; opacity: 0; }
+  .vrow:hover .rm { opacity: 1; }
+  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line2)); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 `)
 export class VolumesPage extends ResourcePage<VolumeInfo> {
   @inject(HopeTransport) accessor rpc!: HopeTransport; // cross-host removal (per-item host)
+  @inject(VolumeInspector) accessor volInsp!: VolumeInspector;
 
   @rpc(System, "volumes", { eager: false }) accessor singleQ!: ApiState<VolumeInfo[]>;
   @rpc(System, "fleetVolumes", { eager: false }) accessor fleetQ!: ApiState<FleetVolumesHost[]>;
   @mutate(Deploy, "createVolume") accessor mkVol!: RpcMutator<[string, string, string, string], VolumeInfo>;
 
   @reactive accessor filter: Filter = "all";
+  @prop({ param: "id" }) accessor routeVol = "";
+
+  @mount
+  private onVolMount() {
+    if (!this.auth.isAuthenticated) { this.router.navigate("/login"); return; }
+    this.refresh();
+    this.syncVol();
+  }
+  @watch("routeVol") private onVolParam() { this.syncVol(); }
+  private syncVol() {
+    if (this.routeVol) {
+      this.volInsp.onChange = () => this.refresh();
+      this.volInsp.apply(this.hostCtx.token, decodeURIComponent(this.routeVol));
+    } else if (this.volInsp.isOpen) {
+      this.volInsp.apply("", "");
+    }
+  }
 
   protected key = (v: VolumeInfo & { host?: string }) => v.name; // unique per host
 
@@ -130,16 +210,6 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
     this.refresh();
   };
 
-  private openUser = (u: { id: string; project: string }) => {
-    // In the all-hosts view the item lives on a specific host — carry that host
-    // in the target URL so the stack/container page loads against it.
-    const host = this.detail?.host || this.hostCtx.token;
-    this.detail = null;
-    const base = u.project
-      ? `/stack/${encodeURIComponent(u.project)}`
-      : `/container/${encodeURIComponent(u.id)}`;
-    this.router.navigate(withHost(host, base));
-  };
 
   private del = async (v: VolumeInfo & { host?: string }) => {
     const inUse = v.used_by.length > 0;
@@ -187,131 +257,101 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
   update() {
     const items = this.items();
     const vis = this.visible();
-    const mounted = items.filter((v) => v.used_by.length).length;
-    const unused = items.length - mounted;
+    let inUseSz = 0, unusedSz = 0, mounted = 0, unusedN = 0;
+    for (const v of items) {
+      const sz = v.size > 0 ? v.size : 0;
+      if (v.used_by.length) { inUseSz += sz; mounted++; }
+      else { unusedSz += sz; unusedN++; }
+    }
+    const total = inUseSz + unusedSz;
+    const maxSize = Math.max(1, ...vis.map((v) => (v.size > 0 ? v.size : 0)));
+    const pct = (n: number) => (total ? (n / total) * 100 : 0);
+    const fleet = this.fleetMode;
+    const openRef = this.routeVol ? decodeURIComponent(this.routeVol) : "";
     const error = this.err();
     const busy = this.loading();
+    const sel = this.selected.length;
+    const first = busy && items.length === 0; // first load, nothing to show yet
     return (
       <div>
-        {appBar("volumes", [
-          <div class="s act"><button style="display:inline-flex;align-items:center;gap:6px" disabled={busy} onClick={this.createVol}><loom-icon name="plus" size={12}></loom-icon> create</button></div>,
-        ], { onRefresh: () => this.refresh(), refreshing: busy })}
-
-        <main>
-          {error ? <div class="empty">{error}</div> : null}
-
-          {items.length > 0 ? (
-            <div class="summary">
-              <span class="stat"><i class="k">volumes</i><i class="v">{items.length}</i></span>
-              <span class="stat"><i class="k">total size</i><i class="v">{bytes(items.reduce((a, v) => a + (v.size > 0 ? v.size : 0), 0))}</i></span>
-              <span class="stat"><i class="k">mounted</i><i class="v">{mounted}</i></span>
-              <span class="stat"><i class="k">unused</i><i class={"v" + (unused > 0 ? " warnv" : "")}>{unused}</i></span>
-            </div>
+        <hope-phead heading="Volumes" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker volumes" : fleet ? "aggregated across the fleet" : `${items.length} volume${items.length === 1 ? "" : "s"} on this daemon`}>
+          <hope-button slot="actions" icon="plus" disabled={busy} onClick={this.createVol}>create</hope-button>
+          {sel > 0 ? (
+            <>
+              <hope-button slot="actions" tone="danger" onClick={this.removeSelected}>remove {sel}</hope-button>
+              <hope-button slot="actions" onClick={this.clearSel}>clear</hope-button>
+            </>
           ) : null}
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={busy} onClick={this.userRefresh}></hope-button>
 
-          {items.length > 0 ? (
-            <div class="toolbar">
-              <div class="filters">
-                {(["all", "mounted", "unused"] as Filter[]).map((f) => (
-                  <button class={"fchip" + (this.filter === f ? " on" : "")} onClick={() => (this.filter = f)}>
-                    {f}
-                    <span class="fn">{f === "all" ? items.length : f === "mounted" ? mounted : unused}</span>
-                  </button>
-                ))}
-              </div>
-              <div class="grow"></div>
-              {this.selected.length > 0 ? (
-                <div class="selbar">
-                  <span class="seln">{this.selected.length} selected</span>
-                  <hope-button tone="danger" disabled={busy} onClick={this.removeSelected}>remove</hope-button>
-                  <hope-button onClick={this.clearSel}>clear</hope-button>
+          {first ? (
+            <div class="disk"><div class="diskmain"><div class="disktotal"><hope-skel w="52" h="26"></hope-skel><hope-skel w="150" h="10"></hope-skel></div><hope-skel h="8"></hope-skel><div class="legend"><hope-skel w="90" h="11"></hope-skel><hope-skel w="80" h="11"></hope-skel></div></div></div>
+          ) : items.length > 0 ? (
+            <div class="disk">
+              <div class="diskmain">
+                <div class="disktotal"><span class="big num">{bytes(total)}</span><span class="lbl">in {items.length} volumes</span></div>
+                <div class="meter"><i class="inuse" style={`width:${pct(inUseSz)}%`}></i><i class="unused" style={`width:${pct(unusedSz)}%`}></i></div>
+                <div class="legend">
+                  <span class="lg"><span class="sw inuse"></span>mounted <b>{mounted}</b> <span class="sz">&middot; {bytes(inUseSz)}</span></span>
+                  <span class="lg"><span class="sw unused"></span>unused <b>{unusedN}</b> <span class="sz">&middot; {bytes(unusedSz)}</span></span>
                 </div>
-              ) : null}
+              </div>
+              <div class="reclaim"><span class="k">reclaimable</span><span class="v num">{bytes(unusedSz)}</span><span class="sub">remove unused</span></div>
             </div>
           ) : null}
+        </hope-phead>
 
-          {items.length > 0 ? (
+        {error ? <div class="empty">{error}</div> : null}
+
+        {items.length > 0 ? (
+          <div class="vtools">
+            <div class="seg">
+              {(["all", "mounted", "unused"] as Filter[]).map((f) => (
+                <button class={this.filter === f ? "on" : ""} onClick={() => (this.filter = f)}>{f}<span class="n">{f === "all" ? items.length : f === "mounted" ? mounted : unusedN}</span></button>
+              ))}
+            </div>
+            <span class="grow"></span>
             <hope-search placeholder="Search volumes…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
-          ) : null}
+          </div>
+        ) : null}
 
-          {vis.length > 0 ? (
-            <hope-table>
-              <table>
-                <colgroup>
-                  <col style="width:40px" /><col /><col style="width:120px" /><col style="width:100px" /><col style="width:30%" /><col style="width:52px" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th class="pl"><span class={"ck" + (this.removable().length > 0 && this.removable().every((v) => this.selected.includes(v.name)) ? " on" : "")} onClick={this.selectAllVisible}></span></th>
-                    <th>Name</th><th>Driver</th><th class="r">Size</th><th>Mounted by</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vis.map((v) => (
-                    <tr class={"click" + (this.selected.includes(v.name) ? " sel" : "")} onClick={() => (this.detail = v)}>
-                      {v.used_by.length ? <td class="pl"></td> : (
-                        <td class="pl" onClick={(e: Event) => this.toggleSel(v.name, e)}><span class={"ck" + (this.selected.includes(v.name) ? " on" : "")}></span></td>
-                      )}
-                      <td class="hi">{v.host ? <hope-chip host={true} title={v.host}>{v.host}</hope-chip> : null}{v.name}</td>
-                      <td class="dim">{v.driver}</td>
-                      <td class="r num">{bytes(v.size)}</td>
-                      <td>{v.used_by.length ? <span>{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="dim"> +{v.used_by.length - 1}</span> : null}</span> : <span class="dim">unused</span>}</td>
-                      <td class="r">{!v.used_by.length ? <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button> : null}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </hope-table>
-          ) : items.length === 0 && !error && !busy ? (
-            <div class="empty">No volumes.</div>
-          ) : null}
-        </main>
-
-        {this.detail ? this.renderDetail(this.detail) : null}
-      </div>
-    );
-  }
-
-  private renderDetail(v: VolumeInfo & { host?: string }) {
-    return (
-      <div class="dmodal" onClick={() => (this.detail = null)}>
-        <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
-          <div class="dhead">
-            <span class="dt">{v.name}</span>
-            <span class="grow"></span>
-            <button class="dx" onClick={() => (this.detail = null)}><loom-icon name="x" size={15}></loom-icon></button>
+        {first ? (
+          <div class="rows">
+            <div class="rhead"><span>name</span><span>size</span><span></span><span>driver</span><span>mounted by</span><span></span></div>
+            {[0, 1, 2, 3, 4].map(() => (
+              <div class="vrow" style="cursor:default">
+                <div class="vname"><hope-skel w="180" h="12"></hope-skel></div>
+                <div class="sizebar"><span class="track"></span></div>
+                <div class="size"><hope-skel w="50" h="12"></hope-skel></div>
+                <div class="driver"><hope-skel w="46" h="12"></hope-skel></div>
+                <div class="mountedby"><hope-skel w="120" h="12"></hope-skel></div>
+                <div class="rmc"></div>
+              </div>
+            ))}
           </div>
-          <div class="dfacts">
-            {v.host ? <span class="st"><i class="sk">host</i><i class="sv">{v.host}</i></span> : null}
-            <span class="st"><i class="sk">driver</i><i class="sv">{v.driver}</i></span>
-            <span class="st"><i class="sk">size</i><i class="sv">{bytes(v.size)}</i></span>
-            <span class="st"><i class="sk">created</i><i class="sv">{agoStr(v.created_at)}</i></span>
-            <span class="st"><i class="sk">status</i><i class="sv">{v.used_by.length ? "mounted" : "unused"}</i></span>
-            <span class="st"><i class="sk">mounted</i><i class="sv">{v.used_by.length}</i></span>
+        ) : vis.length > 0 ? (
+          <div class="rows">
+            <div class="rhead"><span>name</span><span>size</span><span></span><span>driver</span><span>mounted by</span><span></span></div>
+            {vis.map((v) => {
+              const sz = v.size > 0 ? v.size : 0;
+              const big = sz >= maxSize * 0.66 && sz > 0;
+              return (
+                <div class={"vrow" + (openRef === v.name ? " on" : "")} onClick={() => this.volInsp.select(v.host || this.hostCtx.token, v.name, () => this.refresh())}>
+                  <div class="vname">{v.host ? <span class="hostchip">{v.host}</span> : null}<span class="nm" title={v.name}>{v.name}</span></div>
+                  <div class={"sizebar" + (big ? " big" : "")}><span class="track"><i style={`width:${sz ? Math.max(2, (sz / maxSize) * 100) : 0}%`}></i></span></div>
+                  <div class="size num">{v.size >= 0 ? bytes(v.size) : "—"}</div>
+                  <div class="driver">{v.driver}</div>
+                  <div class="mountedby">{v.used_by.length ? <span class="svc">{v.used_by[0].project ? <span class="proj">{v.used_by[0].project} / </span> : null}{v.used_by[0].service || v.used_by[0].name}{v.used_by.length > 1 ? <span class="extra"> +{v.used_by.length - 1}</span> : null}</span> : <span class="pill">unused</span>}</div>
+                  <div class="rmc">{v.used_by.length ? null : <button class="rm" title="remove volume" onClick={(e: Event) => { e.stopPropagation(); this.del(v); }}><loom-icon name="x" size={14}></loom-icon></button>}</div>
+                </div>
+              );
+            })}
           </div>
-          <div class="dbody">
-            <div class="drow"><span class="dk">mountpoint</span><span class="dv">{v.mountpoint || "—"}</span></div>
-            {v.scope ? <div class="drow"><span class="dk">scope</span><span class="dv">{v.scope}</span></div> : null}
-            {v.options && Object.keys(v.options).length ? (
-              <div class="drow top"><span class="dk">options</span><span class="dv"><hope-kvlist data={v.options}></hope-kvlist></span></div>
-            ) : null}
-            {v.labels && Object.keys(v.labels).length ? (
-              <div class="drow top"><span class="dk">labels</span><span class="dv"><hope-kvlist data={v.labels}></hope-kvlist></span></div>
-            ) : null}
-            <div class="drow top"><span class="dk">mounted by</span>
-              <span class="dv">
-                {v.used_by.length ? v.used_by.map((u) => (
-                  <span class="ub" onClick={() => this.openUser(u)}>{u.project ? <span class="ubp">{u.project} / </span> : null}{u.service || u.name}</span>
-                )) : <span class="dim">nothing — safe to remove</span>}
-              </span>
-            </div>
-          </div>
-          <div class="dacts">
-            {v.used_by.length ? <span class="dnote">mounted — unmount its containers before removing</span> : null}
-            <span class="grow"></span>
-            {v.used_by.length ? null : <hope-button tone="danger" onClick={() => this.del(v)}>remove</hope-button>}
-          </div>
-        </div>
+        ) : items.length === 0 && !error && !busy ? (
+          <div class="empty">No volumes.</div>
+        ) : !first && !error ? (
+          <div class="empty">{this.query ? <span>No volumes match <b>{this.query}</b>.</span> : this.filter === "mounted" ? "No mounted volumes — nothing is using a volume right now." : this.filter === "unused" ? "No unused volumes — every volume is mounted." : "No volumes."}</div>
+        ) : null}
       </div>
     );
   }

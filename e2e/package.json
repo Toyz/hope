@@ -1,0 +1,12 @@
+{
+  "name": "hope-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Screenshot + smoke scripts for hope's UI (dev-only, not embedded).",
+  "scripts": {
+    "shot": "node shot.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

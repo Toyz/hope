@@ -10,7 +10,8 @@ import type { ApiState } from "@toyz/loom/query";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
-import { bytes, innerPort } from "../format";
+import { bytes, innerPort, uptime, flatten } from "../format";
+import { parseStats } from "../stats";
 import { redactCmd, redactInspect } from "../redact";
 import { signalModal } from "../modal";
 import { UNGROUPED, composeProject, composeService } from "../const";
@@ -774,40 +775,19 @@ export class ContainerPage extends LoomElement {
   }
 
   private applyStats(s: any) {
-    try {
-      const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
-      const sysDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
-      const cpus = s.cpu_stats.online_cpus || (s.cpu_stats.cpu_usage.percpu_usage?.length ?? 1);
-      if (sysDelta > 0 && cpuDelta >= 0) {
-        this.cpu = ((cpuDelta / sysDelta) * cpus * 100).toFixed(1) + "%";
-        this.cpuBar = Math.min(100, (cpuDelta / sysDelta) * 100);
-      }
-      const used = (s.memory_stats.usage ?? 0) - (s.memory_stats.stats?.cache ?? 0);
-      const limit = s.memory_stats.limit ?? 0;
-      this.memUsed = mb(used);
-      this.memLimit = mb(limit);
-      this.memBar = limit ? Math.min(100, (used / limit) * 100) : 0;
-
-      let rx = 0, tx = 0;
-      for (const n of Object.values<any>(s.networks ?? {})) {
-        rx += n.rx_bytes ?? 0;
-        tx += n.tx_bytes ?? 0;
-      }
-      this.netRx = bytes(rx);
-      this.netTx = bytes(tx);
-
-      let r = 0, w = 0;
-      for (const e of s.blkio_stats?.io_service_bytes_recursive ?? []) {
-        if (e.op === "Read" || e.op === "read") r += e.value ?? 0;
-        if (e.op === "Write" || e.op === "write") w += e.value ?? 0;
-      }
-      this.blkR = bytes(r);
-      this.blkW = bytes(w);
-      this.pids = String(s.pids_stats?.current ?? "—");
-      this.hasStats = true;
-    } catch {
-      /* partial frame */
-    }
+    const p = parseStats(s);
+    if (p.cpu === undefined) return; // partial frame
+    this.cpu = p.cpu;
+    this.cpuBar = p.cpuBar!;
+    this.memUsed = p.memUsed!;
+    this.memLimit = p.memLimit!;
+    this.memBar = p.memBar!;
+    this.netRx = p.rx!;
+    this.netTx = p.tx!;
+    this.blkR = p.blkR!;
+    this.blkW = p.blkW!;
+    this.pids = String(s.pids_stats?.current ?? "—");
+    this.hasStats = true;
   }
 
   // Poll inspect so state/health transitions (e.g. "starting" -> "running")
@@ -1377,69 +1357,11 @@ export class ContainerPage extends LoomElement {
   }
 }
 
-function mb(b: number): string {
-  return (b / 1024 / 1024).toFixed(0) + " MB";
-}
-
-
-function uptime(startedAt?: string): string {
-  if (!startedAt) return "—";
-  const t = new Date(startedAt).getTime();
-  if (!t) return "—";
-  let s = Math.max(0, (Date.now() - t) / 1000);
-  const d = Math.floor(s / 86400); s -= d * 86400;
-  const h = Math.floor(s / 3600); s -= h * 3600;
-  const m = Math.floor(s / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
 // Strip ANSI color/escape sequences so colored logger output renders cleanly.
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-9;]*m/g;
 export function stripAnsi(s: string): string {
   return s.replace(ANSI, "");
-}
-
-// flatten walks an object into [dottedPath, leafValue] rows. Nested objects and
-// arrays become dotted/indexed paths so every value is one table row.
-function flatten(obj: any, prefix = ""): [string, any][] {
-  const rows: [string, any][] = [];
-  const entries: [string, any][] = Array.isArray(obj)
-    ? obj.map((v, i) => [String(i), v])
-    : Object.entries(obj ?? {});
-  for (const [k, v] of entries) {
-    const path = prefix ? `${prefix}.${k}` : k;
-    if (Array.isArray(v)) {
-      if (v.length === 0) rows.push([path, "(empty list)"]);
-      else if (v.every((x) => x === null || typeof x !== "object")) {
-        // array of primitives → one joined row instead of .0 / .1 / .2
-        rows.push([path, v.map((x) => (x === null ? "null" : String(x))).join(", ")]);
-      } else {
-        // array of objects → one summarized row per element, not a field explosion
-        v.forEach((el, idx) => {
-          if (el !== null && typeof el === "object") rows.push([`${path}.${idx}`, summarize(el)]);
-          else rows.push([`${path}.${idx}`, el]);
-        });
-      }
-    } else if (v !== null && typeof v === "object") {
-      if (Object.keys(v).length === 0) rows.push([path, "(empty)"]);
-      else rows.push(...flatten(v, path));
-    } else {
-      rows.push([path, v]);
-    }
-  }
-  return rows;
-}
-
-// summarize collapses an object into a one-line "k=v · k=v" summary of its
-// primitive fields — used for array-of-object rows (e.g. each Mount).
-function summarize(obj: any): string {
-  const parts = Object.entries(obj)
-    .filter(([, x]) => x === null || typeof x !== "object")
-    .map(([k, x]) => `${k}=${x === null ? "null" : x}`);
-  return parts.join("  ·  ") || "{…}";
 }
 
 // fmtVal renders a leaf value as readable JSX (boolean pills, dim null, etc).

@@ -10,10 +10,12 @@
 package logstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -402,7 +404,27 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		ctx, cancel := context.WithCancel(reqCtx)
 		defer cancel()
+		enc := json.NewEncoder(w)
 
+		// Phase 1 — backlog, merged across all containers in true timestamp order.
+		// Each container's tail is fetched non-following, split into timestamped
+		// lines, then the whole set is sorted so "all logs" reads chronologically
+		// instead of one container's history dumped, then the next's.
+		var backlog []tsLine
+		for _, ref := range refs {
+			backlog = append(backlog, p.backlogLines(ctx, ref.ID, ref.Name)...)
+		}
+		sort.SliceStable(backlog, func(i, j int) bool { return backlog[i].ts.Before(backlog[j].ts) })
+		for _, l := range backlog {
+			if err := enc.Encode(logFrame{Type: l.kind, Data: l.data, Source: l.source}); err != nil {
+				return err
+			}
+		}
+
+		// Phase 2 — live follow. Fan-in arrival order is chronological enough for
+		// the live tail; Since=now (captured after the backlog) avoids re-emitting
+		// what phase 1 already sent.
+		since := time.Now().UTC().Format(time.RFC3339Nano)
 		frames := make(chan logFrame, 256)
 		var wg sync.WaitGroup
 		for _, ref := range refs {
@@ -410,7 +432,7 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 			go func(ref docker.ContainerRef) {
 				defer wg.Done()
 				rc, err := p.dock(ctx).SDK().ContainerLogs(ctx, ref.ID, container.LogsOptions{
-					ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true, Tail: multiTail,
+					ShowStdout: true, ShowStderr: true, Follow: true, Timestamps: true, Since: since,
 				})
 				if err != nil {
 					return
@@ -427,7 +449,6 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 
 		// One writer (this loop) drains the fan-in channel, so no mutex is needed;
 		// a ticker interleaves keepalive pings when every container is quiet.
-		enc := json.NewEncoder(w)
 		ticker := time.NewTicker(keepAlive)
 		defer ticker.Stop()
 		for {
@@ -448,6 +469,59 @@ func (p *Plugin) streamMulti(reqCtx context.Context, refs []docker.ContainerRef)
 			}
 		}
 	}))
+}
+
+// tsLine is one backlog log line tagged with its parsed leading timestamp (from
+// docker's Timestamps:true prefix), its source container, and stream kind.
+type tsLine struct {
+	ts     time.Time
+	source string
+	kind   string
+	data   string
+}
+
+// backlogLines fetches a container's recent history (non-following) and splits it
+// into timestamped lines for the cross-container merge. Docker prefixes each line
+// with an RFC3339Nano timestamp when Timestamps is set; a line that fails to parse
+// sorts as zero-time (stable order preserved among those).
+func (p *Plugin) backlogLines(ctx context.Context, id, source string) []tsLine {
+	rc, err := p.dock(ctx).SDK().ContainerLogs(ctx, id, container.LogsOptions{
+		ShowStdout: true, ShowStderr: true, Follow: false, Timestamps: true, Tail: multiTail,
+	})
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+	var out, errb bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &errb, rc); err != nil {
+		return nil
+	}
+	var lines []tsLine
+	collect := func(buf *bytes.Buffer, kind string) {
+		for _, ln := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+			if ln == "" {
+				continue
+			}
+			lines = append(lines, tsLine{ts: parseLogTS(ln), source: source, kind: kind, data: ln + "\n"})
+		}
+	}
+	collect(&out, "stdout")
+	collect(&errb, "stderr")
+	return lines
+}
+
+// parseLogTS reads the leading RFC3339Nano token docker prepends with
+// Timestamps:true; zero time if the line isn't timestamped.
+func parseLogTS(line string) time.Time {
+	tok := line
+	if i := strings.IndexByte(line, ' '); i >= 0 {
+		tok = line[:i]
+	}
+	t, err := time.Parse(time.RFC3339Nano, tok)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // chanFramer turns each demuxed Write into a tagged frame on a channel, giving

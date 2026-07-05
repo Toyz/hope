@@ -12,6 +12,11 @@ import { PromptService } from "./prompt";
 import { ToastService } from "./toast";
 import { HostContext } from "./host-context";
 import { Inspector } from "./inspector";
+import { LogPanel } from "./log-panel";
+import { ImageInspector } from "./image-inspector";
+import { VolumeInspector } from "./volume-inspector";
+import { NetworkInspector } from "./network-inspector";
+import { ConnectorInspector } from "./connector-inspector";
 import { DeployIntent } from "./deploy-intent";
 import { ImageDetailService } from "./components/image-detail";
 import { NetworkDetailService } from "./components/network-detail";
@@ -27,7 +32,18 @@ import "./components/nav"; // shared system nav strip (<hope-nav>)
 import "./components/rail"; // explorer scope-rail: the fleet tree (<hope-rail>)
 import "./components/topbar"; // explorer top strip: breadcrumb + search + refresh (<hope-topbar>)
 import "./components/inspector"; // docked container inspector (<hope-inspector>)
-import "./components/footer"; // site footer with API + source links (<hope-footer>)
+import "./components/logs"; // docked multi-source log viewer (<hope-logs>)
+import "./components/registries"; // shared registry-credentials manager (<hope-registries>)
+import "./components/image-inspector"; // docked image inspector (<hope-image-inspector>)
+import "./components/volume-inspector"; // docked volume inspector (<hope-volume-inspector>)
+import "./components/network-inspector"; // docked network inspector (<hope-network-inspector>)
+import "./components/connector-inspector"; // docked connector inspector (<hope-connector-inspector>)
+import "./components/sysbanner"; // global persistence warning above the shell (<hope-sysbanner>)
+import "./components/tooltip"; // reusable hover tooltip (<hope-tip>)
+import "./components/phead"; // shared page header: title row + stat band (<hope-phead>)
+import "./components/stat"; // one labelled figure in a header stat band (<hope-stat>)
+import "./components/skeleton"; // shimmer loading placeholder (<hope-skel>)
+import "./components/palette"; // global ⌘K command palette (<hope-palette>)
 import "./components/image-detail"; // shared image-detail modal (<hope-image-detail>)
 import "./components/kvlist"; // reusable key/value list for labels/options (<hope-kvlist>)
 import "./components/kv-editor"; // shared key/value editor for options/labels (<hope-kv-editor>)
@@ -50,6 +66,7 @@ import "./pages/images";
 import "./pages/networks";
 import "./pages/volumes";
 import "./pages/agents";
+import "./pages/registries";
 import "./pages/tunnels";
 import "./pages/api-docs";
 
@@ -60,6 +77,11 @@ app.use(PromptService);
 app.use(ToastService);
 app.use(HostContext);
 app.use(Inspector);
+app.use(LogPanel);
+app.use(ImageInspector);
+app.use(VolumeInspector);
+app.use(NetworkInspector);
+app.use(ConnectorInspector);
 app.use(DeployIntent);
 app.use(ImageDetailService);
 app.use(NetworkDetailService);

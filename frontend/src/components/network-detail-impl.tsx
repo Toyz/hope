@@ -11,6 +11,7 @@ import { theme } from "../styles";
 import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
+import { UNGROUPED } from "../const";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { signalModal } from "../modal";
@@ -46,11 +47,6 @@ import type { NetworkDetailOpts } from "./network-detail";
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .dacts .grow { flex: 1; }
   .dnote { font: 11px/1.4 var(--mono); color: var(--warn); max-width: 360px; }
-  .pbtn { padding: 8px 13px; background: transparent; border: 1px solid var(--line); color: var(--mid);
-    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
-  .pbtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .pbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-  .pbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
   .dstate { padding: 30px 18px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
   .dstate.err { color: var(--bad); }
 `)
@@ -96,10 +92,10 @@ export default class NetworkDetailModal extends LoomElement {
     this.error = "";
   };
 
-  private gotoContainer = (id: string) => {
+  private gotoContainer = (u: { id: string; project: string }) => {
     const host = this.host || this.hostCtx.token;
     this.close();
-    this.router.navigate(withHost(host, `/container/${encodeURIComponent(id)}`));
+    this.router.navigate(withHost(host, `/stack/${encodeURIComponent(u.project || UNGROUPED)}/${encodeURIComponent(u.id)}`));
   };
 
   private removeNet = async () => {
@@ -163,7 +159,7 @@ export default class NetworkDetailModal extends LoomElement {
                   <span class="dv">
                     {n.used_by.length ? (
                       n.used_by.map((u) => (
-                        <span class="ub" onClick={() => this.gotoContainer(u.id)}>
+                        <span class="ub" onClick={() => this.gotoContainer(u)}>
                           {u.project ? <span class="ubp">{u.project} / </span> : null}
                           {u.service || u.name}
                         </span>
@@ -177,7 +173,7 @@ export default class NetworkDetailModal extends LoomElement {
               <div class="dacts">
                 {n.used_by.length ? <span class="dnote">detach its containers before removing</span> : null}
                 <span class="grow"></span>
-                {n.used_by.length ? null : <button class="pbtn danger" onClick={this.removeNet}>remove</button>}
+                {n.used_by.length ? null : <hope-button tone="danger" icon="trash" onClick={this.removeNet}>remove</hope-button>}
               </div>
             </>
           )}

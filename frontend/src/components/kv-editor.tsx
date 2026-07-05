@@ -31,13 +31,6 @@ type Pair = { k: string; v: string };
   .row { display: flex; align-items: center; gap: 7px; }
   .row .k { flex: 0 0 40%; min-width: 0; }
   .row .v { flex: 1; min-width: 0; }
-  .rm { display: inline-grid; place-items: center; width: 34px; height: 36px; flex: none; background: transparent;
-    border: 1px solid transparent; color: var(--dim); cursor: pointer; }
-  .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--raised); }
-  .add { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
-    background: transparent; border: 1px dashed var(--line2); color: var(--dim); cursor: pointer;
-    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 7px 11px; }
-  .add:hover { color: var(--hi); border-color: var(--mid); }
 `)
 export class KvEditor extends LoomElement {
   @reactive accessor value = ""; // KEY=VALUE per line
@@ -98,11 +91,11 @@ export class KvEditor extends LoomElement {
                 <div class="row">
                   <input class="k" type="text" placeholder="KEY" value={r.k} onInput={(e: any) => this.upd(i, { k: e.target.value })} />
                   <input class="v" type="text" placeholder="value" value={r.v} onInput={(e: any) => this.upd(i, { v: e.target.value })} />
-                  <button class="rm" onClick={() => this.del(i)}><loom-icon name="x" size={14}></loom-icon></button>
+                  <hope-button icon="x" size="sm" onClick={() => this.del(i)}></hope-button>
                 </div>
               ))}
             </div>
-            <button class="add" onClick={this.add}><loom-icon name="plus" size={11}></loom-icon> {this.addLabel}</button>
+            <hope-button icon="plus" size="sm" onClick={this.add}>{this.addLabel}</hope-button>
           </div>
         ) : (
           <textarea rows={4} placeholder={this.placeholder} value={this.value} onInput={(e: any) => this.onText(e.target.value)}></textarea>

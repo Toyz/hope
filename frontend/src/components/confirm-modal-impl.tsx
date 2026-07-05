@@ -29,15 +29,6 @@ import type { ConfirmOpts } from "../confirm";
   .box.warn .stats .sv { color: var(--warn); }
   .acts { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
-  .btn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mid);
-    background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 10px 16px; cursor: pointer;
-    transition: color .1s, border-color .1s, background .1s; }
-  .btn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .btn:focus-visible { outline: 1px solid var(--line2); outline-offset: 1px; }
-  .btn.go { color: #fff; border-color: var(--bad); background: color-mix(in srgb, var(--bad) 80%, #000); }
-  .btn.go:hover { background: var(--bad); }
-  .btn.gowarn { color: #06080d; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 85%, #000); }
-  .btn.gowarn:hover { background: var(--warn); }
 `)
 export default class ConfirmModalImpl extends LoomElement {
   @reactive accessor open = false;
@@ -90,10 +81,10 @@ export default class ConfirmModalImpl extends LoomElement {
             </div>
           ) : null}
           <div class="acts">
-            <button class="btn" onClick={() => this.settle(false)}>{o.cancelLabel || "Cancel"}</button>
-            <button class={"btn" + (o.danger ? " go" : o.warn ? " gowarn" : "")} onClick={() => this.settle(true)}>
+            <hope-button onClick={() => this.settle(false)}>{o.cancelLabel || "Cancel"}</hope-button>
+            <hope-button tone={o.danger ? "danger" : o.warn ? "warn" : "primary"} solid onClick={() => this.settle(true)}>
               {o.confirmLabel || "Confirm"}
-            </button>
+            </hope-button>
           </div>
         </div>
       </div>

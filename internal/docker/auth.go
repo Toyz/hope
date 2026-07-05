@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/docker/docker/api/types/registry"
 )
 
 // RegistrySource records where a credential came from, so the UI can show
@@ -165,6 +167,19 @@ func (c *Client) AddRegistryCreds(server, user, pass string, source RegistrySour
 	c.regCreds = append(next, regCred{server: server, user: user, pass: pass, source: source})
 	c.authMu.Unlock()
 	c.reloadAuths()
+}
+
+// VerifyRegistry checks a credential against the registry by performing a login
+// (auth handshake only, no image pull), so the UI can reject bad creds at add
+// time instead of failing silently on the next pull. Returns nil when the creds
+// authenticate.
+func (c *Client) VerifyRegistry(ctx context.Context, server, user, pass string) error {
+	_, err := c.sdk().RegistryLogin(ctx, registry.AuthConfig{
+		Username:      user,
+		Password:      pass,
+		ServerAddress: normalizeRegistry(server),
+	})
+	return err
 }
 
 // RemoveRegistryCreds drops a runtime (db) credential for a server and rebuilds

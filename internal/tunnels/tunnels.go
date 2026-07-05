@@ -79,41 +79,74 @@ func (r *TunnelsRouter) Connectors(ctx *rpc.Context) ([]ConnectorView, error) {
 	out := make([]ConnectorView, len(cons))
 	var wg sync.WaitGroup
 	for i, c := range cons {
-		out[i] = ConnectorView{
-			ID: c.ContainerID, Name: c.Name, Title: c.Title, TunnelID: c.TunnelID,
-			Default: c.Default, Running: c.Running, Project: c.Project, Networks: c.Networks,
-			UpdateReady: r.dock(ctx).CachedStatus(c.Image) == "outdated",
-		}
+		out[i] = r.baseView(ctx, c)
 		wg.Add(1)
 		go func(i int, tunnelID string) {
 			defer wg.Done()
-			if d, err := r.cf.TunnelStatus(ctx, tunnelID); err == nil {
-				out[i].Status = d.Status
-				out[i].Online = d.Status == "healthy" || d.Status == "degraded"
-				out[i].Connections = len(d.Connections)
-				out[i].CreatedAt = d.CreatedAt
-				if d.Name != "" {
-					out[i].Title = d.Name // live tunnel name, so renames show without a recreate
-				}
-				seen := map[string]bool{}
-				for _, cn := range d.Connections {
-					if cn.ColoName != "" && !seen[cn.ColoName] {
-						seen[cn.ColoName] = true
-						out[i].Colos = append(out[i].Colos, cn.ColoName)
-					}
-					if out[i].Version == "" {
-						out[i].Version = cn.ClientVersion
-					}
-				}
-				sort.Strings(out[i].Colos)
-			}
-			if rules, err := r.cf.TunnelConfig(ctx, tunnelID); err == nil {
-				out[i].Routes = countRoutes(rules)
-			}
+			r.enrich(ctx, &out[i], tunnelID)
 		}(i, c.TunnelID)
 	}
 	wg.Wait()
 	return out, nil
+}
+
+// ConnectorParams targets a single connector container by id.
+type ConnectorParams struct {
+	ID string `sov:"id,0,required" json:"id"`
+}
+
+// Connector returns one connector (by container id) with full tunnel status, so
+// the UI can deep-link/refresh a single connector without listing every one. Host-
+// aware: it resolves against the active host, so the inspector must query the
+// connector's own host (X-Hope-Host) in fleet mode.
+func (r *TunnelsRouter) Connector(ctx *rpc.Context, p *ConnectorParams) (*ConnectorView, error) {
+	if err := r.enabled(ctx); err != nil {
+		return nil, err
+	}
+	con, ok := r.findConnector(ctx, p.ID)
+	if !ok {
+		return nil, rpc.NotFound("connector not found")
+	}
+	v := r.baseView(ctx, con)
+	r.enrich(ctx, &v, con.TunnelID)
+	return &v, nil
+}
+
+// baseView is the connector fields known from Docker alone (no Cloudflare call).
+func (r *TunnelsRouter) baseView(ctx *rpc.Context, c docker.Connector) ConnectorView {
+	return ConnectorView{
+		ID: c.ContainerID, Name: c.Name, Title: c.Title, TunnelID: c.TunnelID,
+		Default: c.Default, Running: c.Running, Project: c.Project, Networks: c.Networks,
+		UpdateReady: r.dock(ctx).CachedStatus(c.Image) == "outdated",
+	}
+}
+
+// enrich fills the live Cloudflare status (health, connections, edge colos,
+// version, route count) onto a view. Best-effort: leaves fields zero on error.
+func (r *TunnelsRouter) enrich(ctx *rpc.Context, v *ConnectorView, tunnelID string) {
+	if d, err := r.cf.TunnelStatus(ctx, tunnelID); err == nil {
+		v.Status = d.Status
+		v.Online = d.Status == "healthy" || d.Status == "degraded"
+		v.Connections = len(d.Connections)
+		v.CreatedAt = d.CreatedAt
+		if d.Name != "" {
+			v.Title = d.Name // live tunnel name, so renames show without a recreate
+		}
+		seen := map[string]bool{}
+		for _, cn := range d.Connections {
+			if cn.ColoName != "" && !seen[cn.ColoName] {
+				seen[cn.ColoName] = true
+				v.Colos = append(v.Colos, cn.ColoName)
+			}
+			if v.Version == "" {
+				v.Version = cn.ClientVersion
+			}
+		}
+		sort.Strings(v.Colos)
+	}
+	if rules, err := r.cf.TunnelConfig(ctx, tunnelID); err == nil {
+		v.Routes = countRoutes(rules)
+	}
 }
 
 // TunnelView is one public route: a hostname served through a connector.
@@ -123,10 +156,11 @@ type TunnelView struct {
 	Service   string `json:"service"`   // raw ingress origin, e.g. http://blog-web-1:8080
 	Connector string `json:"connector"` // connector container name
 	TunnelID  string `json:"tunnel_id"`
-	Project   string `json:"project"` // resolved stack, if known
-	SvcName   string `json:"svc_name"`
-	Container string `json:"container"`
-	Port      string `json:"port"`
+	Project     string `json:"project"` // resolved stack, if known
+	SvcName     string `json:"svc_name"`
+	Container   string `json:"container"`    // origin container name
+	ContainerID string `json:"container_id"` // origin container id, so the UI can deep-link it
+	Port        string `json:"port"`
 }
 
 // Tunnels lists every route across the active host's connectors (read from each
@@ -162,6 +196,7 @@ func (r *TunnelsRouter) Tunnels(ctx *rpc.Context) ([]TunnelView, error) {
 				tv.Project = ref.Project
 				tv.SvcName = ref.Service
 				tv.Container = ref.Name
+				tv.ContainerID = ref.ContainerID
 			}
 			out = append(out, tv)
 		}

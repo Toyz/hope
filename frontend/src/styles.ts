@@ -96,6 +96,9 @@ export const theme = css`
   .vstats .s .k { color: var(--dim); font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
   .vstats .s .v { color: var(--hi); font: 500 15px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .vstats .s .v .t { color: var(--dim); }
+  .vstats .s .v.vlink { background: transparent; border: 0; padding: 0; text-align: left; color: var(--upd); cursor: pointer;
+    font: 500 15px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .vstats .s .v.vlink:hover { text-decoration: underline; }
   .vstats .grow { flex: 1; }
 
   .vpad { padding: 18px 28px; }
@@ -115,6 +118,31 @@ export const theme = css`
   .vtable td .nm { display: flex; align-items: center; gap: 10px; color: var(--hi); }
   .vtable td.chev { width: 44px; text-align: right; color: var(--dim); }
   .vtable tbody tr:hover td.chev { color: var(--hi); }
+
+  /* card — a bordered summary panel (header / body of rows / footer). Grids of
+     these are the fleet host cards today; reusable for any summary grid. */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card { border: 1px solid var(--line); background: var(--panel); }
+  .card.click { cursor: pointer; }
+  .card.click:hover { border-color: var(--line2); }
+  .card-h { display: flex; align-items: center; gap: 9px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+  .card-h .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); }
+  .card-h .dot.ok { background: var(--ok); } .card-h .dot.warn { background: var(--warn); }
+  .card-h .dot.bad { background: var(--bad); } .card-h .dot.upd { background: var(--upd); }
+  .card-h .dot.off { background: var(--bad); opacity: .5; }
+  .card-h h3 { margin: 0; font: 700 14px/1 var(--mono); color: var(--hi); }
+  .card-h .kind { color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .card-h .grow { flex: 1; }
+  .card-h .roll { color: var(--mid); font: 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .card-h .roll .t { color: var(--dim); }
+  .card-b { padding: 6px 0; min-height: 40px; }
+  .card-row { display: flex; align-items: center; gap: 9px; padding: 6px 14px; color: var(--mid); font: 12px/1 var(--mono); }
+  .card-row.click { cursor: pointer; }
+  .card-row.click:hover { background: var(--raised); color: var(--hi); }
+  .card-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-row .rt { margin-left: auto; color: var(--mid); font-variant-numeric: tabular-nums; }
+  .card-row .rt .t { color: var(--dim); }
+  .card-f { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
   .btn.danger:hover { color: var(--bad); border-color: var(--bad); }
 
   /* segmented bar (used sparingly) */

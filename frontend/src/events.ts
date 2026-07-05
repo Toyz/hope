@@ -12,10 +12,75 @@ export class InspectorTarget extends LoomEvent {
     public host: string,
     public id: string,
     public name: string,
+    public tab = "", // optional initial tab to open on (e.g. "logs"); "" keeps current
   ) {
     super();
   }
 }
+
+// Fired to open (or close) the docked MULTI-SOURCE log panel — stack/service logs
+// merged across containers. method+args are the Stream route (stackLogs/serviceLogs)
+// and its args; method === "" closes it. Shares the docked slot with the inspector.
+export class LogPanelTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public title: string,
+    public method: string,
+    public args: string[],
+  ) {
+    super();
+  }
+}
+
+// Fired to open (or close) the docked IMAGE inspector on an image (host + ref).
+// ref === "" closes it. Shares the docked bottom slot with the container inspector
+// and the log viewer (the shell shows one at a time).
+export class ImageInspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public ref: string,
+  ) {
+    super();
+  }
+}
+
+// Fired to open (or close) the docked VOLUME inspector (host + name). name === ""
+// closes it. Shares the docked bottom slot with the other inspectors + logs.
+export class VolumeInspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public name: string,
+  ) {
+    super();
+  }
+}
+
+// Fired to open (or close) the docked NETWORK inspector (host + ref). ref === ""
+// closes it. Shares the docked bottom slot with the other inspectors + logs.
+export class NetworkInspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public ref: string,
+  ) {
+    super();
+  }
+}
+
+// Fired to open (or close) the docked CONNECTOR inspector (host + connector id).
+// Keyed by id, not name: connector names aren't unique (they're local to a stack
+// and hope doesn't force uniqueness). id === "" closes it.
+export class ConnectorInspectorTarget extends LoomEvent {
+  constructor(
+    public host: string,
+    public id: string,
+  ) {
+    super();
+  }
+}
+
+// Fired to open the global command palette (the ⌘K "jump to" search). The topbar
+// search box emits it; <hope-palette> listens (⌘K itself is handled in-palette).
+export class PaletteToggle extends LoomEvent {}
 
 // Fired when the active Docker host or the fleet (all-hosts) view flag changes.
 // Pages re-fetch in place; the host picker refreshes its label.

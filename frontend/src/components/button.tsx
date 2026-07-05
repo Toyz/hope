@@ -73,13 +73,14 @@ export class HopeButton extends LoomElement {
   @prop accessor size = "";
   @prop accessor icon = "";
   @prop accessor disabled = false;
+  @prop accessor spin = false; // spin the icon (e.g. a refresh in flight)
 
   update() {
     const cls = [this.tone, this.hasAttribute("solid") ? "solid" : "", this.size === "sm" ? "sm" : ""].filter(Boolean).join(" ");
     return (
       <button class={cls} disabled={this.disabled}>
         <span class="wipe"></span>
-        <span class="inner">{this.icon ? <loom-icon name={this.icon} size={13}></loom-icon> : null}<slot></slot></span>
+        <span class="inner">{this.icon ? <loom-icon class={this.spin ? "spin" : ""} name={this.icon} size={13}></loom-icon> : null}<slot></slot></span>
       </button>
     );
   }

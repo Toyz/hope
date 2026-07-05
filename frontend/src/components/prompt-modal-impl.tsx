@@ -39,12 +39,6 @@ import type { PromptOpts } from "../prompt";
   .acts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .err { margin-right: auto; color: var(--bad); font: 11.5px/1.4 var(--mono); }
-  .btn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mid);
-    background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 10px 16px; cursor: pointer;
-    transition: color .1s, border-color .1s, background .1s; }
-  .btn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
-  .btn.go { color: #06080d; border-color: var(--upd); background: color-mix(in srgb, var(--upd) 85%, #000); }
-  .btn.go:hover { background: var(--upd); }
 `)
 export default class PromptModalImpl extends LoomElement {
   @reactive accessor open = false;
@@ -140,8 +134,8 @@ export default class PromptModalImpl extends LoomElement {
           </div>
           <div class="acts">
             {this.err ? <span class="err">{this.err}</span> : null}
-            <button class="btn" onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</button>
-            <button class="btn go" onClick={this.submit}>{o.submitLabel || "Save"}</button>
+            <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
+            <hope-button tone="primary" solid onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
           </div>
         </div>
       </div>
