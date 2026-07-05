@@ -13,8 +13,8 @@ import { theme } from "../styles";
 @route("/plugin/:key/:path")
 @component("hope-plugin-page")
 @styles(theme, css`
-  :host { display: block; min-height: 100%; background: var(--ink); }
-  .body { padding: 4px 0 40px; }
+  :host { display: flex; flex-direction: column; height: 100%; min-height: 100%; background: var(--ink); }
+  .body { flex: 1 1 0; min-height: 0; padding: 4px 0 12px; display: flex; flex-direction: column; }
   .empty { padding: 40px 28px; color: var(--dim); font: 12.5px/1.6 var(--mono); }
 `)
 export class PluginPage extends LoomElement {

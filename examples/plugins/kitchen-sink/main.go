@@ -50,7 +50,9 @@ func main() {
 
 	// table: synthetic rows, sized by the setting, tagged with the page param — so a
 	// dynamic page (db/table) shows "its" data and big row counts stress rendering.
-	p.View("rows", "Rows", plugin.Table, func(ctx context.Context) (any, error) {
+	// Rows are interactive: click one for a detail modal (rowDetail), or use the
+	// per-row Delete action (delRow) — both author-declared, author-handled RPCs.
+	p.TableView("rows", "Rows", func(ctx context.Context) (any, error) {
 		var pr struct {
 			DB    string `json:"db"`
 			Table string `json:"table"`
@@ -65,25 +67,67 @@ func main() {
 			rows = append(rows, []any{i, orDefault(pr.DB, "-"), orDefault(pr.Table, "-"), fmt.Sprintf("row-%d", i), i * 7 % 1000})
 		}
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
+	},
+		plugin.RowDetail("rowDetail"),
+		plugin.RowActions(plugin.RowAction{Method: "delRow", Label: "Delete", Danger: true}),
+	)
+
+	// rowDetail: the author-controlled RPC hope calls when a row is clicked. Gets the
+	// clicked row as {row: {col: val}}; returns whatever detail it wants (here a kv).
+	p.View("rowDetail", "Row detail", plugin.KV, func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		out := map[string]any{}
+		for k, v := range pr.Row {
+			out[k] = v
+		}
+		out["note"] = "loaded by the plugin, not hope"
+		return out, nil
 	})
 
-	// A real query view: SQL-highlighted editor; the input filters synthetic rows
-	// (a stand-in for "run your own query against this table").
-	p.QueryView("sql", "Query", "sql", func(ctx context.Context) (any, error) {
+	// delRow: a per-row danger action. Gets {row}; here it just reports (a real
+	// plugin would DELETE ... WHERE id = row.id against its own DB).
+	p.DangerAction("delRow", "Delete row", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		row, _ := in["row"].(map[string]any)
+		id := "?"
+		if row != nil {
+			id = fmt.Sprint(row["id"])
+		}
+		return map[string]any{"ok": true, "message": "deleted row " + id}, nil
+	})
+
+	// A real query view: SQL-highlighted editor prepopulated with "select * from
+	// {table}" (the page's table). Columns are DYNAMIC — hope renders exactly the
+	// columns the query's SELECT list names (pgAdmin-style), so `select id, name`
+	// yields a two-column grid. Rows here are clickable too (rowDetail).
+	p.QueryView("sql", "Query", "sql", "select * from {table}", func(ctx context.Context) (any, error) {
 		var pr struct {
 			Table string `json:"table"`
 		}
 		_ = plugin.Params(ctx, &pr) // the page's param (which table), when opened from Explorer
-		q := strings.ToLower(strings.TrimSpace(plugin.Input(ctx)))
-		rows := [][]any{}
-		for i := range 200 {
-			name := fmt.Sprintf("row-%d", i)
-			val := strconv.Itoa(i * 7 % 1000)
-			if q == "" || strings.Contains(strings.ToLower(name+" "+val), q) {
-				rows = append(rows, []any{i, orDefault(pr.Table, "-"), name, val})
-			}
+		cols := parseSelect(plugin.Input(ctx))
+		if len(cols) == 0 {
+			cols = []string{"id", "table", "name", "value", "created"}
 		}
-		return map[string]any{"columns": []string{"id", "table", "name", "value"}, "rows": rows}, nil
+		rows := make([][]any, 0, 200)
+		for i := range 200 {
+			rec := map[string]any{
+				"id": i, "table": orDefault(pr.Table, "-"), "name": fmt.Sprintf("row-%d", i),
+				"value": i * 7 % 1000, "created": started.Add(time.Duration(i) * time.Minute).Format("15:04:05"),
+			}
+			row := make([]any, len(cols))
+			for j, c := range cols {
+				if v, ok := rec[c]; ok {
+					row[j] = v
+				} else {
+					row[j] = "NULL" // unknown column -> pgAdmin-style NULL
+				}
+			}
+			rows = append(rows, row)
+		}
+		return map[string]any{"columns": cols, "rows": rows, "row_method": "rowDetail"}, nil
 	})
 
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
@@ -162,7 +206,7 @@ func main() {
 		),
 		plugin.Tabs(
 			plugin.Leaf("sql").Titled("Query"),
-			plugin.Leaf("rows").Titled("Rows"),
+			plugin.Leaf("rows").Titled("Rows").Filled(),
 			plugin.Leaf("log").Titled("Log"),
 		),
 		plugin.Section("Actions", plugin.Row(plugin.Leaf("greet"), plugin.Leaf("wipe"))),
@@ -171,7 +215,7 @@ func main() {
 	// --- a single full page ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
-		plugin.Section("Rows", plugin.Leaf("rows")),
+		plugin.Section("Rows", plugin.Leaf("rows").Filled()),
 	))
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
@@ -188,7 +232,7 @@ func main() {
 	p.DynamicPage("Explorer", plugin.Section("",
 		plugin.Leaf("overview"),
 		plugin.Section("Query", plugin.Leaf("sql")),
-		plugin.Section("Rows", plugin.Leaf("rows")),
+		plugin.Section("Rows", plugin.Leaf("rows").Filled()),
 	), dbs)
 
 	addr := ":8080"
@@ -205,6 +249,29 @@ func node(label string, children ...any) map[string]any {
 		m["children"] = children
 	}
 	return m
+}
+
+// parseSelect pulls the column list out of a "select a, b from …" query so the
+// result grid's columns follow the query (dynamic columns). Returns nil for
+// "select *" or an unparseable query, so the caller falls back to all columns.
+func parseSelect(q string) []string {
+	l := strings.ToLower(q)
+	si := strings.Index(l, "select ")
+	fi := strings.Index(l, " from ")
+	if si < 0 || fi < 0 || fi <= si {
+		return nil
+	}
+	list := strings.TrimSpace(q[si+len("select ") : fi])
+	if list == "" || strings.Contains(list, "*") {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(list, ",") {
+		if c := strings.TrimSpace(part); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func orDefault(s, d string) string {

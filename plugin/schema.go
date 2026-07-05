@@ -108,7 +108,26 @@ type ViewDesc struct {
 	Label  string   `json:"label"`
 	Kind   ViewKind `json:"kind"`
 	Icon   string   `json:"icon,omitempty"`
-	Lang   string   `json:"lang,omitempty"` // query views: syntax-highlight language (sql, json, …)
+	Lang    string `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
+	Default string `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
+	// RowMethod (table/query views): a method hope calls when the user clicks a row,
+	// with params {row: {column: value}}. The result (kv or table) is shown in a
+	// modal — a fully author-controlled row-detail RPC.
+	RowMethod string `json:"row_method,omitempty"`
+	// RowActions (table/query views): per-row action buttons. hope renders each in a
+	// trailing column (and in the row-detail modal); clicking one calls its Method
+	// with {row: {column: value}} — an author-controlled mutation like "delete row".
+	// A Danger action is confirmed first; on success hope refetches the table.
+	RowActions []RowAction `json:"row_actions,omitempty"`
+}
+
+// RowAction is one author-declared action bound to a table row. hope calls Method
+// with {row: {column: value}} (plus the page param); use for row-scoped mutations.
+type RowAction struct {
+	Method string `json:"method"`
+	Label  string `json:"label"`
+	Icon   string `json:"icon,omitempty"`
+	Danger bool   `json:"danger,omitempty"` // hope confirms before running and audit-logs it
 }
 
 // StreamDesc describes a live stream and how to render it.
@@ -201,6 +220,7 @@ type Node struct {
 	Title    string   `json:"title,omitempty"`
 	Ref      string   `json:"ref,omitempty"`  // leaf: method name of a view/action/stream
 	Size     int      `json:"size,omitempty"` // optional row/grid weight
+	Fill     bool     `json:"fill,omitempty"` // grow to fill the remaining height (e.g. a table)
 	Children []*Node  `json:"children,omitempty"`
 }
 
@@ -225,3 +245,7 @@ func Leaf(ref string) *Node { return &Node{Kind: NodeLeaf, Ref: ref} }
 
 // Titled sets a node's title (useful for wrapping a Leaf inside Tabs).
 func (n *Node) Titled(t string) *Node { n.Title = t; return n }
+
+// Filled marks a node to grow and fill the remaining height (and propagates up its
+// ancestors when rendered) — e.g. a table that should fill the page.
+func (n *Node) Filled() *Node { n.Fill = true; return n }

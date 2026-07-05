@@ -167,11 +167,38 @@ func (p *Plugin) View(method, label string, kind ViewKind, fn ViewFunc) *Plugin 
 	return p
 }
 
-// QueryView registers a Query view whose input editor syntax-highlights the given
-// language (e.g. "sql", "json"). Read the user's input with plugin.Input(ctx).
-func (p *Plugin) QueryView(method, label, lang string, fn ViewFunc) *Plugin {
+// QueryView registers a Query view whose input editor syntax-highlights lang and
+// prepopulates with def (a template where {param} placeholders are filled from the
+// page's param, e.g. "select * from {table}"). Read the input with plugin.Input.
+func (p *Plugin) QueryView(method, label, lang, def string, fn ViewFunc) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Query, Lang: lang}, fn}
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Query, Lang: lang, Default: def}, fn}
+	return p
+}
+
+// TableOpt configures an interactive Table view (row-click detail, row actions).
+type TableOpt func(*ViewDesc)
+
+// RowDetail makes table rows clickable: a click calls method with {row: {column:
+// value}} and shows the returned kv/table in a modal (an author-controlled RPC).
+func RowDetail(method string) TableOpt { return func(v *ViewDesc) { v.RowMethod = method } }
+
+// RowActions adds per-row action buttons; each click calls the action's Method with
+// {row: {column: value}}. Use for row-scoped mutations like "delete row".
+func RowActions(actions ...RowAction) TableOpt {
+	return func(v *ViewDesc) { v.RowActions = append(v.RowActions, actions...) }
+}
+
+// TableView registers a Table view. Add RowDetail/RowActions opts to make rows
+// interactive — e.g. TableView("rows","Rows",fn, plugin.RowDetail("inspect"),
+// plugin.RowActions(plugin.RowAction{Method:"del",Label:"Delete",Danger:true})).
+func (p *Plugin) TableView(method, label string, fn ViewFunc, opts ...TableOpt) *Plugin {
+	p.claim(method)
+	d := ViewDesc{Method: method, Label: label, Kind: Table}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 

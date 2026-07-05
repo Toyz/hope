@@ -232,6 +232,7 @@ export class HopeInspector extends LoomElement {
   @reactive accessor tab: Tab = "info"; // a static tab, or `plugin:<key>` for a plugin surface
   @reactive accessor pluginsOn = false;
   @reactive accessor pluginSurfaces: Surface[] = [];
+  @reactive accessor pluginNonce = 0; // bumped on plugin-tab entry to force a surface refetch
   @reactive accessor lines: string[] = [];
   @reactive accessor raw: any = null; // full docker inspect (never rendered un-redacted)
   @reactive accessor reveal = false; // operator armed secret reveal
@@ -429,7 +430,7 @@ export class HopeInspector extends LoomElement {
   }
   private curState(): string { return this.curSib()?.state || this.raw?.State?.Status || ""; }
 
-  private pick = (t: Tab) => { this.tab = t; if (t === "logs") this.scrollLogs(); if (t === "processes") this.loadProcs(); };
+  private pick = (t: Tab) => { this.tab = t; if (t === "logs") this.scrollLogs(); if (t === "processes") this.loadProcs(); if (t.startsWith("plugin:")) this.pluginNonce++; };
 
   // docker top — live process list. Redacted like everything else: the command
   // column is argv and can carry --token=… secrets, unmasked only when armed.
@@ -647,7 +648,7 @@ export class HopeInspector extends LoomElement {
     const t = this.tab;
     if (t.startsWith("plugin:")) {
       const s = this.pluginSurfaces.find((x) => `plugin:${x.key}` === t);
-      return s ? <hope-plugin-surface host={this.host} surface={s}></hope-plugin-surface> : <div class="empty">plugin panel unavailable</div>;
+      return s ? <hope-plugin-surface host={this.host} surface={s} reloadTick={this.pluginNonce}></hope-plugin-surface> : <div class="empty">plugin panel unavailable</div>;
     }
     if (t === "logs") {
       return (

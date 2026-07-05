@@ -7,6 +7,7 @@ import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmo
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { PromptService, type PromptField } from "../prompt";
+import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { theme } from "../styles";
 
@@ -15,9 +16,11 @@ interface Node {
   title?: string;
   ref?: string;
   size?: number;
+  fill?: boolean;
   children?: Node[];
 }
-interface ViewDesc { method: string; label: string; kind: string; lang?: string }
+interface RowAction { method: string; label: string; icon?: string; danger?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[] }
 interface ActionDesc { method: string; label: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[] }
@@ -27,8 +30,13 @@ type Cell = { loading: boolean; error?: string; data?: any };
 
 @component("hope-plugin-surface")
 @styles(theme, css`
-  :host { display: block; min-height: 0; }
-  .sec { padding: 4px 0 10px; }
+  :host { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .sec { padding: 4px 0 10px; display: flex; flex-direction: column; min-height: 0; }
+  .tabsw { display: flex; flex-direction: column; min-height: 0; }
+  /* a node (or its ancestor chain to a fill leaf) grows to fill remaining height */
+  .grow { flex: 1 1 0; min-height: 0; }
+  .leaf.grow { display: flex; flex-direction: column; }
+  .leaf.grow .gwrap { flex: 1 1 0; min-height: 0; max-height: none; }
   .sect { padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
@@ -54,6 +62,22 @@ type Cell = { loading: boolean; error?: string; data?: any };
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
+  tr.clk { cursor: pointer; }
+  tr.clk:hover td { background: color-mix(in srgb, var(--upd) 8%, transparent); color: var(--hi); }
+  td.rax, th.rax { text-align: right; white-space: nowrap; width: 1%; }
+  .rowbtn { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .rowbtn:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .rowbtn.bad:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line2)); }
+
+  .ovl { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--ink) 68%, transparent); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .rowmodal { display: flex; flex-direction: column; width: min(560px, 100%); max-height: 82vh; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .rmhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .rmt { color: var(--hi); font: 600 13px/1.2 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rmx { display: inline-flex; padding: 4px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .rmx:hover { color: var(--hi); }
+  .rmbody { padding: 12px 16px; overflow: auto; min-height: 0; }
+  .rmfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
+
   ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.7 var(--mono); }
   ul.tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px solid var(--line); }
   ul.tree li { color: var(--mid); }
@@ -67,16 +91,21 @@ type Cell = { loading: boolean; error?: string; data?: any };
 export class HopePluginSurface extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ToastService) accessor toast!: ToastService;
 
   @prop accessor host = "";
   @prop accessor surface: Surface | null = null;
+  @prop accessor reloadTick = 0; // bump to force a view refetch (e.g. on tab re-entry)
 
   @reactive accessor cells: Record<string, Cell> = {};
   @reactive accessor tabSel: Record<string, number> = {};
   @reactive accessor queryText: Record<string, string> = {};
   @reactive accessor streamData: Record<string, any> = {};
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
+  // row-detail modal: the returned detail plus the clicked row + its actions (so the
+  // modal footer can offer the same row actions).
+  @reactive accessor modal: { title: string; data: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
@@ -87,6 +116,14 @@ export class HopePluginSurface extends LoomElement {
   @mount onMount() { this.rebuild(); }
   @watch("surface") onSurface() { this.rebuild(); }
   @unmount onUnmount() { this.stopAll(); }
+
+  // The host bumps nonce when this surface is shown again (tab re-entry) — refetch
+  // the views so a stale/failed load self-heals, without touching live streams.
+  @watch("reloadTick") onReload() {
+    const s = this.surface;
+    if (!s) return;
+    for (const ref of this.leafRefs(s.node)) if (this.views[ref]) void this.fetch(ref);
+  }
 
   private stopAll() {
     for (const c of this.streamAborts.values()) c.abort();
@@ -192,11 +229,18 @@ export class HopePluginSurface extends LoomElement {
   };
 
   // ── rendering ──
+  // hasFill reports whether a node or any descendant wants to fill height, so the
+  // whole chain from the surface root down to a fill leaf gets `grow` (flex:1).
+  private hasFill(n: Node): boolean {
+    return !!n.fill || (n.children || []).some((c) => this.hasFill(c));
+  }
+
   private renderNode(n: Node, idKey: string): any {
+    const g = this.hasFill(n) ? " grow" : "";
     switch (n.kind) {
       case "section":
         return (
-          <div class="sec">
+          <div class={"sec" + g}>
             {n.title ? <div class="sect">{n.title}</div> : null}
             {(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}
           </div>
@@ -205,7 +249,7 @@ export class HopePluginSurface extends LoomElement {
         const kids = n.children || [];
         const sel = this.tabSel[idKey] ?? 0;
         return (
-          <div>
+          <div class={"tabsw" + g}>
             <div class="tabs">
               {kids.map((c, i) => (
                 <div class={"tb" + (i === sel ? " on" : "")} onClick={() => (this.tabSel = { ...this.tabSel, [idKey]: i })}>
@@ -218,11 +262,11 @@ export class HopePluginSurface extends LoomElement {
         );
       }
       case "row":
-        return <div class="row">{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
+        return <div class={"row" + g}>{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
       case "grid":
-        return <div class="grid">{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
+        return <div class={"grid" + g}>{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
       case "leaf":
-        return this.renderLeaf(n.ref || "");
+        return this.renderLeaf(n.ref || "", !!n.fill);
       default:
         return null;
     }
@@ -233,7 +277,8 @@ export class HopePluginSurface extends LoomElement {
     return this.views[r]?.label || this.actions[r]?.label || this.streams[r]?.label || "";
   }
 
-  private renderLeaf(ref: string) {
+  private renderLeaf(ref: string, fill = false) {
+    const g = fill ? " grow" : "";
     if (this.actions[ref]) {
       const a = this.actions[ref];
       return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => this.runAction(a)}>{a.label}</hope-button></div>;
@@ -258,7 +303,7 @@ export class HopePluginSurface extends LoomElement {
     if (!v) return null;
     const cell = this.cells[ref];
     return (
-      <div class="leaf">
+      <div class={"leaf" + g}>
         <div class="llabel">{v.label}</div>
         {v.kind === "query" ? this.renderQuery(v, cell) : cell?.loading ? <div class="msg">loading…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : this.renderView(v, cell?.data)}
       </div>
@@ -272,7 +317,7 @@ export class HopePluginSurface extends LoomElement {
         return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
       case "table":
       case "query":
-        return this.renderTable(data);
+        return this.renderTable(data, v);
       case "tree":
         return this.renderTree(data?.nodes || []);
       default:
@@ -280,31 +325,98 @@ export class HopePluginSurface extends LoomElement {
     }
   }
 
+  // queryDefault fills the view's Default template with the page param, e.g.
+  // "select * from {table}" -> "select * from table_00" on that table's page.
+  private queryDefault(v: ViewDesc): string {
+    const p = this.surface?.param || {};
+    return (v.default || "").replace(/\{(\w+)\}/g, (_, k) => (p[k] != null ? String(p[k]) : ""));
+  }
+
   private renderQuery(v: ViewDesc, cell: Cell | undefined) {
-    const text = this.queryText[v.method] ?? "";
+    const text = this.queryText[v.method] ?? this.queryDefault(v);
     return (
       <div>
         <hope-code lang={v.lang || "sql"} value={text} placeholder="enter a query…" onInput={(e: any) => (this.queryText = { ...this.queryText, [v.method]: e.detail })}></hope-code>
         <div class="qrun">
-          <hope-button size="sm" tone="primary" icon="play" onClick={() => this.fetch(v.method, { input: this.queryText[v.method] ?? "" })}>run</hope-button>
+          <hope-button size="sm" tone="primary" icon="play" onClick={() => this.fetch(v.method, { input: this.queryText[v.method] ?? this.queryDefault(v) })}>run</hope-button>
         </div>
-        {cell?.loading ? <div class="msg">running…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : cell?.data ? this.renderTable(cell.data) : <div class="msg">no results yet</div>}
+        {cell?.loading ? <div class="msg">running…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : cell?.data ? this.renderTable(cell.data, v) : <div class="msg">no results yet</div>}
       </div>
     );
   }
 
-  private renderTable(data: any) {
+  // renderTable draws {columns, rows}. If the view declares row_method the rows are
+  // clickable (opens a detail modal); if it declares row_actions each row gets a
+  // trailing cell of author-controlled action buttons. Columns are fully dynamic —
+  // whatever the plugin returns (pgAdmin-style query results).
+  private renderTable(data: any, v?: ViewDesc) {
     const cols: string[] = data?.columns || [];
     const rows: any[][] = data?.rows || [];
+    const onRow: string | undefined = v?.row_method || data?.on_row || data?.onRow;
+    const acts: RowAction[] = v?.row_actions || data?.row_actions || [];
     if (!cols.length && !rows.length) return <div class="msg">empty</div>;
     return (
       <div class="gwrap">
         <table class="g">
-          <thead><tr>{cols.map((c) => <th>{c}</th>)}</tr></thead>
-          <tbody>{rows.map((r) => <tr>{r.map((cell) => <td>{this.cellStr(cell)}</td>)}</tr>)}</tbody>
+          <thead><tr>{cols.map((c) => <th>{c}</th>)}{acts.length ? <th class="rax"></th> : null}</tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
+              {r.map((cell) => <td>{this.cellStr(cell)}</td>)}
+              {acts.length ? (
+                <td class="rax">{acts.map((a) => (
+                  <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
+                    {a.icon ? <loom-icon name={a.icon} size={11}></loom-icon> : null}{a.label}
+                  </button>
+                ))}</td>
+              ) : null}
+            </tr>
+          ))}</tbody>
         </table>
       </div>
     );
+  }
+
+  private rowObj(cols: string[], row: any[]): Record<string, any> {
+    const obj: Record<string, any> = {};
+    cols.forEach((c, i) => (obj[c] = row[i]));
+    return obj;
+  }
+
+  // Clicking a row calls the table's row_method with {row: {col: val}} and shows the
+  // plugin's returned detail (kv or table) in a modal, carrying the row's actions.
+  private openRow = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string) => {
+    const s = this.surface;
+    if (!s) return;
+    const obj = this.rowObj(cols, row);
+    try {
+      const detail = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs({ row: obj }) }]);
+      this.modal = { title: String(obj[cols[0]] ?? "Row"), data: detail, row: obj, actions: acts, view: viewMethod };
+    } catch (e: any) {
+      this.toast.error(`row — ${e?.message ?? "failed"}`);
+    }
+  };
+
+  // runRowAction invokes an author's row action with {row: {col: val}}. Danger
+  // actions confirm first; on success the owning table refetches (e.g. a deleted
+  // row disappears) and any open row modal closes.
+  private runRowAction = async (a: RowAction, cols: string[], row: any[], viewMethod?: string) => {
+    const s = this.surface;
+    if (!s) return;
+    const obj = this.rowObj(cols, row);
+    if (a.danger && !(await this.confirm.ask({ title: a.label, message: `${a.label} — ${String(obj[cols[0]] ?? "this row")}?`, danger: true }))) return;
+    try {
+      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj }) }]);
+      this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
+      this.modal = null;
+      if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
+    } catch (e: any) {
+      this.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
+    }
+  };
+
+  private renderDetail(data: any): any {
+    if (data && typeof data === "object" && Array.isArray(data.columns)) return this.renderTable(data);
+    return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
   }
 
   private renderStream(d: any) {
@@ -338,9 +450,40 @@ export class HopePluginSurface extends LoomElement {
     return String(v);
   }
 
+  private closeModal = () => (this.modal = null);
+
+  private renderModal() {
+    const m = this.modal;
+    if (!m) return null;
+    return (
+      <div class="ovl" onClick={this.closeModal}>
+        <div class="rowmodal" onClick={(e: any) => e.stopPropagation()}>
+          <div class="rmhead">
+            <span class="rmt">{m.title}</span>
+            <button class="rmx" onClick={this.closeModal}><loom-icon name="x" size={13}></loom-icon></button>
+          </div>
+          <div class="rmbody">{this.renderDetail(m.data)}</div>
+          {m.actions && m.actions.length && m.row ? (
+            <div class="rmfoot">{m.actions.map((a) => (
+              <hope-button size="sm" tone={a.danger ? "danger" : "primary"} icon={a.icon}
+                onClick={() => this.runModalAction(a, m)}>{a.label}</hope-button>
+            ))}</div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // runModalAction runs a row action from the modal footer (same row context).
+  private runModalAction = (a: RowAction, m: { row?: Record<string, any>; view?: string }) => {
+    if (!m.row) return;
+    const cols = Object.keys(m.row);
+    void this.runRowAction(a, cols, cols.map((c) => m.row![c]), m.view);
+  };
+
   update() {
     const s = this.surface;
     if (!s || !s.node) return <div class="msg" style="padding:16px">no panel</div>;
-    return this.renderNode(s.node, "r");
+    return <>{this.renderNode(s.node, "r")}{this.renderModal()}</>;
   }
 }
