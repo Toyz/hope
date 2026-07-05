@@ -44,7 +44,9 @@ jobs:
 
       - name: Build metadata
         id: bi
-        run: echo "buildtime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "buildtime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -55,9 +57,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Stamp build info into the binary (internal/version).
+          # Stamp the short commit sha as the build id — into both the Go binary
+          # (internal/version) and the SPA (HOPE_VERSION -> __HOPE_VERSION__), so
+          # the topbar + agent cards show the exact build instead of "dev".
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ steps.bi.outputs.sha_short }}
+            HOPE_VERSION=${{ steps.bi.outputs.sha_short }}
             REVISION=${{ github.sha }}
             BUILDTIME=${{ steps.bi.outputs.buildtime }}
           # If github.com/Toyz/sov is PRIVATE, also add (and a PAT secret with

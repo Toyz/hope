@@ -9,6 +9,10 @@
 # 1) Build the frontend.
 FROM node:lts-alpine AS ui
 WORKDIR /ui
+# The UI stamps its build id from HOPE_VERSION (CI passes the short sha); vite
+# inlines it as __HOPE_VERSION__. Without this the topbar always reads "dev".
+ARG HOPE_VERSION="dev"
+ENV HOPE_VERSION=${HOPE_VERSION}
 COPY frontend/package*.json ./
 RUN npm ci || npm install
 COPY frontend/ ./
