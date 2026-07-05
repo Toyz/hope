@@ -142,14 +142,34 @@ func (h *Hub) Listen(ctx context.Context, addr string) error {
 		return err
 	}
 	go func() { <-ctx.Done(); ln.Close() }()
+	var backoff time.Duration
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
+			// A recurring Accept error (classically fd exhaustion / EMFILE) returns
+			// instantly, so a bare `continue` here busy-spins a whole CPU core until
+			// the condition clears. Back off with an escalating, capped delay — the
+			// same strategy net/http's Server.Serve uses — so a failing listener
+			// costs ~nothing instead of pegging the CPU.
+			if backoff == 0 {
+				backoff = 5 * time.Millisecond
+			} else if backoff *= 2; backoff > time.Second {
+				backoff = time.Second
+			}
+			if h.log != nil {
+				h.log.Warn("agent listener accept failed; backing off", "err", err, "delay", backoff.String())
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+			}
 			continue
 		}
+		backoff = 0
 		go h.handle(ctx, conn)
 	}
 }
