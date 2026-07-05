@@ -161,6 +161,20 @@ func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) 
 	return targets, attachNet, nil
 }
 
+// ContainerMatchInfo returns a container's image ref + labels, for evaluating a
+// plugin's container-surface match against it.
+func (c *Client) ContainerMatchInfo(ctx context.Context, id string) (image string, labels map[string]string, err error) {
+	insp, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil {
+		return "", nil, err
+	}
+	if insp.Config != nil {
+		image = insp.Config.Image
+		labels = insp.Config.Labels
+	}
+	return image, labels, nil
+}
+
 // truthy reports whether a label value opts in (true/1/yes/on, case-insensitive).
 func truthy(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {

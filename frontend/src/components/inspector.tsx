@@ -11,6 +11,8 @@
 import { LoomElement, component, styles, css, reactive, mount, unmount, on, query } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
+import { capabilities } from "../caps";
+import type { Surface } from "./plugin-surface";
 import { Inspector } from "../inspector";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
@@ -27,7 +29,7 @@ import type { LogFrame, TopResult, TunnelView } from "../contracts";
 import { theme } from "../styles";
 
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-type Tab = "info" | "logs" | "processes" | "mounts" | "env" | "networks" | "labels" | "inspect";
+type Tab = "info" | "logs" | "processes" | "mounts" | "env" | "networks" | "labels" | "inspect" | `plugin:${string}`;
 const TABS: Tab[] = ["info", "logs", "processes", "mounts", "env", "networks", "labels", "inspect"];
 
 @component("hope-inspector")
@@ -227,7 +229,9 @@ export class HopeInspector extends LoomElement {
   @reactive accessor host = "";
   @reactive accessor id = "";
   @reactive accessor name = "";
-  @reactive accessor tab: Tab = "info";
+  @reactive accessor tab: Tab = "info"; // a static tab, or `plugin:<key>` for a plugin surface
+  @reactive accessor pluginsOn = false;
+  @reactive accessor pluginSurfaces: Surface[] = [];
   @reactive accessor lines: string[] = [];
   @reactive accessor raw: any = null; // full docker inspect (never rendered un-redacted)
   @reactive accessor reveal = false; // operator armed secret reveal
@@ -279,7 +283,9 @@ export class HopeInspector extends LoomElement {
       return;
     }
     this.host = e.host; this.id = e.id; this.name = e.name;
+    this.pluginSurfaces = [];
     if (t) this.tab = t as Tab;
+    else if (this.tab.startsWith("plugin:")) this.tab = "info"; // stale plugin tab from the previous container
     this.raw = null; this.reveal = false; this.rawQ = ""; this.secOpen = { State: true, Config: true };
     this.cpu = "—"; this.mem = "—"; this.cpuBar = 0; this.memBar = 0;
     this.netRx = "—"; this.netTx = "—"; this.pids = "—";
@@ -298,7 +304,20 @@ export class HopeInspector extends LoomElement {
     if (this.tab === "processes") this.loadProcs();
     void this.rpc.callOn<any>(this.host, "Containers", "inspect", [this.id]).then((r) => { this.raw = r; if (!this.name) this.name = this.deriveName(r); this.loadSiblings(); }).catch(() => {});
     this.loadRoutes();
+    void capabilities().then((c) => { this.pluginsOn = !!c.plugins_enabled; if (this.pluginsOn) this.loadSurfaces(); });
   }
+
+  // Enabled plugins whose container-surface match applies to this container —
+  // rendered as extra tabs (the plugin's panel & metrics live here).
+  private loadSurfaces = async () => {
+    const host = this.host, id = this.id;
+    try {
+      const s = await this.rpc.call<Surface[]>("Plugins", "surfaces", [{ host, container_id: id }]);
+      if (host === this.host && id === this.id) this.pluginSurfaces = s || [];
+    } catch {
+      if (host === this.host && id === this.id) this.pluginSurfaces = [];
+    }
+  };
 
   // Tunnel routes whose origin resolves to THIS container — so the info tab can
   // show where it's publicly served and add a new route. Best-effort (tunnels may
@@ -623,6 +642,10 @@ export class HopeInspector extends LoomElement {
 
   private renderBody() {
     const t = this.tab;
+    if (t.startsWith("plugin:")) {
+      const s = this.pluginSurfaces.find((x) => `plugin:${x.key}` === t);
+      return s ? <hope-plugin-surface host={this.host} surface={s}></hope-plugin-surface> : <div class="empty">plugin panel unavailable</div>;
+    }
     if (t === "logs") {
       return (
         <div class="log">
@@ -839,6 +862,10 @@ export class HopeInspector extends LoomElement {
           </div>
           <div class="tabs">
             {TABS.map((t) => <span class={"tab" + (this.tab === t ? " on" : "")} onClick={() => this.pick(t)}>{t}</span>)}
+            {this.pluginSurfaces.map((s) => {
+              const t: Tab = `plugin:${s.key}`;
+              return <span class={"tab" + (this.tab === t ? " on" : "")} onClick={() => this.pick(t)}>{s.title || s.name}</span>;
+            })}
           </div>
           <span class="grow"></span>
           <div class="acts">

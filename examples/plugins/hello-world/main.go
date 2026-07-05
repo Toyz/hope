@@ -10,6 +10,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/toyz/hope/plugin"
@@ -19,6 +20,13 @@ func main() {
 	p := plugin.New("hello-world", "1.0.0").
 		Description("Every hope view kind, one small plugin").
 		Icon("rocket")
+
+	// Operator-managed settings (configured + saved from the plugin inspector,
+	// pushed to the plugin via hope.settings; read with p.SettingValue).
+	p.Setting(plugin.Setting{Key: "greeting", Label: "Greeting", Default: "hello", Hint: "prefix used by the greet action"})
+	p.Setting(plugin.Setting{Key: "mood", Label: "Mood", Kind: plugin.SettingSelect, Default: "cheerful",
+		Options: []plugin.Option{{Label: "Cheerful", Value: "cheerful"}, {Label: "Grumpy", Value: "grumpy"}}})
+	p.Setting(plugin.Setting{Key: "loud", Label: "Loud", Kind: plugin.SettingToggle, Hint: "UPPERCASE the greeting"})
 
 	// kv: a flat label/value map.
 	p.View("info", "Info", plugin.KV, func(ctx context.Context) (any, error) {
@@ -75,7 +83,18 @@ func main() {
 		if name == "" {
 			name = "world"
 		}
-		return map[string]any{"message": "hello, " + name}, nil
+		greeting := p.SettingValue("greeting")
+		if greeting == "" {
+			greeting = "hello"
+		}
+		msg := greeting + ", " + name
+		if p.SettingValue("mood") == "grumpy" {
+			msg = greeting + "... " + name + ", what do you want"
+		}
+		if p.SettingValue("loud") == "true" {
+			msg = strings.ToUpper(msg)
+		}
+		return map[string]any{"message": msg}, nil
 	})
 
 	// counter stream: a value ticking up once a second until the UI disconnects.
