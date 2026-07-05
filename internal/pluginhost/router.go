@@ -193,10 +193,9 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 		return nil, rpc.BadRequest("plugin not found (no matching container on the fleet)")
 	}
 	rep := representative(members)
-	token, err := mintToken()
-	if err != nil {
-		return nil, rpc.Internal("mint token: %v", err)
-	}
+	// Deterministic token derived from hope's secret + the plugin identity — stable
+	// across disable/enable/forget so the plugin's trust-on-first-use pin keeps
+	// matching (a fresh random token each time would break it once the plugin pins).
 	rec := store.PluginRecord{
 		Key:         p.Key,
 		Host:        host,
@@ -206,7 +205,7 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 		Name:        rep.Title,
 		Enabled:     true,
 		Fingerprint: fingerprint(rep),
-		Token:       token,
+		Token:       r.store.DeriveToken(p.Key),
 		EnabledAt:   time.Now(),
 	}
 	if err := r.store.PutPlugin(rec); err != nil {

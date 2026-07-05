@@ -1,9 +1,23 @@
 package store
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 )
+
+// DeriveToken returns a deterministic per-plugin bearer token: HMAC(store key,
+// name). Because it's derived from hope's secret (the same one that seals the db)
+// and the plugin's stable identity, it stays the SAME across disable/enable/forget
+// — so the plugin's trust-on-first-use pin keeps matching instead of breaking when
+// hope would otherwise mint a fresh random token. Unguessable without the secret.
+func (s *Store) DeriveToken(name string) string {
+	mac := hmac.New(sha256.New, s.key[:])
+	mac.Write([]byte(name))
+	return hex.EncodeToString(mac.Sum(nil))
+}
 
 // PluginRecord is a discovered container plugin the operator has acted on: its
 // trust state (enabled + the fingerprint captured at enable time) and the

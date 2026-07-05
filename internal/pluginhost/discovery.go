@@ -9,8 +9,6 @@ package pluginhost
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"sort"
 	"sync"
 	"time"
@@ -133,12 +131,3 @@ func (r *PluginsRouter) group(ctx context.Context, key string) ([]docker.PluginC
 // uses the image digest; phase 3 augments it with a hash of the plugin's getSchema
 // so a schema change (not just an image swap) also forces re-approval.
 func fingerprint(pc docker.PluginContainer) string { return pc.ImageID }
-
-// mintToken generates a per-plugin bearer token (256-bit, hex).
-func mintToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
