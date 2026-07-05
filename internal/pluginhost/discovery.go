@@ -9,6 +9,8 @@ package pluginhost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
 	"sync"
 	"time"
@@ -131,3 +133,10 @@ func (r *PluginsRouter) group(ctx context.Context, key string) ([]docker.PluginC
 // uses the image digest; phase 3 augments it with a hash of the plugin's getSchema
 // so a schema change (not just an image swap) also forces re-approval.
 func fingerprint(pc docker.PluginContainer) string { return pc.ImageID }
+
+// hashBytes returns a hex sha256 of b — used to fingerprint a plugin's hope.schema
+// so a runtime capability change is detectable against the approval.
+func hashBytes(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}

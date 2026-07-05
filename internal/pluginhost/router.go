@@ -193,6 +193,16 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 		return nil, rpc.BadRequest("plugin not found (no matching container on the fleet)")
 	}
 	rep := representative(members)
+	token := r.store.DeriveToken(p.Key)
+	// Capture the schema hash at approval so a later runtime schema change (new
+	// capabilities the operator never approved) is detected on inspect and forces
+	// re-approval — the image digest alone only catches image swaps.
+	schemaHash := ""
+	if ep, derr := r.dial(ctx, host, rep, token, false); derr == nil {
+		if raw, serr := ep.callRPC(ctx, "hope.schema", nil); serr == nil {
+			schemaHash = hashBytes(raw)
+		}
+	}
 	// Deterministic token derived from hope's secret + the plugin identity — stable
 	// across disable/enable/forget so the plugin's trust-on-first-use pin keeps
 	// matching (a fresh random token each time would break it once the plugin pins).
@@ -205,7 +215,8 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 		Name:        rep.Title,
 		Enabled:     true,
 		Fingerprint: fingerprint(rep),
-		Token:       r.store.DeriveToken(p.Key),
+		SchemaHash:  schemaHash,
+		Token:       token,
 		EnabledAt:   time.Now(),
 	}
 	if err := r.store.PutPlugin(rec); err != nil {
@@ -316,6 +327,15 @@ func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginMani
 	if err != nil {
 		return nil, rpc.Internal("plugin schema: %v", err)
 	}
+	// Re-approval gate: if the plugin's live schema no longer matches what was
+	// approved (new capabilities the operator never saw), auto-disable and require
+	// re-approval — the trust boundary must cover runtime capability changes, not
+	// just image swaps.
+	if rec.SchemaHash != "" && hashBytes(schema) != rec.SchemaHash {
+		rec.Enabled = false
+		_ = r.store.PutPlugin(*rec)
+		return nil, rpc.BadRequest("plugin schema changed since approval — re-enable to approve the new capabilities")
+	}
 	layout, err := ep.callRPC(ctx, "hope.layout", nil)
 	if err != nil {
 		return nil, rpc.Internal("plugin layout: %v", err)
@@ -328,6 +348,11 @@ type CallParams struct {
 	Key    string          `json:"key"`
 	Method string          `json:"method"`
 	Args   json.RawMessage `json:"args"`
+	// Audit marks this call an action (mutation) so hope records it in the audit
+	// log; reads (view fetches) leave it false to keep the log signal-rich. Danger
+	// flags a destructive action for the same entry.
+	Audit  bool `json:"audit"`
+	Danger bool `json:"danger"`
 }
 
 // Call proxies a unary call to an enabled plugin's view/action method and returns
@@ -342,7 +367,7 @@ func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, 
 	if strings.HasPrefix(p.Method, "hope.") {
 		return nil, rpc.BadRequest("hope.* methods are reserved and cannot be proxied")
 	}
-	ep, _, err := r.enabledEndpoint(ctx, p.Key)
+	ep, rec, err := r.enabledEndpoint(ctx, p.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -350,11 +375,54 @@ func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, 
 	if len(p.Args) > 0 {
 		args = p.Args
 	}
+	start := time.Now()
 	res, err := ep.callRPC(ctx, p.Method, args)
+	if p.Audit {
+		r.audit(ctx, rec, p, err, time.Since(start))
+	}
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
 	return res, nil
+}
+
+// audit records an action invocation (best-effort; a failed write must not fail the
+// call). Reads pass Audit=false and never reach here.
+func (r *PluginsRouter) audit(ctx *rpc.Context, rec *store.PluginRecord, p *CallParams, callErr error, d time.Duration) {
+	actor := ""
+	if c := ctx.Claims(); c != nil {
+		actor = c.Subject
+	}
+	e := store.AuditEntry{
+		Actor: actor, Plugin: p.Key, Method: p.Method, Danger: p.Danger,
+		OK: callErr == nil, Millis: d.Milliseconds(),
+	}
+	if rec != nil {
+		e.Host = rec.Host
+	}
+	if callErr != nil {
+		e.Err = callErr.Error()
+	}
+	_ = r.store.AppendAudit(e)
+}
+
+// AuditParams scopes the audit log to one plugin (optional) and caps the count.
+type AuditParams struct {
+	Key   string `json:"key"`
+	Limit int    `json:"limit"`
+}
+
+// Audit returns recent audited plugin invocations, newest first — the operator's
+// who/what/where/when trail of proxied plugin actions.
+func (r *PluginsRouter) Audit(ctx *rpc.Context, p *AuditParams) ([]store.AuditEntry, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	key, limit := "", 0
+	if p != nil {
+		key, limit = p.Key, p.Limit
+	}
+	return r.store.AuditLog(key, limit)
 }
 
 // SetSettingsParams sets operator-managed setting values for a plugin.

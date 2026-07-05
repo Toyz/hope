@@ -36,7 +36,8 @@ type PluginRecord struct {
 	ContainerID string    `json:"container_id"` // representative container at enable time
 	Name        string    `json:"name"`         // plugin name/title captured at enable time
 	Enabled     bool      `json:"enabled"`
-	Fingerprint string    `json:"fingerprint"` // image digest (later + schema hash) at enable time
+	Fingerprint string    `json:"fingerprint"` // image digest at enable time (cheap fleet-wide stale check)
+	SchemaHash  string    `json:"schema_hash"` // hash of hope.schema at enable time (catches runtime schema changes)
 	Token       string    `json:"token"`       // per-plugin bearer secret hope presents
 	EnabledAt   time.Time `json:"enabled_at"`
 	// Settings holds the operator-managed setting VALUES for this plugin (the

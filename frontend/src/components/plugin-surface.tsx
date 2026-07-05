@@ -9,6 +9,7 @@ import { HopeTransport } from "../transport";
 import { PromptService, type PromptField } from "../prompt";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
+import { registerPluginIcons } from "./plugin-icon";
 import { theme } from "../styles";
 
 interface Node {
@@ -20,10 +21,10 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean }
-interface ViewDesc { method: string; label: string; kind: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[] }
-interface ActionDesc { method: string; label: string; fields?: PromptField[]; danger?: boolean }
-interface StreamDesc { method: string; label: string; kind: string }
-interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[] }
+interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
+interface StreamDesc { method: string; label: string; kind: string; icon?: string }
+interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
 export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
@@ -146,6 +147,7 @@ export class HopePluginSurface extends LoomElement {
     this.cells = {};
     this.streamData = {};
     if (!s) return;
+    registerPluginIcons(s.key, s.schema.icons); // sanitize + namespace this plugin's icons
     for (const v of s.schema.views || []) this.views[v.method] = v;
     for (const a of s.schema.actions || []) this.actions[a.method] = a;
     for (const st of s.schema.streams || []) this.streams[st.method] = st;
@@ -224,7 +226,7 @@ export class HopePluginSurface extends LoomElement {
     // field prompt, if any, comes first so the confirm is the final gate.
     if (a.danger && !(await this.confirm.ask({ title: a.label, message: `Run "${a.label}"? This is a destructive action.`, danger: true, confirmLabel: a.label }))) return;
     try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs(values) }]);
+      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs(values), audit: true, danger: !!a.danger }]);
       this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
     } catch (e: any) {
       this.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
@@ -275,6 +277,13 @@ export class HopePluginSurface extends LoomElement {
     }
   }
 
+  // leafIcon renders a plugin-declared icon (sanitized + plugin-namespaced), or
+  // nothing. Built-in names fall through to loom-icon inside hope-plugin-icon.
+  private leafIcon(name?: string) {
+    if (!name) return null;
+    return <hope-plugin-icon plugin={this.surface?.key} name={name} size={12}></hope-plugin-icon>;
+  }
+
   private labelOf(n: Node): string {
     const r = n.ref || "";
     return this.views[r]?.label || this.actions[r]?.label || this.streams[r]?.label || "";
@@ -307,7 +316,7 @@ export class HopePluginSurface extends LoomElement {
     const cell = this.cells[ref];
     return (
       <div class={"leaf" + g}>
-        <div class="llabel">{v.label}</div>
+        <div class="llabel">{this.leafIcon(v.icon)}{v.label}</div>
         {v.kind === "query" ? this.renderQuery(v, cell) : cell?.loading ? <div class="msg">loading…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : this.renderView(v, cell?.data)}
       </div>
     );
@@ -368,7 +377,7 @@ export class HopePluginSurface extends LoomElement {
               {acts.length ? (
                 <td class="rax">{acts.map((a) => (
                   <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
-                    {a.icon ? <loom-icon name={a.icon} size={11}></loom-icon> : null}{a.label}
+                    {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
                   </button>
                 ))}</td>
               ) : null}
@@ -408,7 +417,7 @@ export class HopePluginSurface extends LoomElement {
     const obj = this.rowObj(cols, row);
     if (a.danger && !(await this.confirm.ask({ title: a.label, message: `${a.label} — ${String(obj[cols[0]] ?? "this row")}?`, danger: true }))) return;
     try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj }) }]);
+      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj }), audit: true, danger: !!a.danger }]);
       this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
       this.modal = null;
       if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
