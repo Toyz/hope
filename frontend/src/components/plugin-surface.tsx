@@ -220,6 +220,9 @@ export class HopePluginSurface extends LoomElement {
       if (!v) return;
       values = v;
     }
+    // Danger actions confirm before running (author flagged them destructive). The
+    // field prompt, if any, comes first so the confirm is the final gate.
+    if (a.danger && !(await this.confirm.ask({ title: a.label, message: `Run "${a.label}"? This is a destructive action.`, danger: true, confirmLabel: a.label }))) return;
     try {
       const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs(values) }]);
       this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
