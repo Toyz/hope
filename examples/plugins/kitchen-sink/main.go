@@ -1,0 +1,198 @@
+// kitchen-sink exercises the whole hope plugin protocol in one plugin: every
+// setting kind, every view kind, every stream kind, actions (incl. danger), every
+// layout primitive, a full page, and a nested dynamic page that also generates
+// load (3 databases x 20 tables = 60 rail entries) plus a large table view. Point
+// hope at it to smoke-test the entire surface.
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/toyz/hope/plugin"
+)
+
+func main() {
+	p := plugin.New("kitchen-sink", "1.0.0").
+		Description("Every hope plugin surface, kind, and primitive — plus load").
+		Icon("box").
+		Icons(map[string]string{
+			// plugin-scoped inner SVG (24x24 stroke); hope sanitizes + namespaces these.
+			"beaker": `<path d="M4.5 3h15"/><path d="M6 3v7L3 21h18L18 10V3"/><path d="M6 14h12"/>`,
+		})
+
+	// --- settings: one of every kind ---
+	p.Setting(plugin.Setting{Key: "title", Label: "Title", Default: "Kitchen Sink", Hint: "shown on the overview"})
+	p.Setting(plugin.Setting{Key: "notes", Label: "Notes", Kind: plugin.SettingTextarea})
+	p.Setting(plugin.Setting{Key: "theme", Label: "Theme", Kind: plugin.SettingSelect, Default: "dark",
+		Options: []plugin.Option{{Label: "Dark", Value: "dark"}, {Label: "Light", Value: "light"}}})
+	p.Setting(plugin.Setting{Key: "verbose", Label: "Verbose", Kind: plugin.SettingToggle})
+	p.Setting(plugin.Setting{Key: "rows", Label: "Table rows", Kind: plugin.SettingNumber, Default: "500", Hint: "load-test row count (max 5000)"})
+	p.Setting(plugin.Setting{Key: "apikey", Label: "API key", Kind: plugin.SettingSecret})
+
+	// --- views: every kind ---
+	p.View("overview", "Overview", plugin.KV, func(ctx context.Context) (any, error) {
+		host, _ := os.Hostname()
+		return map[string]any{
+			"title":   p.SettingValue("title"),
+			"theme":   p.SettingValue("theme"),
+			"verbose": p.SettingValue("verbose"),
+			"host":    host,
+			"pid":     os.Getpid(),
+			"uptime":  time.Since(started).Truncate(time.Second).String(),
+		}, nil
+	})
+
+	// table: synthetic rows, sized by the setting, tagged with the page param — so a
+	// dynamic page (db/table) shows "its" data and big row counts stress rendering.
+	p.View("rows", "Rows", plugin.Table, func(ctx context.Context) (any, error) {
+		var pr struct {
+			DB    string `json:"db"`
+			Table string `json:"table"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		n := 500
+		if v, err := strconv.Atoi(p.SettingValue("rows")); err == nil && v > 0 && v <= 5000 {
+			n = v
+		}
+		rows := make([][]any, 0, n)
+		for i := range n {
+			rows = append(rows, []any{i, orDefault(pr.DB, "-"), orDefault(pr.Table, "-"), fmt.Sprintf("row-%d", i), i * 7 % 1000})
+		}
+		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
+	})
+
+	p.View("sql", "Query", plugin.Query, func(ctx context.Context) (any, error) {
+		in := plugin.Input(ctx)
+		return map[string]any{"columns": []string{"query", "chars"}, "rows": [][]any{{in, len(in)}}}, nil
+	})
+
+	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
+		return map[string]any{"nodes": []any{
+			node("app", node("users"), node("orders"), node("events")),
+			node("analytics", node("daily"), node("monthly")),
+		}}, nil
+	})
+
+	// --- streams: every kind ---
+	p.Stream("counter", "Counter", plugin.Counter, func(ctx context.Context, emit plugin.EmitFunc) error {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		var n int
+		emit(map[string]any{"count": n, "rps": 0})
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				n++
+				emit(map[string]any{"count": n, "rps": n % 13})
+			}
+		}
+	})
+	p.Stream("log", "Log", plugin.Log, func(ctx context.Context, emit plugin.EmitFunc) error {
+		t := time.NewTicker(1500 * time.Millisecond)
+		defer t.Stop()
+		var i int
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				i++
+				emit(map[string]any{"line": fmt.Sprintf("[%s] event %d", time.Now().Format("15:04:05"), i)})
+			}
+		}
+	})
+	p.Stream("series", "Series", plugin.Series, func(ctx context.Context, emit plugin.EmitFunc) error {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		var x int
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				x++
+				emit(map[string]any{"t": x, "y": (x * x) % 97})
+			}
+		}
+	})
+
+	// --- actions (normal + danger) ---
+	p.Action("greet", "Greet", []plugin.Field{{Key: "name", Label: "Name", Placeholder: "world"}}, func(ctx context.Context, in map[string]any) (any, error) {
+		name, _ := in["name"].(string)
+		if name == "" {
+			name = "world"
+		}
+		return map[string]any{"message": "hello, " + name}, nil
+	})
+	p.DangerAction("wipe", "Wipe (danger)", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		return map[string]any{"ok": true, "message": "pretend-wiped"}, nil
+	})
+
+	// --- container panel: every layout primitive (section/row/grid/tabs/leaf) ---
+	p.ContainerPanel("Kitchen Sink", &plugin.Match{Always: true}, plugin.Section("",
+		plugin.Row(
+			plugin.Section("Overview", plugin.Leaf("overview")),
+			plugin.Section("Counter", plugin.Leaf("counter")),
+		),
+		plugin.Grid(
+			plugin.Section("Schema", plugin.Leaf("tree")),
+			plugin.Section("Series", plugin.Leaf("series")),
+		),
+		plugin.Tabs(
+			plugin.Leaf("sql").Titled("Query"),
+			plugin.Leaf("rows").Titled("Rows"),
+			plugin.Leaf("log").Titled("Log"),
+		),
+		plugin.Section("Actions", plugin.Row(plugin.Leaf("greet"), plugin.Leaf("wipe"))),
+	))
+
+	// --- a single full page ---
+	p.Page("Dashboard", plugin.Section("",
+		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
+		plugin.Section("Rows", plugin.Leaf("rows")),
+	))
+
+	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
+	//     all sharing one layout, each passing {db, table} that the rows view reads.
+	dbs := make([]plugin.PageItem, 0, 3)
+	for _, db := range []string{"prod", "staging", "analytics"} {
+		tables := make([]plugin.PageItem, 0, 20)
+		for i := range 20 {
+			t := fmt.Sprintf("table_%02d", i)
+			tables = append(tables, plugin.PageItem{Title: t, Param: map[string]any{"db": db, "table": t}})
+		}
+		dbs = append(dbs, plugin.PageItem{Title: db, Children: tables})
+	}
+	p.DynamicPage("Explorer", plugin.Section("", plugin.Leaf("overview"), plugin.Section("Rows", plugin.Leaf("rows"))), dbs)
+
+	addr := ":8080"
+	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
+		addr = v
+	}
+	log.Printf("kitchen-sink plugin listening on %s", addr)
+	log.Fatal(p.ListenAndServe(addr))
+}
+
+func node(label string, children ...any) map[string]any {
+	m := map[string]any{"label": label}
+	if len(children) > 0 {
+		m["children"] = children
+	}
+	return m
+}
+
+func orDefault(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
+}
+
+var started = time.Now()

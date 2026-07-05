@@ -15,10 +15,10 @@ import { signalModal } from "../modal";
 import type { HostView, StackSummary } from "../contracts";
 import { theme } from "../styles";
 
-type Kind = "page" | "host" | "stack" | "container";
+type Kind = "page" | "host" | "stack" | "container" | "plugin";
 type Entry = { kind: Kind; label: string; sub?: string; icon: string; to: string; hay: string };
 
-const KIND_LABEL: Record<Kind, string> = { page: "page", host: "host", stack: "stack", container: "container" };
+const KIND_LABEL: Record<Kind, string> = { page: "page", host: "host", stack: "stack", container: "container", plugin: "plugin" };
 
 // A light subsequence fuzzy score: every query char must appear in order; a
 // contiguous run and a start-of-word match score higher. Returns -1 on no match.
@@ -138,6 +138,18 @@ export class HopePalette extends LoomElement {
         if (s.project !== UNGROUPED) push("stack", s.project, "box", withHost(host, `/stack/${encodeURIComponent(s.project)}`), host);
         for (const c of s.containers || []) push("container", c.service || c.name, "terminal", withHost(host, `/stack/${encodeURIComponent(s.project)}/${encodeURIComponent(c.id)}`), `${s.project === UNGROUPED ? "loose" : s.project} · ${host}`);
       }
+    }
+
+    // Plugin pages — the command surface. Every navigable leaf becomes an entry.
+    const pps = (await this.rpc.call<any[]>("Plugins", "pages", []).catch(() => [])) || [];
+    for (const pp of pps) {
+      const walk = (nodes: any[], trail: string) => {
+        for (const n of nodes || []) {
+          if (n.children && n.children.length) walk(n.children, trail ? `${trail} / ${n.title}` : n.title);
+          else push("plugin", n.title, n.icon || "plugin", `/plugin/${encodeURIComponent(pp.key)}/${n.path}`, pp.name + (trail ? ` · ${trail}` : ""));
+        }
+      };
+      walk(pp.pages, "");
     }
     this.items = e;
   }
