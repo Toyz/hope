@@ -1,0 +1,262 @@
+// Package plugin is the hope plugin SDK: build a small JSON-RPC server that hope
+// discovers across a fleet and renders in its UI. A plugin is your container, your
+// language, your endpoint — hope dials in. Extend hope without joining it.
+//
+// Minimal plugin:
+//
+//	p := plugin.New("badge-directory", "1.0.0").Icon("database")
+//	p.View("counts", "Counts", plugin.KV, func(ctx context.Context) (any, error) {
+//		return map[string]any{"users": 1402301, "badges": 88123}, nil
+//	})
+//	log.Fatal(p.ListenAndServe(":8080")) // serves JSON-RPC 2.0 at /__hope
+//
+// The container then declares the labels hope scans for:
+//
+//	hope.plugin=true
+//	hope.plugin.port=8080
+//	hope.plugin.path=/__hope
+package plugin
+
+import (
+	"context"
+	"maps"
+	"os"
+	"strings"
+	"sync"
+)
+
+// ViewFunc returns the data for a view; hope renders it per the view's ViewKind.
+// For a Query view, the user's input arrives in the request params — read it with
+// plugin.Input(ctx) (or plugin.Params for structured input).
+type ViewFunc func(ctx context.Context) (any, error)
+
+// ActionFunc runs an action with the UI-collected field values.
+type ActionFunc func(ctx context.Context, in map[string]any) (any, error)
+
+// EmitFunc pushes one frame to a live stream.
+type EmitFunc func(v any)
+
+// StreamFunc emits frames until it returns or ctx is cancelled (which hope does
+// the moment the UI disconnects — so a dropped viewer never leaves you emitting
+// forever). Always select on ctx.Done() in long loops.
+type StreamFunc func(ctx context.Context, emit EmitFunc) error
+
+type viewEntry struct {
+	desc ViewDesc
+	fn   ViewFunc
+}
+type actionEntry struct {
+	desc ActionDesc
+	fn   ActionFunc
+}
+type streamEntry struct {
+	desc StreamDesc
+	fn   StreamFunc
+}
+
+// Plugin is a hope plugin server. Construct with New, register capabilities, then
+// ListenAndServe. Registration is not safe for concurrent use; serving is.
+type Plugin struct {
+	name    string
+	version string
+	desc    string
+	icon    string
+	icons   map[string]string
+	path    string
+	maxBody int64
+
+	// Ordered method names preserve author declaration order in the manifest.
+	order    []string
+	views    map[string]viewEntry
+	actions  map[string]actionEntry
+	streams  map[string]streamEntry
+	contribs []Contribution
+
+	// auth: token is the configured shared secret (HOPE_PLUGIN_TOKEN or Token()).
+	// When empty, the plugin trusts-on-first-use — it pins the first bearer hope
+	// presents and rejects mismatches after (see authorize in jsonrpc.go).
+	mu     sync.Mutex
+	token  string
+	pinned string
+}
+
+// New creates a plugin with the given name and semantic version. The endpoint
+// path defaults to /__hope and the request body cap to 4 MiB. If the environment
+// sets HOPE_PLUGIN_TOKEN, calls must present it as a bearer token.
+func New(name, version string) *Plugin {
+	return &Plugin{
+		name:    name,
+		version: version,
+		path:    "/__hope",
+		maxBody: 4 << 20,
+		icons:   map[string]string{},
+		views:   map[string]viewEntry{},
+		actions: map[string]actionEntry{},
+		streams: map[string]streamEntry{},
+		token:   os.Getenv("HOPE_PLUGIN_TOKEN"),
+	}
+}
+
+// Description sets a one-line description shown in hope.
+func (p *Plugin) Description(s string) *Plugin { p.desc = s; return p }
+
+// Icon sets the plugin's default icon — a hope built-in name or one of the Icons
+// keys registered with Icons.
+func (p *Plugin) Icon(name string) *Plugin { p.icon = name; return p }
+
+// Icons registers plugin-scoped icons: name -> inner SVG markup (path/circle/rect
+// elements only, NOT a full <svg>), 24x24 stroke to match hope's icon set. hope
+// resolves and sanitizes these in a per-plugin namespace, so they can't collide
+// with other plugins or shadow hope's built-ins.
+func (p *Plugin) Icons(m map[string]string) *Plugin {
+	maps.Copy(p.icons, m)
+	return p
+}
+
+// Path overrides the endpoint path (default /__hope). Must match the
+// hope.plugin.path label.
+func (p *Plugin) Path(path string) *Plugin {
+	if path != "" {
+		p.path = path
+	}
+	return p
+}
+
+// Token pins the shared secret hope must present as a bearer token, overriding
+// HOPE_PLUGIN_TOKEN. Use when you configure the token in code rather than env.
+func (p *Plugin) Token(token string) *Plugin { p.token = token; return p }
+
+// MaxBodyBytes overrides the request body cap (default 4 MiB).
+func (p *Plugin) MaxBodyBytes(n int64) *Plugin {
+	if n > 0 {
+		p.maxBody = n
+	}
+	return p
+}
+
+// reserved reports whether a method name is in the reserved hope.* namespace. The
+// SDK forbids registering these so an author's method can't shadow the protocol.
+func reserved(method string) bool { return strings.HasPrefix(method, "hope.") }
+
+func (p *Plugin) claim(method string) {
+	if reserved(method) {
+		panic("hope plugin: method name " + method + " is reserved (hope.* namespace)")
+	}
+	if _, dup := p.views[method]; dup {
+		panic("hope plugin: duplicate method " + method)
+	}
+	if _, dup := p.actions[method]; dup {
+		panic("hope plugin: duplicate method " + method)
+	}
+	if _, dup := p.streams[method]; dup {
+		panic("hope plugin: duplicate method " + method)
+	}
+	p.order = append(p.order, method)
+}
+
+// View registers a read-only data view rendered per kind.
+func (p *Plugin) View(method, label string, kind ViewKind, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: kind}, fn}
+	return p
+}
+
+// Action registers an invocable action. The UI collects fields, then calls fn
+// with the values. Mark destructive actions with DangerAction.
+func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc) *Plugin {
+	p.claim(method)
+	p.actions[method] = actionEntry{ActionDesc{Method: method, Label: label, Fields: fields}, fn}
+	return p
+}
+
+// DangerAction is like Action but flags the action destructive, so hope confirms
+// before running it and audit-logs the invocation.
+func (p *Plugin) DangerAction(method, label string, fields []Field, fn ActionFunc) *Plugin {
+	p.claim(method)
+	p.actions[method] = actionEntry{ActionDesc{Method: method, Label: label, Fields: fields, Danger: true}, fn}
+	return p
+}
+
+// Stream registers a live stream emitted as NDJSON frames.
+func (p *Plugin) Stream(method, label string, kind StreamKind, fn StreamFunc) *Plugin {
+	p.claim(method)
+	p.streams[method] = streamEntry{StreamDesc{Method: method, Label: label, Kind: kind}, fn}
+	return p
+}
+
+// Contribute adds an explicit UI contribution. Without any, the plugin
+// auto-generates a single container contribution (see layout) listing every
+// registered capability — so a minimal plugin needs no layout code.
+func (p *Plugin) Contribute(c Contribution) *Plugin {
+	p.contribs = append(p.contribs, c)
+	return p
+}
+
+// ContainerPanel is a shorthand for a container-surface contribution with the
+// given title, match, and layout node.
+func (p *Plugin) ContainerPanel(title string, match *Match, node *Node) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfaceContainer, Title: title, Match: match, Node: node, Icon: p.icon})
+}
+
+// schema builds the hope.schema result from the registered capabilities, in
+// author declaration order.
+func (p *Plugin) schema() Schema {
+	s := Schema{
+		ProtocolVersion: ProtocolVersion,
+		Name:            p.name,
+		Version:         p.version,
+		Description:     p.desc,
+		Icon:            p.icon,
+	}
+	if len(p.icons) > 0 {
+		s.Icons = p.icons
+	}
+	for _, m := range p.order {
+		switch {
+		case p.views[m].fn != nil:
+			s.Views = append(s.Views, p.views[m].desc)
+		case p.actions[m].fn != nil:
+			s.Actions = append(s.Actions, p.actions[m].desc)
+		case p.streams[m].fn != nil:
+			s.Streams = append(s.Streams, p.streams[m].desc)
+		}
+	}
+	return s
+}
+
+// layout builds the hope.layout result. If the author registered no
+// contributions, it synthesizes one container contribution (matching the
+// plugin's own container) that lists views/streams first, then actions — a
+// sensible default so trivial plugins render with zero layout code.
+func (p *Plugin) layout() Layout {
+	l := Layout{ProtocolVersion: ProtocolVersion}
+	if len(p.contribs) > 0 {
+		l.Contributions = p.contribs
+		return l
+	}
+	var data, acts []*Node
+	for _, m := range p.order {
+		switch {
+		case p.views[m].fn != nil, p.streams[m].fn != nil:
+			data = append(data, Leaf(m))
+		case p.actions[m].fn != nil:
+			acts = append(acts, Leaf(m))
+		}
+	}
+	var kids []*Node
+	if len(data) > 0 {
+		kids = append(kids, Section(p.name, data...))
+	}
+	if len(acts) > 0 {
+		kids = append(kids, Section("Actions", acts...))
+	}
+	root := &Node{Kind: NodeSection, Children: kids}
+	l.Contributions = []Contribution{{
+		Surface: SurfaceContainer,
+		Title:   p.name,
+		Icon:    p.icon,
+		Match:   &Match{}, // empty => the plugin's own container
+		Node:    root,
+	}}
+	return l
+}

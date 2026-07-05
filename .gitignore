@@ -22,6 +22,10 @@
 /hope-boot
 /cmd/hope/hope
 
+# example plugin binaries (go build output; name == module dir)
+/examples/plugins/hello-world/hello-world
+/examples/plugins/hope-postgres/hope-postgres
+
 # go workspace / vendor (sov is a normal module, fetched on build)
 /vendor/
 go.work
