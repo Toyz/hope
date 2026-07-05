@@ -40,7 +40,10 @@ type Cell = { loading: boolean; error?: string; data?: any };
   .tb.on { color: var(--hi); border-bottom-color: var(--upd); }
 
   .leaf { padding: 6px 16px 12px; min-width: 0; }
-  .llabel { color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px; }
+  .llabel { display: flex; align-items: center; gap: 10px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px; }
+  .sbtn { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .sbtn:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .sbtn.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line2)); }
   .msg { color: var(--dim); font: 12px/1.5 var(--mono); padding: 6px 0; }
   .msg.bad { color: var(--bad); }
 
@@ -75,20 +78,33 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor tabSel: Record<string, number> = {};
   @reactive accessor queryText: Record<string, string> = {};
   @reactive accessor streamData: Record<string, any> = {};
+  @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
   private streams: Record<string, StreamDesc> = {};
-  private abort?: AbortController;
+  private streamAborts = new Map<string, AbortController>(); // one controller per live stream
+  private curKey = ""; // the surface we last built for
 
   @mount onMount() { this.rebuild(); }
   @watch("surface") onSurface() { this.rebuild(); }
-  @unmount onUnmount() { this.abort?.abort(); }
+  @unmount onUnmount() { this.stopAll(); }
+
+  private stopAll() {
+    for (const c of this.streamAborts.values()) c.abort();
+    this.streamAborts.clear();
+    this.streamOn = {};
+  }
 
   private rebuild() {
     const s = this.surface;
-    this.abort?.abort(); // tear down any previous streams (goroutine-leak class)
-    this.abort = new AbortController();
+    const key = s ? s.key : "";
+    // Only rebuild when the surface ACTUALLY changes. The host re-renders (stats
+    // poll) re-set this prop with the same value; a naive rebuild would tear down +
+    // re-fetch every time.
+    if (s && key === this.curKey) return;
+    this.curKey = key;
+    this.stopAll(); // drop any live streams from the previous surface
     this.views = {};
     this.actions = {};
     this.streams = {};
@@ -98,28 +114,40 @@ export class HopePluginSurface extends LoomElement {
     for (const v of s.schema.views || []) this.views[v.method] = v;
     for (const a of s.schema.actions || []) this.actions[a.method] = a;
     for (const st of s.schema.streams || []) this.streams[st.method] = st;
-    // Fetch every view referenced in the tree; open a subscription per stream.
+    // Fetch views eagerly; streams are OPT-IN (a live connection is precious —
+    // one held stream can starve the dev proxy / the browser's per-host limit).
     for (const ref of this.leafRefs(s.node)) {
       if (this.views[ref]) void this.fetch(ref);
-      else if (this.streams[ref]) void this.subscribe(ref);
     }
   }
 
-  // Subscribe to a plugin stream; each data frame updates the live value. The
-  // AbortController (torn down on unmount / surface change) cancels the fetch, and
-  // hope cancels the plugin's stream in turn.
-  private async subscribe(method: string) {
+  // startStream opens a live subscription for one stream method (explicit user
+  // action). Each frame updates the value; the per-stream AbortController tears it
+  // down on stop / surface change / unmount, and hope cancels the plugin stream.
+  private startStream = async (method: string) => {
     const s = this.surface;
-    if (!s || !this.abort) return;
+    if (!s || this.streamAborts.has(method)) return;
+    const ctrl = new AbortController();
+    this.streamAborts.set(method, ctrl);
+    this.streamOn = { ...this.streamOn, [method]: true };
     try {
-      for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], this.abort.signal)) {
+      for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], ctrl.signal)) {
         if (frame?.type === "data") this.streamData = { ...this.streamData, [method]: frame.data };
         else if (frame?.type === "error") this.streamData = { ...this.streamData, [method]: { error: frame.error } };
       }
     } catch {
       /* aborted or transport closed */
+    } finally {
+      if (this.streamAborts.get(method) === ctrl) this.streamAborts.delete(method);
+      this.streamOn = { ...this.streamOn, [method]: false };
     }
-  }
+  };
+
+  private stopStream = (method: string) => {
+    this.streamAborts.get(method)?.abort();
+    this.streamAborts.delete(method);
+    this.streamOn = { ...this.streamOn, [method]: false };
+  };
 
   private leafRefs(n: Node | undefined, acc: string[] = []): string[] {
     if (!n) return acc;
@@ -206,8 +234,19 @@ export class HopePluginSurface extends LoomElement {
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];
+      const on = !!this.streamOn[ref];
       const d = this.streamData[ref];
-      return <div class="leaf"><div class="llabel">{st.label}</div>{d != null ? this.renderStream(d) : <div class="msg">connecting…</div>}</div>;
+      return (
+        <div class="leaf">
+          <div class="llabel">
+            {st.label}
+            {on
+              ? <button class="sbtn on" onClick={() => this.stopStream(ref)}><loom-icon name="stop" size={11}></loom-icon>stop</button>
+              : <button class="sbtn" onClick={() => this.startStream(ref)}><loom-icon name="play" size={11}></loom-icon>live</button>}
+          </div>
+          {on ? (d != null ? this.renderStream(d) : <div class="msg">connecting…</div>) : <div class="msg">not live — click live to stream</div>}
+        </div>
+      );
     }
     const v = this.views[ref];
     if (!v) return null;
