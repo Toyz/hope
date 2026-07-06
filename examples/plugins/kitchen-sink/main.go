@@ -150,6 +150,18 @@ func main() {
 		return map[string]any{"columns": cols, "rows": rows, "row_method": "rowDetail"}, nil
 	})
 
+	// chart: a bar/line chart view (static data at rest; use a stream for live).
+	p.ChartView("chart", "Traffic", func(ctx context.Context) (any, error) {
+		return plugin.ChartData{
+			Type:   "bar",
+			Labels: []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
+			Series: []plugin.ChartSeries{
+				{Name: "reads", Values: []float64{120, 180, 150, 220, 300, 90, 60}},
+				{Name: "writes", Values: []float64{40, 55, 48, 70, 110, 25, 18}},
+			},
+		}, nil
+	})
+
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
 		return map[string]any{"nodes": []any{
 			node("app", node("users"), node("orders"), node("events")),
@@ -237,11 +249,12 @@ func main() {
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("series")),
 	))
 
-	// --- a single full page ---
+	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
+		plugin.Section("Traffic", plugin.Leaf("chart")),
 		plugin.Section("Rows", plugin.Leaf("rows").Filled()),
-	))
+	)).HeaderActions("greet", "wipe") // buttons in the page header, not inline
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
 	//     all sharing one layout, each passing {db, table} that the rows view reads.

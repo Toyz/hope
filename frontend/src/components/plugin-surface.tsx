@@ -25,7 +25,7 @@ interface ViewDesc { method: string; label: string; kind: string; icon?: string;
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
-export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; param?: Record<string, any> }
+export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; actions?: string[]; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
 type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };
@@ -79,6 +79,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sarrow { margin-left: 4px; color: var(--upd); }
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
+  .hactions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 
   tr.clk { cursor: pointer; }
   tr.clk:hover td { background: color-mix(in srgb, var(--upd) 8%, transparent); color: var(--hi); }
@@ -112,6 +113,15 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sline { fill: none; stroke: var(--upd); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
   .sdot { fill: var(--upd); }
   .sval { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
+
+  .chart { padding: 6px 0; }
+  .chartsvg { width: 100%; max-width: 560px; height: auto; }
+  .cgrid { stroke: var(--line); stroke-width: 1; }
+  .cyl { fill: var(--dim); font: 9px/1 var(--mono); text-anchor: end; }
+  .cxl { fill: var(--dim); font: 9px/1 var(--mono); text-anchor: middle; }
+  .clegend { display: flex; gap: 16px; flex-wrap: wrap; padding: 6px 0 0 40px; }
+  .cleg { display: inline-flex; align-items: center; gap: 6px; color: var(--mid); font: 10px/1 var(--mono); }
+  .cleg i { width: 10px; height: 10px; display: inline-block; }
 `)
 export class HopePluginSurface extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -363,6 +373,8 @@ export class HopePluginSurface extends LoomElement {
         return this.renderTable(data, v);
       case "tree":
         return this.renderTree(data?.nodes || []);
+      case "chart":
+        return this.renderChart(data);
       default:
         return <div class="msg">unsupported view</div>;
     }
@@ -575,6 +587,54 @@ export class HopePluginSurface extends LoomElement {
     return <div class="stream"><span class="v">{this.cellStr(d)}</span></div>;
   }
 
+  // renderChart draws a bar or line chart from {type, labels, series:[{name,values}]}.
+  // Multi-series with a legend, min/max-scaled y, gridlines. Colors cycle a small
+  // hope-palette set; everything is inline SVG (CSP-safe, no external deps).
+  private renderChart(data: any) {
+    const type: string = data?.type === "line" ? "line" : "bar";
+    const labels: string[] = data?.labels || [];
+    const series: { name: string; values: number[] }[] = (data?.series || []).filter((s: any) => Array.isArray(s?.values));
+    if (!labels.length || !series.length) return <div class="msg">no data</div>;
+    const colors = ["var(--upd)", "var(--ok)", "var(--warn)", "var(--bad)", "var(--mid)"];
+    const W = 520, H = 220, padL = 40, padB = 26, padT = 10, padR = 10;
+    const iw = W - padL - padR, ih = H - padT - padB;
+    let lo = 0, hi = 0;
+    for (const s of series) for (const v of s.values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (hi === lo) hi = lo + 1;
+    const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * ih;
+    const n = labels.length;
+    const bandW = iw / n;
+    const ticks = [lo, lo + (hi - lo) / 2, hi];
+    return (
+      <div class="chart">
+        <svg viewBox={`0 0 ${W} ${H}`} class="chartsvg">
+          {ticks.map((t) => (
+            <g>
+              <line x1={padL} y1={y(t)} x2={W - padR} y2={y(t)} class="cgrid"></line>
+              <text x={padL - 6} y={y(t) + 3} class="cyl">{Math.round(t)}</text>
+            </g>
+          ))}
+          {type === "bar"
+            ? series.map((s, si) => s.values.map((v, i) => {
+                const groupW = bandW * 0.7, bw = groupW / series.length;
+                const x = padL + i * bandW + bandW * 0.15 + si * bw;
+                return <rect x={x} y={y(v)} width={Math.max(1, bw - 1)} height={Math.max(0, y(lo) - y(v))} fill={colors[si % colors.length]}></rect>;
+              }))
+            : series.map((s, si) => (
+                <polyline fill="none" stroke={colors[si % colors.length]} stroke-width={1.75}
+                  points={s.values.map((v, i) => `${(padL + i * bandW + bandW / 2).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}></polyline>
+              ))}
+          {labels.map((l, i) => <text x={padL + i * bandW + bandW / 2} y={H - padB + 14} class="cxl">{l}</text>)}
+        </svg>
+        {series.length > 1 || series[0].name ? (
+          <div class="clegend">{series.map((s, si) => (
+            <span class="cleg"><i style={`background:${colors[si % colors.length]}`}></i>{s.name || `series ${si + 1}`}</span>
+          ))}</div>
+        ) : null}
+      </div>
+    );
+  }
+
   private renderTree(nodes: any[]): any {
     if (!nodes.length) return <div class="msg">empty</div>;
     const walk = (ns: any[]): any => (
@@ -629,9 +689,23 @@ export class HopePluginSurface extends LoomElement {
     void this.runRowAction(a, cols, cols.map((c) => m.row![c]), m.view);
   };
 
+  // renderHeaderActions draws the surface's author-declared toolbar (page/panel
+  // header actions), distinct from leaf actions inside the layout tree.
+  private renderHeaderActions() {
+    const refs = (this.surface?.actions || []).map((r) => this.actions[r]).filter(Boolean);
+    if (!refs.length) return null;
+    return (
+      <div class="hactions">
+        {refs.map((a) => (
+          <hope-button size="sm" tone={a.danger ? "danger" : "primary"} icon={a.icon} onClick={() => this.runAction(a)}>{a.label}</hope-button>
+        ))}
+      </div>
+    );
+  }
+
   update() {
     const s = this.surface;
     if (!s || !s.node) return <div class="msg" style="padding:16px">no panel</div>;
-    return <>{this.renderNode(s.node, "r")}{this.renderModal()}</>;
+    return <>{this.renderHeaderActions()}{this.renderNode(s.node, "r")}{this.renderModal()}</>;
   }
 }

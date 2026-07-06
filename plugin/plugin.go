@@ -205,6 +205,14 @@ func (p *Plugin) TableView(method, label string, fn ViewFunc, opts ...TableOpt) 
 	return p
 }
 
+// ChartView registers a Chart view; the handler returns ChartData (bar or line,
+// one or more named series over categorical labels). hope draws axes + legend.
+func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Chart}, fn}
+	return p
+}
+
 // Action registers an invocable action. The UI collects fields, then calls fn
 // with the values. Mark destructive actions with DangerAction.
 func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc) *Plugin {
@@ -281,6 +289,18 @@ func (p *Plugin) ContainerPanel(title string, match *Match, node *Node) *Plugin 
 // the rail under the plugin and renders the node tree as a full page.
 func (p *Plugin) Page(title string, node *Node) *Plugin {
 	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node})
+}
+
+// HeaderActions attaches action buttons to the most recently added contribution —
+// a page/panel/dashboard toolbar (distinct from leaf actions inside the layout).
+// Each ref names a registered Action; hope collects its fields, confirms danger,
+// and audits. Call it right after Page/ContainerPanel/DashboardWidget.
+func (p *Plugin) HeaderActions(refs ...string) *Plugin {
+	if len(p.contribs) > 0 {
+		c := &p.contribs[len(p.contribs)-1]
+		c.Actions = append(c.Actions, refs...)
+	}
+	return p
 }
 
 // DashboardWidget contributes a widget to hope's fleet/host dashboard (the

@@ -18,7 +18,24 @@ const (
 	Table ViewKind = "table" // {columns, rows} -> paginated grid
 	Query ViewKind = "query" // user-edited input -> tabular result grid (e.g. a SQL box)
 	Tree  ViewKind = "tree"  // hierarchy -> tree browser (e.g. a schema)
+	Chart ViewKind = "chart" // {type, labels, series} -> bar/line chart (see ChartData)
 )
+
+// ChartData is what a Chart view returns: categorical labels on the x-axis and one
+// or more named series of values. Type is "bar" (default) or "line". A line chart
+// with one series and many points is a good time-series-at-rest view (use a stream
+// for live). hope draws the axes, gridlines, legend, and scaling.
+type ChartData struct {
+	Type   string        `json:"type,omitempty"`
+	Labels []string      `json:"labels"`
+	Series []ChartSeries `json:"series"`
+}
+
+// ChartSeries is one named line/bar series; Values aligns with ChartData.Labels.
+type ChartSeries struct {
+	Name   string    `json:"name"`
+	Values []float64 `json:"values"`
+}
 
 // StreamKind tells hope how to render a live NDJSON stream.
 type StreamKind string
@@ -179,6 +196,10 @@ type Contribution struct {
 	Match   *Match     `json:"match,omitempty"`
 	Pages   []PageItem `json:"pages,omitempty"`
 	Node    *Node      `json:"node"`
+	// Actions are method names of registered actions shown as a toolbar at the top of
+	// this surface (page/panel/dashboard header) — page-level actions distinct from
+	// leaf actions inside the layout. hope collects fields, confirms danger, audits.
+	Actions []string `json:"actions,omitempty"`
 }
 
 // PageItem is one dynamic subpage: it shares the contribution's Node but carries

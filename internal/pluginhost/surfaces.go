@@ -14,13 +14,14 @@ import (
 // applies to a given container: the plugin's identity + the layout node to render
 // + the plugin's schema (so the renderer knows each ref's view kind).
 type ContainerSurface struct {
-	Key    string          `json:"key"`
-	Name   string          `json:"name"`
-	Icon   string          `json:"icon"`
-	Title  string          `json:"title"`
-	Node   json.RawMessage `json:"node"`
-	Schema json.RawMessage `json:"schema"`
-	Param  json.RawMessage `json:"param,omitempty"` // page param merged into calls (dynamic pages)
+	Key     string          `json:"key"`
+	Name    string          `json:"name"`
+	Icon    string          `json:"icon"`
+	Title   string          `json:"title"`
+	Node    json.RawMessage `json:"node"`
+	Schema  json.RawMessage `json:"schema"`
+	Actions []string        `json:"actions,omitempty"` // surface header actions (method refs)
+	Param   json.RawMessage `json:"param,omitempty"`   // page param merged into calls (dynamic pages)
 }
 
 // SurfacesParams identifies the container being inspected.
@@ -41,6 +42,7 @@ type contributionDoc struct {
 	Match   *matchDoc       `json:"match"`
 	Pages   []pageItemDoc   `json:"pages"`
 	Node    json.RawMessage `json:"node"`
+	Actions []string        `json:"actions"`
 }
 type pageItemDoc struct {
 	Title    string          `json:"title"`
@@ -127,12 +129,13 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 				icon = sd.Icon
 			}
 			out = append(out, ContainerSurface{
-				Key:    rec.Key,
-				Name:   sd.Name,
-				Icon:   icon,
-				Title:  title,
-				Node:   c.Node,
-				Schema: schemaRaw,
+				Key:     rec.Key,
+				Name:    sd.Name,
+				Icon:    icon,
+				Title:   title,
+				Node:    c.Node,
+				Schema:  schemaRaw,
+				Actions: c.Actions,
 			})
 		}
 	}
@@ -142,13 +145,14 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 // DashboardWidget is one enabled plugin's `dashboard`-surface contribution: the
 // node to render on the fleet/host dashboard + the schema the renderer needs.
 type DashboardWidget struct {
-	Key    string          `json:"key"`
-	Name   string          `json:"name"`
-	Host   string          `json:"host"`
-	Icon   string          `json:"icon"`
-	Title  string          `json:"title"`
-	Node   json.RawMessage `json:"node"`
-	Schema json.RawMessage `json:"schema"`
+	Key     string          `json:"key"`
+	Name    string          `json:"name"`
+	Host    string          `json:"host"`
+	Icon    string          `json:"icon"`
+	Title   string          `json:"title"`
+	Node    json.RawMessage `json:"node"`
+	Schema  json.RawMessage `json:"schema"`
+	Actions []string        `json:"actions,omitempty"`
 }
 
 // Dashboard returns the `dashboard`-surface contributions of every enabled plugin
@@ -202,7 +206,7 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 			}
 			out = append(out, DashboardWidget{
 				Key: rec.Key, Name: sd.Name, Host: rec.Host, Icon: icon,
-				Title: title, Node: c.Node, Schema: schemaRaw,
+				Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions,
 			})
 		}
 	}
@@ -398,7 +402,7 @@ func (r *PluginsRouter) Page(ctx *rpc.Context, p *PageParams) (*ContainerSurface
 	if icon == "" {
 		icon = sd.Icon
 	}
-	return &ContainerSurface{Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node, Schema: schemaRaw, Param: param}, nil
+	return &ContainerSurface{Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions, Param: param}, nil
 }
 
 func anyGlob(globs []string, s string) bool {
