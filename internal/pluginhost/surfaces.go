@@ -323,7 +323,14 @@ func (r *PluginsRouter) Pages(ctx *rpc.Context) ([]PluginPages, error) {
 				if icon == "" {
 					icon = sd.Icon
 				}
-				nodes = append(nodes, PluginPageNode{Title: title, Icon: icon, Path: strconv.Itoa(ci)})
+				// Prefer the stable id as the path so rail links and author
+				// breadcrumbs/links target the SAME URL (else the rail can't mark the
+				// page active when navigated to by id). Page() resolves either.
+				path := strconv.Itoa(ci)
+				if c.ID != "" {
+					path = c.ID
+				}
+				nodes = append(nodes, PluginPageNode{Title: title, Icon: icon, Path: path})
 			}
 		}
 		if len(nodes) > 0 {
