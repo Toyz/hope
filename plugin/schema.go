@@ -60,6 +60,29 @@ type ChartSeries struct {
 	Values []float64 `json:"values"`
 }
 
+// TableData is what a Table view returns: the column names, the rows (each a slice of
+// cells — plain scalars or rich cells like Badge/Link/Image), the total row count (for
+// the pager; for a server table this is the full count, not len(Rows)), and optional
+// hidden column names (kept in each row for row-detail/actions but not rendered). Build
+// it with plugin.Table(...).
+type TableData struct {
+	Columns []string `json:"columns"`
+	Rows    [][]any  `json:"rows"`
+	Total   int      `json:"total"`
+	Hidden  []string `json:"hidden,omitempty"`
+}
+
+// KVData is what a KV view returns: a flat map of label -> value. A value may be a
+// plain scalar or a rich cell (Badge/Link/Image/…). It's a named alias so a KV handler
+// reads as returning KVData, while a map literal still satisfies it.
+type KVData = map[string]any
+
+// TextData is what a Text view returns: a block of monospace text (logs, config,
+// command output). A Text handler may also return a raw string.
+type TextData struct {
+	Text string `json:"text"`
+}
+
 // CardsData is what a Cards view returns: a grid of cards.
 type CardsData struct {
 	Items []Card `json:"items"`

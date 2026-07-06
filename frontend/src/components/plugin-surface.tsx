@@ -259,11 +259,19 @@ export class HopePluginSurface extends LoomElement {
   @watch("surface") onSurface() { this.rebuild(); }
   @unmount onUnmount() { this.stopAll(); window.removeEventListener("keydown", this.onKeydown); }
 
-  // Esc closes the lightbox (then the row modal), so overlays are keyboard-dismissible.
+  // Esc closes the lightbox, then the row modal, then any open autocomplete dropdown —
+  // so every transient overlay is keyboard-dismissible, innermost first.
   private onKeydown = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    if (this.lightbox) { this.lightbox = null; e.stopPropagation(); }
-    else if (this.modal) { this.modal = null; e.stopPropagation(); }
+    if (this.lightbox) { this.lightbox = null; e.stopPropagation(); return; }
+    if (this.modal) { this.modal = null; e.stopPropagation(); return; }
+    const open = Object.keys(this.search).filter((m) => this.search[m]?.items?.length);
+    if (open.length) {
+      const next = { ...this.search };
+      for (const m of open) next[m] = { ...next[m], items: [] }; // close dropdown, keep the typed text
+      this.search = next;
+      e.stopPropagation();
+    }
   };
 
   // The host bumps nonce when this surface is shown again (tab re-entry) — refetch
@@ -783,7 +791,7 @@ export class HopePluginSurface extends LoomElement {
             <tbody>{shown.map((i) => {
               const r = rows[i];
               return (
-                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
+                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method, hidden) : undefined}>
                   {r.map((cell, ci) => {
                     if (hidden.has(cols[ci])) return null; // hidden column
                     const editable = canEdit(ci);
@@ -800,7 +808,7 @@ export class HopePluginSurface extends LoomElement {
                   {hasTrailing ? (
                     <td class="rax">
                       {detailMethod && detailAsButton ? (
-                        <button class="rowbtn" onClick={(e: any) => { e.stopPropagation(); this.openRow(detailMethod, cols, r, acts, v?.method); }}>
+                        <button class="rowbtn" onClick={(e: any) => { e.stopPropagation(); this.openRow(detailMethod, cols, r, acts, v?.method, hidden); }}>
                           <loom-icon name="search" size={11}></loom-icon>view
                         </button>
                       ) : null}
@@ -846,13 +854,16 @@ export class HopePluginSurface extends LoomElement {
 
   // Clicking a row calls the table's row_method with {row: {col: val}} and shows the
   // plugin's returned detail (kv or table) in a modal, carrying the row's actions.
-  private openRow = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string) => {
+  private openRow = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string, hidden?: Set<string>) => {
     const s = this.surface;
     if (!s) return;
     const obj = this.rowObj(cols, row);
+    // Title from the first VISIBLE column, rendered as text (a rich cell like Code
+    // would otherwise stringify to "[object Object]"); fall back to the first column.
+    const titleCol = cols.find((c) => !hidden?.has(c)) ?? cols[0];
     try {
       const detail = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs({ row: obj }) }]);
-      this.modal = { title: String(obj[cols[0]] ?? "Row"), data: detail, row: obj, actions: acts, view: viewMethod };
+      this.modal = { title: this.cellStr(obj[titleCol]) || "Row", data: detail, row: obj, actions: acts, view: viewMethod };
     } catch (e: any) {
       this.toast.error(`row — ${e?.message ?? "failed"}`);
     }
