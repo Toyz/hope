@@ -274,7 +274,7 @@ func runServe(configPath string) error {
 	if hub != nil {
 		pluginDialer = hub // remote plugin dialing over the agent tunnel
 	}
-	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled, pluginhost.Limits{
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginhost.Limits{
 		MaxConcurrentCalls:   cfg.Plugins.Limits.MaxConcurrentCalls,
 		MaxConcurrentStreams: cfg.Plugins.Limits.MaxConcurrentStreams,
 		CallRatePerSec:       cfg.Plugins.Limits.CallRatePerSec,

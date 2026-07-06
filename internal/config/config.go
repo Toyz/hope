@@ -39,6 +39,12 @@ type PluginsConfig struct {
 	// raise its own DoS ceiling) but operator-tunable here; zero fields fall back to
 	// built-in defaults (see plugins.Limits.WithDefaults).
 	Limits PluginLimitsConfig `mapstructure:"limits"`
+	// AutoReapprove trusts a plugin's schema/image changes automatically: instead of
+	// disabling an enabled plugin when its capabilities change (the default, secure
+	// behaviour — a swapped container must be re-approved), hope silently re-records
+	// the new fingerprint and keeps it enabled. For DEV loops where you iterate on your
+	// OWN plugin and re-approving on every redeploy is pure friction. Leave off in prod.
+	AutoReapprove bool `mapstructure:"auto_reapprove"`
 }
 
 // PluginLimitsConfig is the operator-tunable safety envelope applied per plugin.

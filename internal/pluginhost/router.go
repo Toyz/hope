@@ -19,9 +19,10 @@ import (
 type PluginsRouter struct {
 	hosts   *hosts.Set
 	store   *store.Store
-	dialer  ContainerDialer // agent hub for remote container dialing; nil if no hub
-	enabled bool            // [plugins] enabled capability gate
-	limits  Limits          // operator-tuned per-plugin safety caps
+	dialer        ContainerDialer // agent hub for remote container dialing; nil if no hub
+	enabled       bool            // [plugins] enabled capability gate
+	autoReapprove bool            // trust schema/image changes (dev): re-record fingerprint instead of disabling
+	limits        Limits          // operator-tuned per-plugin safety caps
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -53,8 +54,8 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 // (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
 // when false every method reports the feature is off. sov derives the wire name
 // "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled bool, limits Limits) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled, limits: limits.WithDefaults()}
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled, autoReapprove bool, limits Limits) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults()}
 }
 
 // gate blocks every method when the feature is disabled in config.
@@ -393,10 +394,16 @@ func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginMani
 	// Re-approval gate: if the plugin's live schema no longer matches what was
 	// approved (new capabilities the operator never saw), auto-disable and require
 	// re-approval — the trust boundary must cover runtime capability changes, not
-	// just image swaps.
+	// just image swaps. In auto-reapprove mode (dev) hope instead re-records the new
+	// fingerprint and keeps it enabled, so iterating on your own plugin doesn't force
+	// a manual disable/enable on every redeploy.
 	if rec.SchemaHash != "" && hashBytes(schema) != rec.SchemaHash {
-		_ = r.store.DisablePlugin(p.Key) // atomic re-read+write; don't clobber a concurrent update
-		return nil, rpc.BadRequest("plugin schema changed since approval — re-enable to approve the new capabilities")
+		if !r.autoReapprove {
+			_ = r.store.DisablePlugin(p.Key) // atomic re-read+write; don't clobber a concurrent update
+			return nil, rpc.BadRequest("plugin schema changed since approval — re-enable to approve the new capabilities")
+		}
+		rec.SchemaHash = hashBytes(schema)
+		_ = r.store.PutPlugin(*rec) // silently re-approve the new capabilities (image staleness stays a UI flag)
 	}
 	layout, err := ep.callRPC(ctx, "hope.layout", nil)
 	if err != nil {
