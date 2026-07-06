@@ -283,6 +283,13 @@ func (p *Plugin) Page(title string, node *Node) *Plugin {
 	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node})
 }
 
+// DashboardWidget contributes a widget to hope's fleet/host dashboard (the
+// `dashboard` surface): the node renders as a compact panel alongside hope's own
+// dashboard cards. Keep it small — a couple of kv/counter/series leaves.
+func (p *Plugin) DashboardWidget(title string, node *Node) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfaceDashboard, Title: title, Icon: p.icon, Node: node})
+}
+
 // DynamicPage contributes MANY rail pages that share one layout node but each pass
 // a distinct Param (merged into every call the page makes). items may nest one
 // level (groups of pages) — e.g. databases -> tables. Read the param in a handler

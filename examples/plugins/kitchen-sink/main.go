@@ -232,6 +232,11 @@ func main() {
 		plugin.Section("Actions", plugin.Row(plugin.Leaf("greet"), plugin.Leaf("wipe"))),
 	))
 
+	// --- a dashboard widget: a compact panel on hope's fleet/host dashboard ---
+	p.DashboardWidget("Kitchen Sink", plugin.Section("",
+		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("series")),
+	))
+
 	// --- a single full page ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),

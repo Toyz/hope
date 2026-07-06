@@ -139,6 +139,76 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 	return out, nil
 }
 
+// DashboardWidget is one enabled plugin's `dashboard`-surface contribution: the
+// node to render on the fleet/host dashboard + the schema the renderer needs.
+type DashboardWidget struct {
+	Key    string          `json:"key"`
+	Name   string          `json:"name"`
+	Host   string          `json:"host"`
+	Icon   string          `json:"icon"`
+	Title  string          `json:"title"`
+	Node   json.RawMessage `json:"node"`
+	Schema json.RawMessage `json:"schema"`
+}
+
+// Dashboard returns the `dashboard`-surface contributions of every enabled plugin
+// (fleet-wide, tagged with host so the UI can group them). Unlike container
+// surfaces these aren't container-matched — a plugin declares a dashboard widget and
+// hope renders it. Unreachable plugins are skipped, never fatal.
+func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	recs, _ := r.store.Plugins()
+	out := []DashboardWidget{}
+	r.scan(ctx, true)
+	for _, rec := range recs {
+		if !rec.Enabled {
+			continue
+		}
+		members, host, ok := r.group(ctx, rec.Key)
+		if !ok {
+			continue
+		}
+		ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
+		if err != nil {
+			continue
+		}
+		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
+		if err != nil {
+			continue
+		}
+		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
+		if err != nil {
+			continue
+		}
+		var sd schemaDoc
+		_ = json.Unmarshal(schemaRaw, &sd)
+		var ld layoutDoc
+		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
+			continue
+		}
+		for _, c := range ld.Contributions {
+			if c.Surface != "dashboard" || len(c.Node) == 0 {
+				continue
+			}
+			title := c.Title
+			if title == "" {
+				title = sd.Name
+			}
+			icon := c.Icon
+			if icon == "" {
+				icon = sd.Icon
+			}
+			out = append(out, DashboardWidget{
+				Key: rec.Key, Name: sd.Name, Host: rec.Host, Icon: icon,
+				Title: title, Node: c.Node, Schema: schemaRaw,
+			})
+		}
+	}
+	return out, nil
+}
+
 // surfaceApplies evaluates a container contribution's match. Nil/empty match =>
 // the plugin's OWN container only. Otherwise set clauses are AND-ed and values
 // within a clause OR-ed (image globs, label equality, compose service).

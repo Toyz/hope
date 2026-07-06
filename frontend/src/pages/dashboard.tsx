@@ -19,6 +19,7 @@ import { ProcService } from "../proc";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { System, Stacks } from "../contracts";
+import "../components/plugin-widgets"; // registers <hope-plugin-widgets> (self-hides when none)
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { stackSeverity, severityRank, markClass, severityMark, severityTone, healthLabel, type Severity } from "../styles";
 
@@ -1325,6 +1326,7 @@ export class DashboardPage extends LoomElement {
               {first ? this.stackTableSkeleton() : this.stackTable(secs[0])}
             </>
           ) : null}
+          <hope-plugin-widgets></hope-plugin-widgets>
         </main>
         {this.updModalOpen ? this.renderUpdModal() : null}
       </div>
