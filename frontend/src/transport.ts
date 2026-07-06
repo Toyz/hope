@@ -38,7 +38,67 @@ export class HopeTransport extends RpcTransport {
     return this.call<T>(router, method, args, signal, false, host);
   }
 
+  // Micro-batch queue: unary calls made in the same tick coalesce into one
+  // POST /rpc/_batch (grouped by target host, since the host is a per-request
+  // header). Abortable calls, Auth-flow calls, and lone calls stay direct.
+  private batchQ: Array<{ alias: string; service: string; method: string; args: any[]; host: string; resolve: (v: any) => void; reject: (e: any) => void }> = [];
+  private batchScheduled = false;
+  private aliasSeq = 0;
+
   async call<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false, host?: string): Promise<T> {
+    // Abortable calls and the Auth flow bypass batching (a batch is one request
+    // for many calls — no per-call abort, and Auth must not recurse into a batch).
+    if (signal || router === "Auth") return this.directCall<T>(router, method, args, signal, retried, host);
+    return new Promise<T>((resolve, reject) => {
+      this.batchQ.push({ alias: "c" + this.aliasSeq++, service: router, method, args, host: this.targetHost(host), resolve, reject });
+      if (!this.batchScheduled) {
+        this.batchScheduled = true;
+        queueMicrotask(() => { this.batchScheduled = false; void this.flushBatch(); });
+      }
+    });
+  }
+
+  private async flushBatch() {
+    const q = this.batchQ;
+    this.batchQ = [];
+    // Group by host — one /rpc/_batch per host (the header targets the daemon).
+    const byHost = new Map<string, typeof q>();
+    for (const c of q) {
+      const g = byHost.get(c.host);
+      if (g) g.push(c); else byHost.set(c.host, [c]);
+    }
+    for (const [hostKey, calls] of byHost) {
+      const hostArg = hostKey || undefined;
+      // A lone call gains nothing from a batch envelope — send it direct.
+      if (calls.length === 1) {
+        const c = calls[0];
+        this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+        continue;
+      }
+      const body = { calls: Object.fromEntries(calls.map((c) => [c.alias, { service: c.service, method: c.method, args: c.args }])) };
+      try {
+        const res = await fetch(`${this.baseUrl}/_batch`, { method: "POST", headers: this.headers(hostArg), body: JSON.stringify(body) });
+        if (res.status === 401) { // whole-batch auth failure — fall back to direct (which drives the SSO/login path)
+          for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+          continue;
+        }
+        const json: any = await res.json();
+        // The batch body is {results}; tolerate a {data:{results}} envelope too.
+        const results: Record<string, { data?: any; error?: { message?: string; code?: string } }> = json.results || json.data?.results || {};
+        for (const c of calls) {
+          const r = results[c.alias];
+          if (!r) { c.reject(new RpcError(`RPC ${c.service}.${c.method}: missing batch result`, res.status, c.service, c.method)); continue; }
+          if (r.error) c.reject(new RpcError(r.error.message ?? `RPC ${c.service}.${c.method}`, res.status, c.service, c.method, r.error.code));
+          else c.resolve(r.data);
+        }
+      } catch {
+        // Batch transport failed (e.g. endpoint missing) — fall back to per-call.
+        for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+      }
+    }
+  }
+
+  private async directCall<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false, host?: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${router}/${method}`, {
       method: "POST",
       headers: this.headers(host),
@@ -59,7 +119,7 @@ export class HopeTransport extends RpcTransport {
     // methods (login/sso) don't recurse.
     if (res.status === 401 && router !== "Auth") {
       if (!retried && (await this.trySso())) {
-        return this.call<T>(router, method, args, signal, true, host);
+        return this.directCall<T>(router, method, args, signal, true, host);
       }
       this.auth.clear();
       this.redirectLogin();
