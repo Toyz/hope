@@ -393,6 +393,16 @@ func (n *Node) Titled(t string) *Node { n.Title = t; return n }
 // ancestors when rendered) — e.g. a table that should fill the page.
 func (n *Node) Filled() *Node { n.Fill = true; return n }
 
+// Weight sets a child's flex weight inside a Row (or Grid) — the WIDTH proportion it
+// takes relative to its siblings. Default (0) means equal share. e.g. in a two-column
+// Row, Weight(1) beside Weight(2) makes the second column twice as wide:
+//
+//	plugin.Row(
+//	    plugin.Section("Overview", plugin.Leaf("head")).Weight(1),
+//	    plugin.Section("Fields", plugin.Leaf("fields")).Weight(2),
+//	)
+func (n *Node) Weight(w int) *Node { n.Size = w; return n }
+
 // Collapse makes a titled section fold on a title click. Pass collapsed=true to
 // start it closed.
 func (n *Node) Collapse(collapsed bool) *Node {

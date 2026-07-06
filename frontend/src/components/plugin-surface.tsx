@@ -56,6 +56,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0 4px; }
+  /* Row/grid child wrapper: carries the per-child weight/span; its content fills it. */
+  .rcell { display: flex; flex-direction: column; min-width: 0; }
+  .rcell > * { flex: 1 1 auto; min-width: 0; }
 
   .tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); }
   .tb { padding: 8px 12px; color: var(--dim); cursor: pointer; font: 600 10.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; border-bottom: 2px solid transparent; margin-bottom: -1px; }
@@ -418,9 +421,16 @@ export class HopePluginSurface extends LoomElement {
         );
       }
       case "row":
-        return <div class={"row" + g}>{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
+        // Wrap each child so a per-child `size` sets its flex WEIGHT (width share);
+        // size 0 => the default equal 1 1 240px share from `.row > *`.
+        return <div class={"row" + g}>{(n.children || []).map((c, i) => (
+          <div class="rcell" style={c.size ? `flex-grow:${c.size};flex-basis:0;` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>
+        ))}</div>;
       case "grid":
-        return <div class={"grid" + g}>{(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}</div>;
+        // In a grid, `size` is a column SPAN (how many tracks the child occupies).
+        return <div class={"grid" + g}>{(n.children || []).map((c, i) => (
+          <div class="rcell" style={c.size ? `grid-column:span ${c.size};` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>
+        ))}</div>;
       case "leaf":
         return this.renderLeaf(n.ref || "", !!n.fill);
       default:
