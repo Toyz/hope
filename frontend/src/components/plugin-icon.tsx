@@ -45,13 +45,29 @@ export class HopePluginIcon extends LoomElement {
   }
 
   update() {
-    this.style.setProperty("--_s", `${this.size}px`);
+    // Size INLINE, not via the component's CSS rule: this element is often rendered
+    // inside another component's shadow DOM (the plugin surface), where a global
+    // light-DOM style can't reach — without an explicit size the inner svg's
+    // width:100% blows up to fill the flex context.
+    const s = `${this.size}px`;
+    this.style.setProperty("--_s", s);
     this.style.setProperty("--_c", this.color);
+    this.style.width = s;
+    this.style.height = s;
+    this.style.display = "inline-flex";
+    this.style.flex = "0 0 auto";
     const inner = resolve(this.plugin, this.name);
     if (inner) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("width", String(this.size));
+      svg.setAttribute("height", String(this.size));
       svg.setAttribute("aria-hidden", "true");
+      svg.style.stroke = this.color;
+      svg.style.fill = "none";
+      svg.style.strokeWidth = "1.75";
+      svg.style.strokeLinecap = "round";
+      svg.style.strokeLinejoin = "round";
       svg.innerHTML = inner; // already sanitized on register
       return svg;
     }
