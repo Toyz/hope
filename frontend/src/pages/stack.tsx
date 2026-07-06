@@ -1,6 +1,6 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { signalModal } from "../modal";
 import { route, LoomRouter } from "@toyz/loom/router";
@@ -16,6 +16,7 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
 import { markClass, stackSeverity, severityMark, healthLabel } from "../styles";
+import { UpdatesApplied } from "../events";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
@@ -788,9 +789,9 @@ export class StackPage extends LoomElement {
   // Redeploy a specific set of containers, streaming each into the dialog.
   private runRedeployList = async (ids: string[], label: string, pull = true, force = false) => {
     this.busy = "stack:redeploy";
+    let ok = true;
     try {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
-        let ok = true;
         for (const id of ids) {
           if (!(await this.pipeOp(emit, signal, "redeploy", [id, String(pull), String(force)]))) ok = false;
         }
@@ -798,6 +799,8 @@ export class StackPage extends LoomElement {
         return ok;
       });
       await this.load();
+      // A pull makes these containers current — patch the rail's dots in place.
+      if (ok && pull) bus.emit(new UpdatesApplied(this.hostCtx.token, this.project, ids));
     } finally {
       this.busy = "";
     }
@@ -806,13 +809,20 @@ export class StackPage extends LoomElement {
   // Redeploy with live output streamed into the shared processing dialog.
   private runRedeploy = async (method: "redeploy" | "redeployStack", args: string[], label: string, busyKey: string, pull = true, force = true) => {
     this.busy = busyKey;
+    let ok = false;
     try {
       await this.proc.run(`redeploy ${label}`, async (emit, signal) => {
-        const ok = await this.pipeOp(emit, signal, method, [...args, String(pull), String(force)]);
+        ok = await this.pipeOp(emit, signal, method, [...args, String(pull), String(force)]);
         emit("done");
         return ok;
       });
       await this.load();
+      // A pull makes the target current — patch the rail's dots in place (whole
+      // project for a stack redeploy, one container for a single redeploy).
+      if (ok && pull) {
+        const ids = method === "redeploy" ? [args[0]] : undefined;
+        bus.emit(new UpdatesApplied(this.hostCtx.token, this.project, ids));
+      }
     } finally {
       this.busy = "";
     }

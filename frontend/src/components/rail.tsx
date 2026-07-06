@@ -9,9 +9,9 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing, PluginsChanged } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied } from "../events";
 import { capabilities } from "../caps";
-import type { FleetHost, StackSummary, ContainerSummary } from "../contracts";
+import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
 
 // An enabled plugin's custom page tree (mirrors pluginhost.PluginPages). A node is
@@ -178,6 +178,27 @@ export class HopeRail extends LoomElement {
   // Refetch on the shared refresh beat so the tree stays live with the pages.
   @on(Refreshing)
   private onRefresh(e: Refreshing) { if (!e.active) void this.load(); }
+
+  // A container/stack was just updated — patch the affected host's outdated
+  // markers in place instead of reloading the whole fleet map. The backend has
+  // already flipped those refs to "current", so dropping their outdated rows and
+  // recomputing the host's count matches server truth; the next full load (or a
+  // background crawl) reconciles container identity.
+  @on(UpdatesApplied)
+  private onUpdatesApplied(e: UpdatesApplied) {
+    let touched = false;
+    const fleet = this.fleet.map((h) => {
+      if (h.id !== e.host) return h;
+      // Specific containers → match by id (globally unique, so this also covers
+      // ungrouped rows whose project is ""); a whole-stack redeploy → by project.
+      const cleared = (u: ClusterUpdate) => (e.ids ? e.ids.includes(u.id) : u.project === e.project);
+      const updates = (h.updates || []).filter((u) => !(u.status === "outdated" && cleared(u)));
+      if (updates.length === (h.updates || []).length) return h; // nothing cleared
+      touched = true;
+      return { ...h, updates, outdated: updates.filter((u) => u.status === "outdated").length };
+    });
+    if (touched) this.fleet = fleet;
+  }
 
   private toggleHost(id: string, e: Event) {
     e.stopPropagation();

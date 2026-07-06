@@ -148,6 +148,21 @@ export async function withRefresh<T>(fn: () => Promise<T> | T): Promise<T> {
   }
 }
 
+// Fired after a successful update (pull + recreate) so always-mounted surfaces —
+// the rail's topology dots — can patch their "outdated" markers IN PLACE instead
+// of refetching the whole fleet map (the backend already flipped the freshness
+// cache to current on redeploy, so the patch matches server truth). `ids` scopes
+// it to specific containers; omit it to clear the whole project on that host.
+export class UpdatesApplied extends LoomEvent {
+  constructor(
+    public host: string,
+    public project: string,
+    public ids?: string[],
+  ) {
+    super();
+  }
+}
+
 // Fired by any modal when it opens or closes. The root shell (hope-app) listens
 // and ref-counts open modals to lock/unlock body scroll centrally — components
 // announce intent, the root owns the DOM side-effect. `source` is the modal
