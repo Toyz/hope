@@ -45,10 +45,26 @@ export class HopeTransport extends RpcTransport {
   private batchScheduled = false;
   private aliasSeq = 0;
 
+  // Calls that never coalesce into a batch. Entries are "Service.method" for a
+  // single method, or "Service.*" for a whole router. A batch resolves
+  // all-or-nothing, so a fast call gated behind the batch waits on its slowest
+  // sibling — two reasons to opt out:
+  //   - Auth.*    — the login/SSO flow must not recurse into the 401 batch
+  //                 fallback (which re-issues each call through directCall).
+  //   - System.fleet — gates the topology rail's first paint; keep it direct so
+  //                 it returns on its own response, not the tick's slowest.
+  private static readonly NEVER_BATCH: ReadonlySet<string> = new Set(["Auth.*", "System.fleet"]);
+
+  private neverBatch(router: string, method: string): boolean {
+    return HopeTransport.NEVER_BATCH.has(`${router}.*`) || HopeTransport.NEVER_BATCH.has(`${router}.${method}`);
+  }
+
   async call<T>(router: string, method: string, args: any[], signal?: AbortSignal, retried = false, host?: string): Promise<T> {
-    // Abortable calls and the Auth flow bypass batching (a batch is one request
-    // for many calls — no per-call abort, and Auth must not recurse into a batch).
-    if (signal || router === "Auth") return this.directCall<T>(router, method, args, signal, retried, host);
+    // Abortable calls bypass batching (a batch is one request for many calls, so
+    // there's no per-call abort), as do NEVER_BATCH calls — see that set.
+    if (signal || this.neverBatch(router, method)) {
+      return this.directCall<T>(router, method, args, signal, retried, host);
+    }
     return new Promise<T>((resolve, reject) => {
       this.batchQ.push({ alias: "c" + this.aliasSeq++, service: router, method, args, host: this.targetHost(host), resolve, reject });
       if (!this.batchScheduled) {
