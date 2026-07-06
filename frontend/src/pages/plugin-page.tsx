@@ -16,10 +16,13 @@ import { runPluginAction } from "../plugin-run";
 import { theme } from "../styles";
 
 @route("/plugin/:key/:path")
+@route("/plugin/:key/:path/:arg")
 @component("hope-plugin-page")
 @styles(theme, css`
   :host { display: flex; flex-direction: column; height: 100%; min-height: 100%; background: var(--ink); }
-  .body { flex: 1 1 0; min-height: 0; padding: 4px 0 12px; display: flex; flex-direction: column; }
+  /* The body owns the scroll: a filled table fills the remaining height, but a
+     content-heavy page scrolls instead of squishing everything. */
+  .body { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 4px 0 12px; display: flex; flex-direction: column; }
   .empty { padding: 40px 28px; color: var(--dim); font: 12.5px/1.6 var(--mono); }
 `)
 export class PluginPage extends LoomElement {
@@ -32,6 +35,7 @@ export class PluginPage extends LoomElement {
 
   @prop({ param: "key" }) accessor key = "";
   @prop({ param: "path" }) accessor path = "";
+  @prop({ param: "arg" }) accessor arg = ""; // master-detail: the entity id for a DetailPage
 
   @reactive accessor surface: Surface | null = null;
   @reactive accessor error = "";
@@ -43,13 +47,14 @@ export class PluginPage extends LoomElement {
   }
   @watch("key") onKey() { void this.load(); }
   @watch("path") onPath() { void this.load(); }
+  @watch("arg") onArg() { void this.load(); }
 
   private async load() {
     if (!this.key || !this.path) return;
     this.loaded = false;
     try {
-      const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path }]);
-      this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, param: s.param } : null;
+      const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path, arg: this.arg || "" }]);
+      this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, actions: s.actions, param: s.param } : null;
       this.error = this.surface ? "" : "page not found";
     } catch (e: any) {
       this.error = e?.message ?? "failed to load page";

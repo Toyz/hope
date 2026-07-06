@@ -19,6 +19,7 @@ const (
 	Query ViewKind = "query" // user-edited input -> tabular result grid (e.g. a SQL box)
 	Tree  ViewKind = "tree"  // hierarchy -> tree browser (e.g. a schema)
 	Chart ViewKind = "chart" // {type, labels, series} -> bar/line chart (see ChartData)
+	Cards ViewKind = "cards" // {items:[Card]} -> a responsive grid of cards (a gallery)
 )
 
 // ChartData is what a Chart view returns: categorical labels on the x-axis and one
@@ -35,6 +36,29 @@ type ChartData struct {
 type ChartSeries struct {
 	Name   string    `json:"name"`
 	Values []float64 `json:"values"`
+}
+
+// CardsData is what a Cards view returns: a grid of cards.
+type CardsData struct {
+	Items []Card `json:"items"`
+}
+
+// Card is one tile in a Cards view. Fields render as a small label/value list (the
+// values may be rich cells — Badge/Number/…). A non-empty To makes the card
+// navigate on click (plugin-relative, like a Link cell — see DetailLink).
+type Card struct {
+	Title    string      `json:"title"`
+	Subtitle string      `json:"subtitle,omitempty"`
+	Icon     string      `json:"icon,omitempty"`
+	Tone     string      `json:"tone,omitempty"` // ok|warn|bad|info accent
+	To       string      `json:"to,omitempty"`
+	Fields   []CardField `json:"fields,omitempty"`
+}
+
+// CardField is one label/value line on a Card; Value may be a rich cell.
+type CardField struct {
+	Label string `json:"label"`
+	Value any    `json:"value"`
 }
 
 // StreamKind tells hope how to render a live NDJSON stream.
@@ -216,6 +240,13 @@ type Contribution struct {
 	// this surface (page/panel/dashboard header) — page-level actions distinct from
 	// leaf actions inside the layout. hope collects fields, confirms danger, audits.
 	Actions []string `json:"actions,omitempty"`
+	// ID is a stable address for a page contribution, so links can target it by name
+	// (a plugin does NOT know its hope key or a page's positional path). A DetailPage
+	// sets ID + ParamKey and is Hidden from the rail; a Link/DetailLink navigates to
+	// it plugin-relative, and hope passes the URL arg as param[ParamKey].
+	ID       string `json:"id,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty"`    // not listed in the rail (a link/detail target)
+	ParamKey string `json:"param_key,omitempty"` // detail pages: the URL arg becomes param[ParamKey]
 }
 
 // PageItem is one dynamic subpage: it shares the contribution's Node but carries

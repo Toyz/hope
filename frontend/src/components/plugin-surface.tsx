@@ -35,7 +35,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
 
 @component("hope-plugin-surface")
 @styles(theme, css`
-  :host { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  :host { display: flex; flex-direction: column; min-height: 100%; }
   .sec { padding: 4px 0 10px; display: flex; flex-direction: column; min-height: 0; }
   .tabsw { display: flex; flex-direction: column; min-height: 0; }
   /* a node (or its ancestor chain to a fill leaf) grows to fill remaining height */
@@ -80,7 +80,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
   .tblwrap { display: flex; flex-direction: column; min-height: 0; }
   .leaf.grow .tblwrap { flex: 1 1 0; }
-  .leaf.grow .tblwrap .gwrap { flex: 1 1 0; max-height: none; }
+  /* A filled table grows, but never collapses below a usable height when the page's
+     other content leaves it little room (min-height floor). */
+  .leaf.grow .tblwrap .gwrap { flex: 1 1 0; max-height: none; min-height: 260px; }
   .tbar { display: flex; align-items: center; gap: 12px; padding: 6px 0 8px; }
   .tfilter { flex: 0 1 220px; padding: 5px 9px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.3 var(--mono); }
   .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
@@ -133,6 +135,20 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sline { fill: none; stroke: var(--upd); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
   .sdot { fill: var(--upd); }
   .sval { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; padding: 4px 0; }
+  .pcard { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .pcard.lk { cursor: pointer; transition: border-color .12s ease, background .12s ease; }
+  .pcard.lk:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); background: color-mix(in srgb, var(--upd) 5%, var(--panel)); }
+  .pcard.ok { border-left: 2px solid var(--ok); } .pcard.warn { border-left: 2px solid var(--warn); }
+  .pcard.bad { border-left: 2px solid var(--bad); } .pcard.info { border-left: 2px solid var(--upd); }
+  .pchead { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .pctitle { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .pct { color: var(--hi); font: 600 13px/1.2 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pcsub { color: var(--dim); font: 10.5px/1.2 var(--mono); }
+  .pcfields { display: flex; flex-direction: column; gap: 5px; }
+  .pcf { display: flex; justify-content: space-between; gap: 12px; font: 11.5px/1.4 var(--mono); }
+  .pcfl { color: var(--dim); } .pcfv { color: var(--mid); text-align: right; min-width: 0; }
 
   .chart { padding: 6px 0; }
   .chartsvg { width: 100%; max-width: 560px; height: auto; }
@@ -391,6 +407,8 @@ export class HopePluginSurface extends LoomElement {
         return this.renderTree(data?.nodes || []);
       case "chart":
         return this.renderChart(data);
+      case "cards":
+        return this.renderCards(data);
       default:
         return <div class="msg">unsupported view</div>;
     }
@@ -725,6 +743,32 @@ export class HopePluginSurface extends LoomElement {
     );
   }
 
+  // renderCards draws a responsive grid of cards from { items: [Card] }. A Card is
+  // { title, subtitle?, icon?, tone?, fields?: [{label, value}], to? }. Cells inside
+  // fields may be typed (badge/link/etc). A card with `to` is clickable.
+  private renderCards(data: any) {
+    const items: any[] = data?.items || [];
+    if (!items.length) return <div class="msg">empty</div>;
+    return (
+      <div class="cards">
+        {items.map((it) => (
+          <div class={"pcard" + (it.to ? " lk" : "") + (it.tone ? " " + it.tone : "")}
+            onClick={it.to ? () => this.navCell(it) : undefined}>
+            <div class="pchead">
+              {it.icon ? <hope-plugin-icon plugin={this.surface?.key} name={it.icon} size={16}></hope-plugin-icon> : null}
+              <div class="pctitle"><span class="pct">{this.cellStr(it.title)}</span>{it.subtitle ? <span class="pcsub">{this.cellStr(it.subtitle)}</span> : null}</div>
+            </div>
+            {Array.isArray(it.fields) && it.fields.length ? (
+              <div class="pcfields">{it.fields.map((f: any) => (
+                <div class="pcf"><span class="pcfl">{this.cellStr(f.label)}</span><span class="pcfv">{this.cellNode(f.value)}</span></div>
+              ))}</div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   private renderTree(nodes: any[]): any {
     if (!nodes.length) return <div class="msg">empty</div>;
     const walk = (ns: any[]): any => (
@@ -781,11 +825,17 @@ export class HopePluginSurface extends LoomElement {
     return this.cellStr(cell);
   }
 
-  // navCell follows a link cell: an internal `to` routes in-app; an external `href`
-  // opens a new tab.
+  // navCell follows a link cell. `to` is PLUGIN-RELATIVE (a page id / path) unless it
+  // starts with "/" — hope prefixes /plugin/<thisKey>/ so a plugin never needs to
+  // know its own hope key. `href` opens externally.
   private navCell(cell: any) {
-    if (cell.to) this.router.navigate(String(cell.to));
-    else if (cell.href) window.open(String(cell.href), "_blank", "noopener");
+    if (cell.to) {
+      const to = String(cell.to);
+      const abs = to.startsWith("/") ? to : `/plugin/${encodeURIComponent(this.surface?.key || "")}/${to}`;
+      this.router.navigate(abs);
+    } else if (cell.href) {
+      window.open(String(cell.href), "_blank", "noopener");
+    }
   }
 
   private fmtNum(v: any): string {

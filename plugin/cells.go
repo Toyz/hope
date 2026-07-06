@@ -37,6 +37,14 @@ func ExternalLink(value, href string) map[string]any {
 	return map[string]any{"type": "link", "value": value, "href": href}
 }
 
+// DetailLink renders value as a link to one of this plugin's DetailPage ids, passing
+// arg as the page's ParamKey — a master-detail link that needs no knowledge of the
+// plugin's hope key. e.g. DetailLink("alice", "user", "42") -> the "user" detail
+// page with param {<paramKey>: "42"}.
+func DetailLink(value, pageID, arg string) map[string]any {
+	return map[string]any{"type": "link", "value": value, "to": pageID + "/" + arg}
+}
+
 // Time renders a unix timestamp (seconds or millis) as relative time ("2h ago"),
 // with the absolute time on hover.
 func Time(unix int64) map[string]any {

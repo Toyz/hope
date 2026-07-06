@@ -223,6 +223,14 @@ func (p *Plugin) TableView(method, label string, fn ViewFunc, opts ...TableOpt) 
 	return p
 }
 
+// CardsView registers a Cards view; the handler returns CardsData (a grid of
+// cards / a gallery — e.g. badges, users). Cards with a To navigate on click.
+func (p *Plugin) CardsView(method, label string, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Cards}, fn}
+	return p
+}
+
 // ChartView registers a Chart view; the handler returns ChartData (bar or line,
 // one or more named series over categorical labels). hope draws axes + legend.
 func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {
@@ -319,6 +327,14 @@ func (p *Plugin) HeaderActions(refs ...string) *Plugin {
 		c.Actions = append(c.Actions, refs...)
 	}
 	return p
+}
+
+// DetailPage contributes a hidden master-detail page addressed by a stable id (not
+// shown in the rail). A Link/DetailLink navigates to it plugin-relative, and hope
+// passes the URL arg as param[paramKey] — read it in a handler with plugin.Params.
+// e.g. DetailPage("user", "User", "id", node) rendered at .../user/42 => {id:"42"}.
+func (p *Plugin) DetailPage(id, title, paramKey string, node *Node) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node, ID: id, Hidden: true, ParamKey: paramKey})
 }
 
 // DashboardWidget contributes a widget to hope's fleet/host dashboard (the

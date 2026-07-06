@@ -282,7 +282,7 @@ func main() {
 			}
 			rows = append(rows, []any{
 				plugin.Code(fmt.Sprintf("#%05d", i)),
-				plugin.Link(name(i), fmt.Sprintf("/plugin/%s/user", "kitchen")), // master-detail target (later)
+				plugin.DetailLink(name(i), "user", strconv.Itoa(i)), // -> the "user" detail page, param {id}
 				plugin.Badge(scoreBand(sc), tone),
 				plugin.Number(sc*137, ""),
 				plugin.Progress(float64(sc) / 1000),
@@ -300,6 +300,44 @@ func main() {
 			node("app", node("users"), node("orders"), node("events")),
 			node("analytics", node("daily"), node("monthly")),
 		}}, nil
+	})
+
+	// userView reads the detail page's param {id} and shows that "user" — the
+	// master-detail target the Big Table's name column links to.
+	p.View("userView", "User", plugin.KV, func(ctx context.Context) (any, error) {
+		var pr struct {
+			ID string `json:"id"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		i, _ := strconv.Atoi(pr.ID)
+		return map[string]any{
+			"id": i, "name": fmt.Sprintf("user-%05d", i),
+			"band": scoreBand(i * 7 % 1000), "points": (i * 7 % 1000) * 137,
+		}, nil
+	})
+
+	// cards: a gallery view (Cards kind). Each card links to its user detail page.
+	p.CardsView("leaders", "Leaderboard", func(ctx context.Context) (any, error) {
+		items := make([]plugin.Card, 0, 8)
+		for i := range 8 {
+			sc := (i*211 + 40) % 1000
+			tone := plugin.ToneWarn
+			if sc >= 700 {
+				tone = plugin.ToneOK
+			} else if sc < 300 {
+				tone = plugin.ToneBad
+			}
+			items = append(items, plugin.Card{
+				Title: fmt.Sprintf("user-%05d", i), Subtitle: scoreBand(sc),
+				Icon: "beaker", Tone: tone, To: "user/" + strconv.Itoa(i),
+				Fields: []plugin.CardField{
+					{Label: "points", Value: plugin.Number(sc*137, "")},
+					{Label: "band", Value: plugin.Badge(scoreBand(sc), tone)},
+					{Label: "fill", Value: plugin.Progress(float64(sc) / 1000)},
+				},
+			})
+		}
+		return plugin.CardsData{Items: items}, nil
 	})
 
 	// --- streams: every kind ---
@@ -385,10 +423,17 @@ func main() {
 	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
+		plugin.Section("Leaderboard", plugin.Leaf("leaders")),
 		plugin.Section("Traffic", plugin.Leaf("chart")),
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
 		plugin.Section("Rows", plugin.Leaf("rows")),
 	)).HeaderActions("greet", "wipe") // buttons in the page header, not inline
+
+	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
+	//     passes the clicked id as param {id}; userView renders it. ---
+	p.DetailPage("user", "User", "id", plugin.Section("",
+		plugin.Section("Profile", plugin.Leaf("userView")),
+	))
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
 	//     all sharing one layout, each passing {db, table} that the rows view reads.
