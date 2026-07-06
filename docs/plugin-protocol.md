@@ -250,6 +250,30 @@ then its actions — so a minimal plugin renders with zero layout code.
   hope cancels the request (closes the body / cancels the context) the moment the
   UI disconnects. Stop emitting when that happens — do not leak a goroutine.
 
+### Action results (passing state back)
+
+An action's result is a contract, so the plugin — not hope — decides what the user
+sees and whether the view reloads. All fields optional:
+
+```json
+{ "ok": false, "message": "can't delete: 3 children" }   // error toast, no refetch
+{ "message": "Deleted user 42" }                          // success toast + refetch
+{ "refetch": false }                                      // success, view unchanged (no reload)
+{ "level": "info", "message": "queued" }                  // neutral toast
+```
+
+- `ok: false` (or `level: "error"`) → hope shows an error and does **not** refetch or
+  close the row modal — the mutation was refused, nothing changed.
+- otherwise → success toast (`message`, or a default), and hope refetches the owning
+  view unless `refetch` is `false`.
+- a thrown JSON-RPC error is always an error toast.
+
+So a delete returns `{ "ok": true, "message": "Deleted 42" }` and the row vanishes
+on refetch; a rejected delete returns `{ "ok": false, "message": "..." }` and the
+row stays with the reason shown. **Persist the change in your own store** before
+returning ok — hope refetches the same view method, so a plugin that regenerates
+data each call will show no change (see kitchen-sink's in-memory state).
+
 ### Errors
 
 Standard JSON-RPC 2.0 error object:

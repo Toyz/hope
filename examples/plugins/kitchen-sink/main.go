@@ -12,10 +12,43 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/toyz/hope/plugin"
 )
+
+// In-memory mutable state so mutations (rename/edit/delete) are VISIBLE after hope
+// refetches — a real plugin would persist to its own store; the demo keeps a map so
+// the round-trip is observable. Keyed by "table|id".
+var (
+	stateMu sync.Mutex
+	renamed = map[string]string{} // table|id -> new name
+	deleted = map[string]bool{}   // table|id -> removed
+)
+
+func rowKey(table string, id int) string { return table + "|" + strconv.Itoa(id) }
+
+// rowIdent pulls the table + row id out of an action's {row: {...}} params. JSON
+// numbers arrive as float64, so coerce id defensively.
+func rowIdent(in map[string]any) (table string, id int, ok bool) {
+	row, _ := in["row"].(map[string]any)
+	if row == nil {
+		return "", 0, false
+	}
+	table, _ = row["table"].(string)
+	switch v := row["id"].(type) {
+	case float64:
+		id = int(v)
+	case int:
+		id = v
+	case string:
+		id, _ = strconv.Atoi(v)
+	default:
+		return "", 0, false
+	}
+	return table, id, true
+}
 
 func main() {
 	p := plugin.New("kitchen-sink", "1.0.0").
@@ -62,9 +95,20 @@ func main() {
 		if v, err := strconv.Atoi(p.SettingValue("rows")); err == nil && v > 0 && v <= 5000 {
 			n = v
 		}
+		tbl := orDefault(pr.Table, "-")
+		stateMu.Lock()
+		defer stateMu.Unlock()
 		rows := make([][]any, 0, n)
 		for i := range n {
-			rows = append(rows, []any{i, orDefault(pr.DB, "-"), orDefault(pr.Table, "-"), fmt.Sprintf("row-%d", i), i * 7 % 1000})
+			key := rowKey(tbl, i)
+			if deleted[key] {
+				continue // removed by a row action — stays gone across refetches
+			}
+			name := fmt.Sprintf("row-%d", i)
+			if nn, ok := renamed[key]; ok {
+				name = nn // renamed/edited — the new value shows after refetch
+			}
+			rows = append(rows, []any{i, orDefault(pr.DB, "-"), tbl, name, i * 7 % 1000})
 		}
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
 	},
@@ -99,37 +143,44 @@ func main() {
 	// delRow: a per-row danger action. Gets {row}; here it just reports (a real
 	// plugin would DELETE ... WHERE id = row.id against its own DB).
 	p.DangerAction("delRow", "Delete row", nil, func(ctx context.Context, in map[string]any) (any, error) {
-		row, _ := in["row"].(map[string]any)
-		id := "?"
-		if row != nil {
-			id = fmt.Sprint(row["id"])
+		tbl, id, ok := rowIdent(in)
+		if !ok {
+			return map[string]any{"ok": false, "message": "no row"}, nil
 		}
-		return map[string]any{"ok": true, "message": "deleted row " + id}, nil
+		stateMu.Lock()
+		deleted[rowKey(tbl, id)] = true
+		stateMu.Unlock()
+		// ok:true (default) => hope refetches; the row is now gone from the listing.
+		return map[string]any{"ok": true, "message": fmt.Sprintf("deleted row %d", id)}, nil
 	})
 
-	// editRow: inline cell edit. Gets {row, column, value} — a real plugin would
-	// UPDATE ... SET <column> = :value WHERE id = row.id.
+	// editRow: inline cell edit. Gets {row, column, value}. Only the "name" column is
+	// editable (declared via Editable); persist it so the refetch shows the new value.
 	p.Action("editRow", "Edit cell", nil, func(ctx context.Context, in map[string]any) (any, error) {
-		row, _ := in["row"].(map[string]any)
+		tbl, id, ok := rowIdent(in)
 		col, _ := in["column"].(string)
 		val, _ := in["value"].(string)
-		id := "?"
-		if row != nil {
-			id = fmt.Sprint(row["id"])
+		if !ok || col != "name" {
+			return map[string]any{"ok": false, "message": "only the name column is editable"}, nil
 		}
-		return map[string]any{"ok": true, "message": fmt.Sprintf("row %s: %s = %q", id, col, val)}, nil
+		stateMu.Lock()
+		renamed[rowKey(tbl, id)] = val
+		stateMu.Unlock()
+		return map[string]any{"ok": true, "message": fmt.Sprintf("row %d name = %q", id, val)}, nil
 	})
 
 	// renameRow: a row action WITH input — hope collects "name" and merges it with
-	// {row} (a real plugin would UPDATE ... SET name = :name WHERE id = row.id).
+	// {row}; persist so the change is visible after refetch.
 	p.Action("renameRow", "Rename row", []plugin.Field{{Key: "name", Label: "New name"}}, func(ctx context.Context, in map[string]any) (any, error) {
-		row, _ := in["row"].(map[string]any)
+		tbl, id, ok := rowIdent(in)
 		name, _ := in["name"].(string)
-		id := "?"
-		if row != nil {
-			id = fmt.Sprint(row["id"])
+		if !ok || strings.TrimSpace(name) == "" {
+			return map[string]any{"ok": false, "message": "a name is required"}, nil
 		}
-		return map[string]any{"ok": true, "message": fmt.Sprintf("renamed row %s to %q", id, name)}, nil
+		stateMu.Lock()
+		renamed[rowKey(tbl, id)] = name
+		stateMu.Unlock()
+		return map[string]any{"ok": true, "message": fmt.Sprintf("renamed row %d to %q", id, name)}, nil
 	})
 
 	// A real query view: SQL-highlighted editor prepopulated with "select * from

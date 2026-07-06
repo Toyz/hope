@@ -507,10 +507,8 @@ export class HopePluginSurface extends LoomElement {
     this.editCell = null;
     if (!s || value === prev) return;
     const obj = this.rowObj(cols, row);
-    const res = await runPluginAction(this.deps(), s.key, { method, label: "Edit" }, { row: obj, column: cols[colIdx], value }, this.surface?.param, { quiet: true });
-    if (res !== undefined && viewMethod && this.views[viewMethod]) {
-      void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
-    }
+    const out = await runPluginAction(this.deps(), s.key, { method, label: "Edit" }, { row: obj, column: cols[colIdx], value }, this.surface?.param, { quiet: true });
+    if (out?.ok && out.refetch) this.refetchView(viewMethod);
   };
 
   private rowObj(cols: string[], row: any[]): Record<string, any> {
@@ -540,13 +538,20 @@ export class HopePluginSurface extends LoomElement {
     const s = this.surface;
     if (!s) return;
     const obj = this.rowObj(cols, row);
-    // Same runner as every other action; the row is the extra arg. On success the
-    // owning table refetches (a deleted row disappears) and any modal closes.
-    const res = await runPluginAction(this.deps(), s.key, a, { row: obj }, this.surface?.param);
-    if (res === undefined) return;
+    // Same runner as every other action; the row is the extra arg. The plugin's
+    // outcome decides: on refusal (ok:false) keep the modal open and don't refetch;
+    // on success close it and refetch only if the plugin says the view changed.
+    const out = await runPluginAction(this.deps(), s.key, a, { row: obj }, this.surface?.param);
+    if (!out || !out.ok) return;
     this.modal = null;
-    if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
+    if (out.refetch) this.refetchView(viewMethod);
   };
+
+  // refetchView reloads a view leaf (re-running a query with its current input).
+  private refetchView(viewMethod?: string) {
+    if (!viewMethod || !this.views[viewMethod]) return;
+    void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
+  }
 
   private renderDetail(data: any): any {
     if (data && typeof data === "object" && Array.isArray(data.columns)) return this.renderTable(data);
