@@ -180,6 +180,7 @@ type DashboardWidget struct {
 	Key     string          `json:"key"`
 	Name    string          `json:"name"`
 	Host    string          `json:"host"`
+	Stack   string          `json:"stack,omitempty"` // compose project of the plugin container, if any
 	Icon    string          `json:"icon"`
 	Title   string          `json:"title"`
 	Node    json.RawMessage `json:"node"`
@@ -205,6 +206,10 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 		members, host, ok := r.group(ctx, rec.Key)
 		if !ok {
 			continue
+		}
+		stack := ""
+		if len(members) > 0 {
+			stack = members[0].Project // the plugin container's compose project (its stack)
 		}
 		ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
 		if err != nil {
@@ -237,7 +242,7 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 				icon = sd.Icon
 			}
 			out = append(out, DashboardWidget{
-				Key: rec.Key, Name: sd.Name, Host: rec.Host, Icon: icon,
+				Key: rec.Key, Name: sd.Name, Host: rec.Host, Stack: stack, Icon: icon,
 				Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions,
 			})
 		}

@@ -21,6 +21,7 @@ import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
 import { LogPanel } from "../log-panel";
 import { withHost } from "../host-url";
+import "../components/plugin-widgets"; // <hope-plugin-widgets stack=…> — plugin widgets for this stack (self-hides when none)
 import { innerPort } from "../format";
 import { UNGROUPED } from "../const";
 import { stripAnsi } from "../format";
@@ -1453,6 +1454,7 @@ export class StackPage extends LoomElement {
               ) : null}
             </div>
           ) : null}
+          {s && !this.isUngrouped ? <hope-plugin-widgets stack={this.project}></hope-plugin-widgets> : null}
         </main>
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.opPick && s ? this.renderOpPicker(s) : null}
