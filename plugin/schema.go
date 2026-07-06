@@ -54,6 +54,7 @@ type Card struct {
 	Icon     string      `json:"icon,omitempty"`
 	Tone     string      `json:"tone,omitempty"` // ok|warn|bad|info accent
 	To       string      `json:"to,omitempty"`
+	Image    string      `json:"image,omitempty"` // absolute http(s) URL -> a hero image at the card top
 	Fields   []CardField `json:"fields,omitempty"`
 }
 
