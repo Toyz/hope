@@ -21,6 +21,7 @@ const (
 	Chart ViewKind = "chart" // {type, labels, series} -> bar/line chart (see ChartData)
 	Cards ViewKind = "cards" // {items:[Card]} -> a responsive grid of cards (a gallery)
 	Stat  ViewKind = "stat"  // {stats:[Stat]} (or one Stat) -> big-number stat blocks (see StatData)
+	Text  ViewKind = "text"  // {text:"…"} (or a raw string) -> a monospace scrollable block (logs, config, output)
 )
 
 // ChartData is what a Chart view returns: categorical labels on the x-axis and one
@@ -329,7 +330,11 @@ type Node struct {
 	Ref      string   `json:"ref,omitempty"`  // leaf: method name of a view/action/stream
 	Size     int      `json:"size,omitempty"` // optional row/grid weight
 	Fill     bool     `json:"fill,omitempty"` // grow to fill the remaining height (e.g. a table)
-	Children []*Node  `json:"children,omitempty"`
+	// Collapsible makes a titled section fold on a title click; Collapsed starts it
+	// closed. For dense pages where not everything needs to be open at once.
+	Collapsible bool    `json:"collapsible,omitempty"`
+	Collapsed   bool    `json:"collapsed,omitempty"`
+	Children    []*Node `json:"children,omitempty"`
 }
 
 // Section builds a titled section node from children.
@@ -357,3 +362,11 @@ func (n *Node) Titled(t string) *Node { n.Title = t; return n }
 // Filled marks a node to grow and fill the remaining height (and propagates up its
 // ancestors when rendered) — e.g. a table that should fill the page.
 func (n *Node) Filled() *Node { n.Fill = true; return n }
+
+// Collapse makes a titled section fold on a title click. Pass collapsed=true to
+// start it closed.
+func (n *Node) Collapse(collapsed bool) *Node {
+	n.Collapsible = true
+	n.Collapsed = collapsed
+	return n
+}

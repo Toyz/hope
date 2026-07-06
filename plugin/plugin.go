@@ -251,6 +251,14 @@ func (p *Plugin) StatView(method, label string, fn ViewFunc, opts ...ViewOpt) *P
 	return p
 }
 
+// TextView registers a Text view: the handler returns {text: "…"} (or a raw
+// string) rendered as a monospace scrollable block — logs, config, command output.
+func (p *Plugin) TextView(method, label string, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Text}, fn}
+	return p
+}
+
 // ChartView registers a Chart view; the handler returns ChartData (bar or line,
 // one or more named series over categorical labels). hope draws axes + legend.
 func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {

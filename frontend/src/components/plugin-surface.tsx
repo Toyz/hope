@@ -20,6 +20,8 @@ interface Node {
   ref?: string;
   size?: number;
   fill?: boolean;
+  collapsible?: boolean;
+  collapsed?: boolean;
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
@@ -45,7 +47,10 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
      just gets a tall internal scroll (see .leaf.grow .gwrap); the page scrolls
      between sections. .grow/.leaf.grow are markers used by those selectors. */
   .sect { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+  .sect.clp { cursor: pointer; user-select: none; }
+  .sect.clp:hover { color: var(--mid); }
   .sbtn.rfr { padding: 2px 5px; }
+  .ptext { margin: 0; padding: 12px 16px; max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--ink); border: 1px solid var(--line); color: var(--mid); font: 12px/1.55 var(--mono); }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0 4px; }
@@ -189,6 +194,7 @@ export class HopePluginSurface extends LoomElement {
 
   @reactive accessor cells: Record<string, Cell> = {};
   @reactive accessor tabSel: Record<string, number> = {};
+  @reactive accessor secOpen: Record<string, boolean> = {}; // collapsible section open state
   @reactive accessor queryText: Record<string, string> = {};
   @reactive accessor tableState: Record<string, TableState> = {}; // per-table filter/sort/page
   @reactive accessor streamData: Record<string, any> = {};
@@ -312,15 +318,16 @@ export class HopePluginSurface extends LoomElement {
   private async fetch(method: string, extra?: any) {
     const s = this.surface;
     if (!s) return;
+    const gen = this.curKey; // stable surface identity — survives the host's poll re-renders
     // Keep the prior data while refetching (stale-while-revalidate) so a filter/page
     // change on a server table doesn't blank the table and flash "loading…".
     this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: true } };
     try {
       const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs(extra) }]);
-      if (this.surface !== s) return; // navigated away mid-fetch — don't write stale data
+      if (this.curKey !== gen) return; // the surface actually changed (page nav) — drop the stale write
       this.cells = { ...this.cells, [method]: { loading: false, data } };
     } catch (e: any) {
-      if (this.surface !== s) return;
+      if (this.curKey !== gen) return;
       this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: false, error: e?.message ?? "call failed" } };
     }
   }
@@ -350,10 +357,17 @@ export class HopePluginSurface extends LoomElement {
         // button next to the section title (not floating in the leaf).
         const soleLeaf = !!n.title && kids.length === 1 && kids[0].kind === "leaf";
         const soleView = soleLeaf ? this.views[kids[0].ref || ""] : undefined;
+        const collapsible = !!n.title && !!n.collapsible;
+        const open = collapsible ? (this.secOpen[idKey] ?? !n.collapsed) : true;
         return (
           <div class={"sec" + g}>
-            {n.title ? <div class="sect">{n.title}{soleView?.refresh ? this.refreshBtn(kids[0].ref || "") : null}</div> : null}
-            {kids.map((c, i) => (soleLeaf ? this.renderLeaf(c.ref || "", !!c.fill, true) : this.renderNode(c, idKey + "." + i)))}
+            {n.title ? (
+              <div class={"sect" + (collapsible ? " clp" : "")} onClick={collapsible ? () => (this.secOpen = { ...this.secOpen, [idKey]: !open }) : undefined}>
+                {collapsible ? <loom-icon name={open ? "chevron-down" : "chevron-right"} size={12}></loom-icon> : null}
+                {n.title}{soleView?.refresh ? this.refreshBtn(kids[0].ref || "") : null}
+              </div>
+            ) : null}
+            {open ? kids.map((c, i) => (soleLeaf ? this.renderLeaf(c.ref || "", !!c.fill, true) : this.renderNode(c, idKey + "." + i))) : null}
           </div>
         );
       }
@@ -463,6 +477,8 @@ export class HopePluginSurface extends LoomElement {
         return this.renderCards(data);
       case "stat":
         return this.renderStat(data);
+      case "text":
+        return <pre class="ptext">{typeof data === "string" ? data : this.cellStr(data?.text)}</pre>;
       default:
         return <div class="msg">unsupported view</div>;
     }
