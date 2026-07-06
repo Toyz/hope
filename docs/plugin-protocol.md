@@ -107,6 +107,8 @@ Identity + capabilities. Returned unauthenticated.
 | `query` | same `{columns, rows}`, computed from user input  | query editor + grid    |
 | `tree`  | `{ "nodes": [ { "label", "children": [...] } ] }`  | tree browser           |
 | `chart` | `{ "type": "bar"\|"line", "labels": [...], "series": [{ "name", "values": [...] }] }` | bar/line chart w/ axes + legend |
+| `cards` | `{ "items": [ { "title", "subtitle?", "icon?", "tone?", "to?", "fields?": [{label, value}] } ] }` | responsive card grid (a gallery) |
+| `stat`  | `{ "stats": [ { "label", "value", "unit?", "sub?", "tone?", "icon?" } ] }` | big-number stat blocks (counters) |
 
 A `query` view receives the user's text in the request params as
 `{ "input": "<text>" }`.
@@ -119,10 +121,11 @@ interactivity; the columns are always dynamic (hope renders exactly the
 |---------------|------------------------------------------------------------------------------|
 | `default`     | (query) initial editor text; `{param}` placeholders are filled from the page param, e.g. `"select * from {table}"` |
 | `page_size`   | rows hope shows per page (plugin-level — you know your data). 0 => hope default |
-| `row_method`  | a method hope calls with `{row: {column: value}}` when a row is clicked; the returned kv/table shows in a modal |
+| `row_method`  | a method hope calls with `{row: {column: value}}` when a row is clicked; the returned kv/table shows in a modal. `row_detail_button: true` triggers it from a per-row button instead of a whole-row click (use when rows are inline-editable) |
 | `row_actions` | per-row action buttons: `[{ "method", "label", "icon?", "danger?", "fields?" }]`. Clicking calls `method` with `{row: {...}}` (plus any collected `fields`); `danger` confirms first, then hope refetches the table |
 | `edit_method` | inline cell edit: editing a cell calls `method` with `{row, column, value}`. `edit_columns` (optional) limits which columns are editable. hope refetches on success |
 | `server`      | server-driven table: hope does NOT ship every row. It sends the query state and expects one page + a total back (see below). For tables too large to send whole |
+| `refresh`     | (any view) add a manual refresh button to the view header that re-fetches on click |
 
 **Server-driven tables** (`server: true`) — the keystone for large data. hope sends
 the query state on each call and expects one page plus a total:
@@ -148,6 +151,35 @@ decide. Read the clicked row in your handler as `params.row`.
 `actions: ["method", ...]` (names of registered actions), rendered as a toolbar in
 the surface header (for pages, hope's page header) — page-level actions distinct
 from leaf actions inside the layout. hope collects fields, confirms danger, audits.
+
+**Rich table cells** — a `table`/`cards` value may be a typed cell object instead
+of a plain scalar, so dense data reads well. `{ "type": ..., "value": ..., ... }`:
+
+| type       | extra fields            | renders as                                   |
+|------------|-------------------------|----------------------------------------------|
+| `badge`    | `tone` (ok/warn/bad/info) | a colored pill                             |
+| `link`     | `to` (plugin-relative) or `href` (external) | a link (in-app nav / new tab)  |
+| `time`     | —                       | a unix timestamp as relative time + absolute on hover |
+| `number`   | `unit?`                 | thousands-formatted, right-aligned            |
+| `progress` | —                       | a 0..1 bar                                    |
+| `code`     | —                       | inline monospace                              |
+
+Filtering/sorting/editing operate on the cell's `value`. Unknown types fall back to
+text; a plain scalar is unchanged. SDK constructors: `plugin.Badge/Link/Time/
+Number/Progress/Code/DetailLink`.
+
+**Master-detail** — click a row → a full detail page. A `link`/`DetailLink` cell
+navigates PLUGIN-RELATIVE (`to` is a page id/path; hope prefixes `/plugin/<key>/…`,
+so a plugin never needs to know its own hope key). Declare the target with a
+`DetailPage(id, title, paramKey, node)` — a hidden page (not in the rail) addressed
+by a stable `id`; hope passes the URL arg as `param[paramKey]` (e.g. `.../user/42`
+→ `{id: "42"}`). Give any `Page` a stable `id` with `PageID` so links/breadcrumbs
+can target it (rail links use the id too, so navigation marks the entry active).
+
+**Breadcrumbs** — a page contribution may set `breadcrumbs: [{label, to?}]` (with
+`{param}` templating filled from the page param). hope feeds them into its own
+topbar trail: `fleet / plugins / <plugin> / <your crumbs>`. Plugin-relative `to`s
+resolve like link cells; the last crumb is the current page.
 
 **Stream kinds** (`streams[].kind`): `counter` (numbers ticking), `log`
 (append-only lines), `series` (time series -> sparkline).
