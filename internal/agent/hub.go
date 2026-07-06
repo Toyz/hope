@@ -163,6 +163,7 @@ func (h *Hub) ServeWS(ctx context.Context) http.HandlerFunc {
 			return // Accept already wrote the error
 		}
 		c.SetReadLimit(-1) // yamux frames span the whole tunnel; no per-message cap
+		go pingWS(ctx, c)  // keep the tunnel alive through Cloudflare's idle WS reaper
 		conn := websocket.NetConn(ctx, c, websocket.MessageBinary)
 		h.handle(ctx, conn) // blocks until the tunnel closes, keeping the conn open
 	}

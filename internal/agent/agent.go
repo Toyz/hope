@@ -227,8 +227,37 @@ func dialWS(ctx context.Context, opts Options) (net.Conn, error) {
 		return nil, err
 	}
 	c.SetReadLimit(-1) // yamux frames span the whole tunnel; no per-message cap
+	go pingWS(ctx, c)  // keep the tunnel alive through Cloudflare's idle WS reaper
 	// Tie the conn lifetime to the parent ctx, not the short dial ctx.
 	return websocket.NetConn(ctx, c, websocket.MessageBinary), nil
+}
+
+// wsPingInterval is well under Cloudflare's idle-WebSocket timeout (~100s) so an idle
+// tunnel is never reaped.
+const wsPingInterval = 20 * time.Second
+
+// pingWS sends a WebSocket PING control frame every wsPingInterval so an idle tunnel
+// stays alive through Cloudflare. It is belt-and-suspenders over yamux's in-tunnel
+// keepalive: CF's edge counts a WS control frame as liveness even when no yamux data
+// flows. Returns when ctx ends or a ping fails (the tunnel is already dead — the
+// read/write loop surfaces the real error). Safe alongside NetConn: coder/websocket
+// processes the pong on the same reader yamux is already blocked on.
+func pingWS(ctx context.Context, c *websocket.Conn) {
+	t := time.NewTicker(wsPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.Ping(pctx)
+			cancel()
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 // proxyToDocker pipes one tunnel stream to the local Docker endpoint.
