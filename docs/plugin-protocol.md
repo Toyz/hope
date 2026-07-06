@@ -109,6 +109,7 @@ Identity + capabilities. Returned unauthenticated.
 | `chart` | `{ "type": "bar"\|"line", "labels": [...], "series": [{ "name", "values": [...] }] }` | bar/line chart w/ axes + legend |
 | `cards` | `{ "items": [ { "title", "subtitle?", "icon?", "tone?", "to?", "fields?": [{label, value}] } ] }` | responsive card grid (a gallery) |
 | `stat`  | `{ "stats": [ { "label", "value", "unit?", "sub?", "tone?", "icon?" } ] }` | big-number stat blocks (counters) |
+| `text`  | `{ "text": "…" }` (or a raw string)                | monospace scrollable block (logs, config, output) |
 
 A `query` view receives the user's text in the request params as
 `{ "input": "<text>" }`.
@@ -273,7 +274,8 @@ clauses are AND-ed; values within a clause are OR-ed. An empty/absent match mean
 **Layout tree** nodes are surface-agnostic — the same tree drives a container
 panel now and a full page later:
 
-- `section` — titled group (`title`, `children`)
+- `section` — titled group (`title`, `children`); `collapsible: true` (+ optional
+  `collapsed: true`) makes it fold on a title click
 - `tabs` — tabbed children (each child's `title` is its tab label)
 - `row` / `grid` — arrangement (`children`, optional `size` weights)
 - `leaf` — a single `view`/`action`/`stream` referenced by `ref` (its method name)

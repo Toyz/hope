@@ -307,6 +307,16 @@ func main() {
 		}, nil
 	}, plugin.ServerSide(), plugin.PageSize(100))
 
+	// text: a monospace scrollable block (logs, config, raw output).
+	p.TextView("config", "Config", func(ctx context.Context) (any, error) {
+		host, _ := os.Hostname()
+		return map[string]any{"text": fmt.Sprintf(
+			"# kitchen-sink config\nhost = %q\npid  = %d\ntheme = %q\nrows = %s\nuptime = %s\n",
+			host, os.Getpid(), p.SettingValue("theme"), p.SettingValue("rows"),
+			time.Since(started).Truncate(time.Second),
+		)}, nil
+	})
+
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
 		return map[string]any{"nodes": []any{
 			node("app", node("users"), node("orders"), node("events")),
@@ -441,8 +451,9 @@ func main() {
 			plugin.Section("Counters", plugin.Leaf("counts")),
 		),
 		plugin.Section("Leaderboard", plugin.Leaf("leaders")),
+		plugin.Section("Config", plugin.Leaf("config")).Collapse(true), // collapsible, starts closed
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
-		plugin.Section("Rows", plugin.Leaf("rows")),
+		plugin.Section("Rows", plugin.Leaf("rows")).Collapse(false), // collapsible, starts open
 	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it
 		HeaderActions("greet", "wipe")
 
