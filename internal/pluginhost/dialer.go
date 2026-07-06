@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/toyz/hope/internal/docker"
@@ -24,6 +25,13 @@ type ContainerDialer interface {
 const (
 	dialTimeout = 15 * time.Second
 	maxRespBody = 4 << 20 // mirror front.go's cap — a plugin must not flood the control plane
+
+	// ProtocolVersion is the plugin-protocol version hope speaks. hope announces it
+	// on every call (X-Hope-Protocol-Version) so a plugin can adapt, and degrades
+	// gracefully when a plugin speaks a different one (unknown surfaces/view kinds
+	// are skipped, not fatal). Mirrors the SDK's plugin.ProtocolVersion.
+	ProtocolVersion = 1
+	headerProtocol  = "X-Hope-Protocol-Version"
 )
 
 // endpoint is a dialed plugin: the ordered JSON-RPC URLs to try (network IP first,
@@ -129,6 +137,7 @@ func (e *endpoint) callRPC(ctx context.Context, method string, params any) (json
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
 		if e.token != "" {
 			req.Header.Set("Authorization", "Bearer "+e.token)
 		}
@@ -186,6 +195,7 @@ func (e *endpoint) stream(ctx context.Context, method string, params any, onFram
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
 		if e.token != "" {
 			req.Header.Set("Authorization", "Bearer "+e.token)
 		}

@@ -25,6 +25,24 @@ type PluginsRouter struct {
 	mu       sync.Mutex
 	cache    []Discovered
 	cachedAt time.Time
+
+	limMu    sync.Mutex
+	limiters map[string]*pluginLimiter
+}
+
+// limiter returns the per-plugin resource limiter, creating it on first use.
+func (r *PluginsRouter) limiter(key string) *pluginLimiter {
+	r.limMu.Lock()
+	defer r.limMu.Unlock()
+	if r.limiters == nil {
+		r.limiters = map[string]*pluginLimiter{}
+	}
+	l := r.limiters[key]
+	if l == nil {
+		l = newPluginLimiter()
+		r.limiters[key] = l
+	}
+	return l
 }
 
 // NewPluginsRouter wires the router to the host set + state store + the agent hub
@@ -269,6 +287,23 @@ type PluginManifest struct {
 	Schema   json.RawMessage   `json:"schema"`
 	Layout   json.RawMessage   `json:"layout"`
 	Settings map[string]string `json:"settings"`
+	// Protocol/Compat report the plugin's declared protocol version against hope's.
+	// "ok" = same; "plugin_newer"/"plugin_older" = degrade gracefully (hope skips
+	// surfaces/kinds it doesn't implement; older plugins keep working).
+	Protocol int    `json:"protocol"`
+	Compat   string `json:"compat"`
+}
+
+// compatOf compares a plugin's declared protocol version to hope's.
+func compatOf(pluginProto int) string {
+	switch {
+	case pluginProto == 0 || pluginProto == ProtocolVersion:
+		return "ok"
+	case pluginProto > ProtocolVersion:
+		return "plugin_newer"
+	default:
+		return "plugin_older"
+	}
 }
 
 // enabledEndpoint resolves + dials an enabled plugin, returning its endpoint and
@@ -340,7 +375,14 @@ func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginMani
 	if err != nil {
 		return nil, rpc.Internal("plugin layout: %v", err)
 	}
-	return &PluginManifest{Schema: schema, Layout: layout, Settings: rec.Settings}, nil
+	var pv struct {
+		ProtocolVersion int `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(schema, &pv)
+	return &PluginManifest{
+		Schema: schema, Layout: layout, Settings: rec.Settings,
+		Protocol: pv.ProtocolVersion, Compat: compatOf(pv.ProtocolVersion),
+	}, nil
 }
 
 // CallParams proxies one call to an enabled plugin's own method.
@@ -367,6 +409,15 @@ func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, 
 	if strings.HasPrefix(p.Method, "hope.") {
 		return nil, rpc.BadRequest("hope.* methods are reserved and cannot be proxied")
 	}
+	lim := r.limiter(p.Key)
+	if !lim.allowRate() {
+		return nil, rpc.BadRequest("rate limit exceeded for this plugin")
+	}
+	release, ok := lim.acquireCall()
+	if !ok {
+		return nil, rpc.BadRequest("too many concurrent calls to this plugin")
+	}
+	defer release()
 	ep, rec, err := r.enabledEndpoint(ctx, p.Key)
 	if err != nil {
 		return nil, err

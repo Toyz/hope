@@ -85,12 +85,21 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 	if rec == nil || !rec.Enabled {
 		return errResp(http.StatusBadRequest, "plugin is not enabled")
 	}
+	// Cap concurrent streams per plugin so a plugin (or a runaway UI) can't hold
+	// unbounded live connections through the control plane.
+	releaseStream, ok := h.r.limiter(key).acquireStream()
+	if !ok {
+		return errResp(http.StatusTooManyRequests, "too many concurrent streams for this plugin")
+	}
 	ep, err := h.r.tryDial(ctx, key, rec.Token, true)
 	if err != nil {
+		releaseStream()
 		return errResp(http.StatusInternalServerError, err.Error())
 	}
 
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
+		defer releaseStream()
+		gate := newFrameGate()
 		enc := json.NewEncoder(w)
 		var mu sync.Mutex
 		write := func(f streamFrame) error {
@@ -106,6 +115,12 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		done := make(chan error, 1)
 		go func() {
 			done <- ep.stream(ctx, method, nil, func(fr json.RawMessage) error {
+				// Drop oversize or too-fast frames — a plugin must not flood the UI /
+				// control plane. Dropping (not erroring) keeps a bursty-but-benign
+				// stream alive while starving an abusive one.
+				if !gate.allow(len(fr)) {
+					return nil
+				}
 				select {
 				case frames <- fr:
 					return nil
