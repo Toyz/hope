@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -107,14 +108,24 @@ func (c *Client) PluginContainers(ctx context.Context) ([]PluginContainer, error
 //  2. any PUBLISHED host port at 127.0.0.1 (works for NATIVE hope, including Docker
 //     Desktop, which forwards published ports to localhost) — the dev fast path.
 // Errors only if the container exposes neither.
-func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) (targets []string, attachNet string, err error) {
+// PluginDialCandidates resolves how hope can reach a plugin container. It returns
+// two kinds of address:
+//   - netTargets: the container's network IP:port — reachable only from the plugin's
+//     docker network (hope attaches to it locally, or the agent dials it on the host).
+//   - directTargets: a published host port at an address hope can reach DIRECTLY —
+//     127.0.0.1 for a local daemon, or the daemon's host IP when the daemon is a
+//     remote TCP endpoint (so a plugin published on the remote host is reachable at
+//     <daemon-host>:<published> without an agent on that host).
+// attachNet is the user network name to attach the routing container to for the
+// container-IP path.
+func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) (netTargets, directTargets []string, attachNet string, err error) {
 	insp, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	ns := insp.NetworkSettings
 	if ns == nil {
-		return nil, "", errors.New("container has no network settings")
+		return nil, nil, "", errors.New("container has no network settings")
 	}
 	// 1) container network IP — prefer a user network hope can attach to.
 	var ip, ipNet, fbIP, fbNet string
@@ -135,10 +146,16 @@ func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) 
 		ip, ipNet = fbIP, fbNet
 	}
 	if ip != "" {
-		targets = append(targets, net.JoinHostPort(ip, strconv.Itoa(port)))
+		netTargets = append(netTargets, net.JoinHostPort(ip, strconv.Itoa(port)))
 	}
 	attachNet = ipNet
-	// 2) published host port — the dev fast path for native hope.
+	// 2) published host port — directly reachable. For a remote TCP daemon the
+	// wildcard bind is reachable at the daemon's host IP; for a local daemon it's
+	// 127.0.0.1.
+	hostIP := c.daemonHostIP()
+	if hostIP == "" {
+		hostIP = "127.0.0.1"
+	}
 	prefix := strconv.Itoa(port) + "/"
 	for k, binds := range ns.Ports {
 		if !strings.HasPrefix(string(k), prefix) {
@@ -150,15 +167,35 @@ func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) 
 			}
 			hip := b.HostIP
 			if hip == "" || hip == "0.0.0.0" || hip == "::" {
-				hip = "127.0.0.1"
+				hip = hostIP
 			}
-			targets = append(targets, net.JoinHostPort(hip, b.HostPort))
+			directTargets = append(directTargets, net.JoinHostPort(hip, b.HostPort))
 		}
 	}
-	if len(targets) == 0 {
-		return nil, "", errors.New("container has no reachable address (no network IP, no published port)")
+	if len(netTargets) == 0 && len(directTargets) == 0 {
+		return nil, nil, "", errors.New("container has no reachable address (no network IP, no published port)")
 	}
-	return targets, attachNet, nil
+	return netTargets, directTargets, attachNet, nil
+}
+
+// daemonHostIP returns the docker daemon's host IP when it's a remote TCP endpoint
+// (tcp://host:port), or "" for a local socket / localhost — used to reach a plugin's
+// published port on a remote host without an agent there.
+func (c *Client) daemonHostIP() string {
+	h := c.sdk().DaemonHost()
+	if !strings.HasPrefix(h, "tcp://") {
+		return ""
+	}
+	u, err := url.Parse(h)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	switch host {
+	case "", "localhost", "127.0.0.1", "::1":
+		return ""
+	}
+	return host
 }
 
 // ContainerMatchInfo returns a container's image ref + labels, for evaluating a

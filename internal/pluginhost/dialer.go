@@ -62,12 +62,9 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 		return nil, fmt.Errorf("host %q is not connected", host)
 	}
 	dock := hc.Client
-	targets, netName, err := dock.PluginDialCandidates(ctx, pc.ContainerID, pc.Port)
+	netTargets, directTargets, netName, err := dock.PluginDialCandidates(ctx, pc.ContainerID, pc.Port)
 	if err != nil {
 		return nil, fmt.Errorf("resolve plugin address: %w", err)
-	}
-	if len(targets) == 0 {
-		return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
 	}
 	path := pc.Path
 	if path == "" {
@@ -86,22 +83,43 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	if streaming {
 		timeout = 0
 	}
+	directURLs := func(ts []string) []string {
+		urls := make([]string, len(ts))
+		for i, t := range ts {
+			urls[i] = "http://" + t + path
+		}
+		return urls
+	}
 
 	if hc.Kind == "local" {
-		urls := make([]string, len(targets))
-		for i, t := range targets {
-			urls[i] = "http://" + t + path
+		// Local (or hope-driven) daemon: everything is directly reachable. Try the
+		// published host port FIRST — for a remote tcp:// daemon (e.g. hope pointed at
+		// tcp://host:2375) the daemon-host published port is routable while the
+		// container's internal IP is not, and dialing the internal IP first would just
+		// hang until timeout.
+		urls := append(directURLs(directTargets), directURLs(netTargets)...)
+		if len(urls) == 0 {
+			return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
 		}
 		return &endpoint{urls: urls, token: token, client: &http.Client{Timeout: timeout}}, nil
 	}
 
-	// Remote host: dial the plugin's network IP through the agent tunnel. The
-	// published-port candidate is meaningless remotely (the agent's localhost isn't
-	// the host's), so use the network IP (targets[0]).
-	if r.dialer == nil {
-		return nil, fmt.Errorf("remote plugin dialing needs the agent hub, which is not enabled")
+	// Remote host: if the plugin publishes a port on a remote TCP daemon, hope can
+	// reach it DIRECTLY at the daemon's host IP (directTargets) — no agent needed on
+	// that host. This is the path for driving a remote docker over tcp://.
+	if len(directTargets) > 0 {
+		return &endpoint{urls: directURLs(directTargets), token: token, client: &http.Client{Timeout: timeout}}, nil
 	}
-	target := targets[0]
+
+	// Otherwise dial the plugin's network IP through the agent tunnel (needs an agent
+	// co-located with the containers so the internal IP is routable).
+	if r.dialer == nil {
+		return nil, fmt.Errorf("remote plugin dialing needs the agent hub (or publish the plugin's port so hope can reach it at the docker host)")
+	}
+	if len(netTargets) == 0 {
+		return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
+	}
+	target := netTargets[0]
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
