@@ -219,10 +219,12 @@ export class HopePluginSurface extends LoomElement {
 
   private rebuild() {
     const s = this.surface;
-    const key = s ? s.key : "";
-    // Only rebuild when the surface ACTUALLY changes. The host re-renders (stats
-    // poll) re-set this prop with the same value; a naive rebuild would tear down +
-    // re-fetch every time.
+    // Identity must include the PAGE (title + param + node), not just the plugin
+    // key — every page of one plugin shares the key, so keying on it alone skipped
+    // the rebuild when navigating between pages, leaving a new page's unique views
+    // unfetched ("no data"). The host's stats-poll re-sets the same content, so this
+    // composite stays stable across those and only changes on a real page change.
+    const key = s ? `${s.key}|${s.title || ""}|${JSON.stringify(s.param || {})}|${JSON.stringify(s.node)}` : "";
     if (s && key === this.curKey) return;
     this.curKey = key;
     this.stopAll(); // drop any live streams from the previous surface
