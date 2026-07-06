@@ -10,6 +10,7 @@ import { PromptService, type PromptField } from "../prompt";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { registerPluginIcons } from "./plugin-icon";
+import { runPluginAction } from "../plugin-run";
 import { theme } from "../styles";
 
 interface Node {
@@ -79,7 +80,6 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sarrow { margin-left: 4px; color: var(--upd); }
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
-  .hactions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 
   tr.clk { cursor: pointer; }
   tr.clk:hover td { background: color-mix(in srgb, var(--upd) 8%, transparent); color: var(--hi); }
@@ -254,24 +254,12 @@ export class HopePluginSurface extends LoomElement {
     }
   }
 
+  private deps() { return { rpc: this.rpc, prompt: this.prompt, confirm: this.confirm, toast: this.toast }; }
+
   private runAction = async (a: ActionDesc) => {
     const s = this.surface;
     if (!s) return;
-    let values: any = undefined;
-    if (a.fields && a.fields.length) {
-      const v = await this.prompt.ask({ title: a.label, submitLabel: "Run", fields: a.fields });
-      if (!v) return;
-      values = v;
-    }
-    // Danger actions confirm before running (author flagged them destructive). The
-    // field prompt, if any, comes first so the confirm is the final gate.
-    if (a.danger && !(await this.confirm.ask({ title: a.label, message: `Run "${a.label}"? This is a destructive action.`, danger: true, confirmLabel: a.label }))) return;
-    try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs(values), audit: true, danger: !!a.danger }]);
-      this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
-    } catch (e: any) {
-      this.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
-    }
+    await runPluginAction(this.deps(), s.key, a, undefined, this.surface?.param);
   };
 
   // ── rendering ──
@@ -517,22 +505,12 @@ export class HopePluginSurface extends LoomElement {
     const s = this.surface;
     if (!s) return;
     const obj = this.rowObj(cols, row);
-    // Collect the action's input fields (if any) first, then confirm a danger action.
-    let values: any = undefined;
-    if (a.fields && a.fields.length) {
-      const v = await this.prompt.ask({ title: a.label, submitLabel: "Run", fields: a.fields });
-      if (!v) return;
-      values = v;
-    }
-    if (a.danger && !(await this.confirm.ask({ title: a.label, message: `${a.label} — ${String(obj[cols[0]] ?? "this row")}?`, danger: true }))) return;
-    try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj, ...(values || {}) }), audit: true, danger: !!a.danger }]);
-      this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
-      this.modal = null;
-      if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
-    } catch (e: any) {
-      this.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
-    }
+    // Same runner as every other action; the row is the extra arg. On success the
+    // owning table refetches (a deleted row disappears) and any modal closes.
+    const res = await runPluginAction(this.deps(), s.key, a, { row: obj }, this.surface?.param);
+    if (res === undefined) return;
+    this.modal = null;
+    if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
   };
 
   private renderDetail(data: any): any {
@@ -689,23 +667,9 @@ export class HopePluginSurface extends LoomElement {
     void this.runRowAction(a, cols, cols.map((c) => m.row![c]), m.view);
   };
 
-  // renderHeaderActions draws the surface's author-declared toolbar (page/panel
-  // header actions), distinct from leaf actions inside the layout tree.
-  private renderHeaderActions() {
-    const refs = (this.surface?.actions || []).map((r) => this.actions[r]).filter(Boolean);
-    if (!refs.length) return null;
-    return (
-      <div class="hactions">
-        {refs.map((a) => (
-          <hope-button size="sm" tone={a.danger ? "danger" : "primary"} icon={a.icon} onClick={() => this.runAction(a)}>{a.label}</hope-button>
-        ))}
-      </div>
-    );
-  }
-
   update() {
     const s = this.surface;
     if (!s || !s.node) return <div class="msg" style="padding:16px">no panel</div>;
-    return <>{this.renderHeaderActions()}{this.renderNode(s.node, "r")}{this.renderModal()}</>;
+    return <>{this.renderNode(s.node, "r")}{this.renderModal()}</>;
   }
 }

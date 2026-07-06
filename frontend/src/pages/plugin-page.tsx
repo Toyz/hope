@@ -7,7 +7,12 @@ import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
+import { PromptService } from "../prompt";
+import { ConfirmService } from "../confirm";
+import { ToastService } from "../toast";
+import "../components/plugin-surface"; // registers <hope-plugin-surface> + <hope-plugin-icon>
 import type { Surface } from "../components/plugin-surface";
+import { runPluginAction } from "../plugin-run";
 import { theme } from "../styles";
 
 @route("/plugin/:key/:path")
@@ -20,6 +25,9 @@ import { theme } from "../styles";
 export class PluginPage extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @inject(HopeTransport) accessor rpc!: HopeTransport;
+  @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ConfirmService) accessor confirm!: ConfirmService;
+  @inject(ToastService) accessor toast!: ToastService;
   private get router(): LoomRouter { return app.get(LoomRouter); }
 
   @prop({ param: "key" }) accessor key = "";
@@ -51,11 +59,28 @@ export class PluginPage extends LoomElement {
     }
   }
 
+  // The page's author-declared header actions go in the phead's action slot (the
+  // one header component every page uses) — not a bespoke bar inside the surface.
+  private headerActions(s: Surface) {
+    const acts = (s.actions || []).map((r) => (s.schema.actions || []).find((a) => a.method === r)).filter(Boolean) as NonNullable<Surface["schema"]["actions"]>;
+    return acts.map((a) => (
+      <button slot="actions" class={a.danger ? "bad" : ""} onClick={() => this.runAction(s, a)}>
+        {a.icon ? <hope-plugin-icon plugin={s.key} name={a.icon} size={13}></hope-plugin-icon> : null}{a.label}
+      </button>
+    ));
+  }
+
+  private runAction(s: Surface, a: any) {
+    void runPluginAction({ rpc: this.rpc, prompt: this.prompt, confirm: this.confirm, toast: this.toast }, s.key, a, undefined, s.param);
+  }
+
   update() {
     const s = this.surface;
     return (
       <>
-        <hope-phead heading={s?.title || "Plugin"} scope="plugin" meta={s ? s.name : "custom page"}></hope-phead>
+        <hope-phead heading={s?.title || "Plugin"} scope="plugin" meta={s ? s.name : "custom page"}>
+          {s ? this.headerActions(s) : null}
+        </hope-phead>
         <div class="body">
           {this.error ? <div class="empty">{this.error}</div> : !this.loaded ? <div class="empty">loading…</div> : s ? <hope-plugin-surface surface={s}></hope-plugin-surface> : null}
         </div>

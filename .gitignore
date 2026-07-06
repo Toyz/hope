@@ -53,3 +53,6 @@ Thumbs.db
 
 # stray root screenshots (debug); docs/ images are tracked
 /*.png
+
+# dev-only plugin publish helper (poison-free rebuild+push+recreate)
+scripts/dev-publish-ks.sh
