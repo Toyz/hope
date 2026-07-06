@@ -43,6 +43,15 @@ socket or a remote daemon with no compose files on disk.
 - **Single login** — username/password from config; stateless HMAC bearer tokens.
 - **Optional socket proxy** — expose the Docker API to a trusted LAN behind a
   method/path allowlist.
+- **Container plugins** — any container can ship its own hope panel (tables, detail
+  pages, images, charts, live streams, actions) by exposing a small JSON-RPC
+  endpoint and a few labels. hope discovers it across the fleet, and — once enabled
+  — renders it and proxies every call; the browser never touches the plugin. Extend
+  hope in your own container, language, and release cadence — no hope recompile. See
+  the [plugin protocol](docs/plugin-protocol.md), the Go SDK on
+  [pkg.go.dev](https://pkg.go.dev/github.com/toyz/hope/plugin), and the
+  [example plugins](examples/plugins/) (`hello-world`, `hope-postgres`,
+  `kitchen-sink`).
 
 ## Quick start
 

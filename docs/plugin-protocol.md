@@ -129,6 +129,7 @@ interactivity; the columns are always dynamic (hope renders exactly the
 | `refresh`     | (any view) add a manual refresh button to the view header that re-fetches on click |
 | `refresh_interval` | (any view) auto-refetch every N seconds — a live-ish view without a stream |
 | `facets`      | (server tables) dropdown filters: `[{ "key", "label", "options": [{label, value}] }]`. Selections arrive in the query as `_q.filters[key]`; apply them in your store |
+| `default_sort`| (server tables) `{ "column", "dir": "asc"\|"desc" }` — the sort hope applies on FIRST load, before the user clicks a header (e.g. newest-first). It arrives in `_q.sort` and the column shows the arrow. SDK: `plugin.DefaultSort(col, dir)` |
 
 **Server-driven tables** (`server: true`) — the keystone for large data. hope sends
 the query state on each call and expects one page plus a total:
@@ -155,8 +156,9 @@ decide. Read the clicked row in your handler as `params.row`.
 the surface header (for pages, hope's page header) — page-level actions distinct
 from leaf actions inside the layout. hope collects fields, confirms danger, audits.
 
-**Rich table cells** — a `table`/`cards` value may be a typed cell object instead
-of a plain scalar, so dense data reads well. `{ "type": ..., "value": ..., ... }`:
+**Rich cells** — a `table`/`cards` value, a `kv` value, or a stat/card **field**
+value may be a typed cell object instead of a plain scalar, so dense data reads
+well. `{ "type": ..., "value": ..., ... }`:
 
 | type       | extra fields            | renders as                                   |
 |------------|-------------------------|----------------------------------------------|
@@ -166,10 +168,29 @@ of a plain scalar, so dense data reads well. `{ "type": ..., "value": ..., ... }
 | `number`   | `unit?`                 | thousands-formatted, right-aligned            |
 | `progress` | —                       | a 0..1 bar                                    |
 | `code`     | —                       | inline monospace                              |
+| `image`    | `alt`, `w?`/`h?`, `fit?`, `fb?`, `lb?` | an image (see below)            |
 
 Filtering/sorting/editing operate on the cell's `value`. Unknown types fall back to
-text; a plain scalar is unchanged. SDK constructors: `plugin.Badge/Link/Time/
-Number/Progress/Code/DetailLink`.
+text; a plain scalar is unchanged. A `kv` view whose values are all plain scalars
+renders as hope's compact key/value list; if any value is a typed cell, hope renders
+the rows itself so images/badges/links work in a KV too. SDK constructors:
+`plugin.Badge/Link/Time/Number/Progress/Code/DetailLink/Image`.
+
+**Images** — `Image(src, alt, opts...)`. The browser loads `src` directly (hope
+proxies RPC, not image bytes), so `src` MUST be an absolute `http(s)` URL reachable
+from the browser — e.g. a public on-demand webp/avif proxy. A non-`http(s)` src
+renders as `alt`. Options set the render box and behavior:
+
+| opt                    | cell field | effect                                             |
+|------------------------|------------|----------------------------------------------------|
+| `ImgW(px)` / `ImgH(px)`| `w`/`h`    | fix one dimension; the other is auto (keeps aspect)|
+| `ImgBox(w, h)`         | `w`+`h`    | fixed box, image centered + contained              |
+| `ImgFit("cover")`      | `fit`      | fill the box, cropping overflow (default `contain`)|
+| `ImgFallback(url)`     | `fb`       | shown if `src` fails; if it too fails, renders blank|
+| `ImgLightbox()`        | `lb`       | click opens an in-app full-screen viewer (Esc/backdrop/X to close) instead of a new tab |
+
+With no opts an image is a small inline thumbnail. A **card** may also set `image`
+(an absolute `http(s)` URL) for a hero image at the top of the card.
 
 **Master-detail** — click a row → a full detail page. A `link`/`DetailLink` cell
 navigates PLUGIN-RELATIVE (`to` is a page id/path; hope prefixes `/plugin/<key>/…`,
@@ -279,8 +300,11 @@ panel now and a full page later:
 - `section` — titled group (`title`, `children`); `collapsible: true` (+ optional
   `collapsed: true`) makes it fold on a title click
 - `tabs` — tabbed children (each child's `title` is its tab label)
-- `row` / `grid` — arrangement (`children`, optional `size` weights)
-- `leaf` — a single `view`/`action`/`stream` referenced by `ref` (its method name)
+- `row` / `grid` — arrangement (`children`). A child's `size` sets its width share:
+  in a `row` it's the flex weight (e.g. `Weight(1)` beside `Weight(2)` → 1/3 vs 2/3);
+  in a `grid` it's a column span. Default (0) = equal share. SDK: `node.Weight(n)`.
+- `leaf` — a single `view`/`action`/`stream` referenced by `ref` (its method name).
+  `Filled()` makes a leaf grow to fill remaining height (e.g. a table)
 
 If a plugin returns no contributions, hope synthesizes a single `container`
 contribution (matching the plugin's own container) that lists its views/streams,
