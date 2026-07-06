@@ -51,7 +51,10 @@ export class PluginPage extends LoomElement {
 
   private async load() {
     if (!this.key || !this.path) return;
-    this.loaded = false;
+    // Stale-while-revalidate: only show "loading…" on the FIRST load. On a page
+    // change keep the current page rendered until the new one arrives, so
+    // navigating between plugin pages doesn't flash empty/loading.
+    if (!this.surface) this.loaded = false;
     try {
       const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path, arg: this.arg || "" }]);
       this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, actions: s.actions, param: s.param } : null;

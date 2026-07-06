@@ -151,7 +151,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .pcfl { color: var(--dim); } .pcfv { color: var(--mid); text-align: right; min-width: 0; }
 
   .chart { padding: 6px 0; }
-  .chartsvg { width: 100%; max-width: 560px; height: auto; }
+  /* aspect-ratio gives the SVG intrinsic height in a flex column (height:auto
+     collapses to 0 there and the next section overlaps it). */
+  .chartsvg { display: block; width: 100%; max-width: 560px; aspect-ratio: 520 / 220; height: auto; }
   .cgrid { stroke: var(--line); stroke-width: 1; }
   .cyl { fill: var(--dim); font: 9px/1 var(--mono); text-anchor: end; }
   .cxl { fill: var(--dim); font: 9px/1 var(--mono); text-anchor: middle; }
