@@ -615,6 +615,9 @@ export class HopePluginSurface extends LoomElement {
   private renderTable(data: any, v?: ViewDesc) {
     const cols: string[] = data?.columns || [];
     const rows: any[][] = data?.rows || [];
+    // Hidden columns stay in each row (so row-detail / row actions still see them, e.g.
+    // an id) but are not rendered. Indices stay stable — we skip on render, not filter.
+    const hidden: Set<string> = new Set(Array.isArray(data?.hidden) ? data.hidden : []);
     const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
     const onRow = detailMethod && !detailAsButton ? detailMethod : undefined; // whole-row click
@@ -697,6 +700,7 @@ export class HopePluginSurface extends LoomElement {
           <table class="g">
             <thead><tr>
               {cols.map((c, ci) => {
+                if (hidden.has(c)) return null; // hidden column: not rendered, kept in the row
                 // no_sort -> a plain, non-interactive header (order is fixed by the plugin).
                 if (noSort) return <th>{c}</th>;
                 // No explicit user sort yet -> show the arrow on the view's default-sort
@@ -716,6 +720,7 @@ export class HopePluginSurface extends LoomElement {
               return (
                 <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
                   {r.map((cell, ci) => {
+                    if (hidden.has(cols[ci])) return null; // hidden column
                     const editable = canEdit(ci);
                     const isEditing = !!this.editCell && this.editCell.row === i && this.editCell.col === ci;
                     if (isEditing) {
