@@ -69,16 +69,17 @@ export class PluginPage extends LoomElement {
     }
   }
 
-  // Feed the plugin's author-declared breadcrumbs into hope's topbar trail, resolving
-  // each plugin-relative `to` to an absolute /plugin/<key>/… route.
+  // Feed the plugin's breadcrumbs into hope's topbar trail. The plugin NAME is always
+  // the first step; the author's declared crumbs follow. Plugin-relative `to`s
+  // resolve to absolute /plugin/<key>/… routes.
   private emitCrumbs() {
-    const cr = this.surface?.breadcrumbs;
-    if (!cr || !cr.length) { bus.emit(new PageCrumbs(null)); return; }
+    const s = this.surface;
+    if (!s) { bus.emit(new PageCrumbs(null)); return; }
     const enc = encodeURIComponent(this.key);
-    bus.emit(new PageCrumbs(cr.map((c) => ({
-      label: c.label,
-      to: c.to ? (c.to.startsWith("/") ? c.to : `/plugin/${enc}/${c.to}`) : undefined,
-    }))));
+    const abs = (to?: string) => (to ? (to.startsWith("/") ? to : `/plugin/${enc}/${to}`) : undefined);
+    const trail: { label: string; to?: string }[] = [{ label: s.name }];
+    for (const c of s.breadcrumbs || []) trail.push({ label: c.label, to: abs(c.to) });
+    bus.emit(new PageCrumbs(trail));
   }
 
   @unmount onUnmount() { bus.emit(new PageCrumbs(null)); }

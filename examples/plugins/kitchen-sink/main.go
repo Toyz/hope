@@ -228,6 +228,19 @@ func main() {
 		}, nil
 	})
 
+	// A STAT/counter view with a manual refresh button — e.g. "count rows in my DB"
+	// on demand. Returns StatData (big-number blocks). Refreshable() adds the button.
+	p.StatView("counts", "Counters", func(ctx context.Context) (any, error) {
+		stateMu.Lock()
+		del := len(deleted)
+		stateMu.Unlock()
+		return plugin.StatData{Stats: []plugin.StatBlock{
+			{Label: "Users", Value: 100000, Tone: plugin.ToneInfo},
+			{Label: "Tables", Value: 60},
+			{Label: "Deleted rows", Value: del, Tone: plugin.ToneBad, Sub: "since start"},
+		}}, nil
+	}, plugin.Refreshable())
+
 	// A SERVER-DRIVEN table: 100k synthetic rows the plugin pages/sorts/filters —
 	// hope never ships them all. Read the query with plugin.ReadTableQuery, return
 	// one page + a total. This is the pattern data-heavy plugins need.
@@ -422,20 +435,22 @@ func main() {
 
 	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
+		plugin.Section("Counters", plugin.Leaf("counts")),
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
 		plugin.Section("Leaderboard", plugin.Leaf("leaders")),
 		plugin.Section("Traffic", plugin.Leaf("chart")),
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
 		plugin.Section("Rows", plugin.Leaf("rows")),
-	)).HeaderActions("greet", "wipe") // buttons in the page header, not inline
+	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it
+		HeaderActions("greet", "wipe")
 
 	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
 	//     passes the clicked id as param {id}; userView renders it. ---
 	p.DetailPage("user", "User", "id", plugin.Section("",
 		plugin.Section("Profile", plugin.Leaf("userView")),
 	)).Breadcrumbs(
-		plugin.Crumb{Label: "Users"},                 // (could link to a listing page)
-		plugin.Crumb{Label: "user-{id}"},             // filled from the page param -> "user-42"
+		plugin.Crumb{Label: "Dashboard", To: "dashboard"}, // links back to the Dashboard page
+		plugin.Crumb{Label: "user-{id}"},                  // filled from the page param -> "user-42"
 	)
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,

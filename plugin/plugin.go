@@ -231,6 +231,26 @@ func (p *Plugin) CardsView(method, label string, fn ViewFunc) *Plugin {
 	return p
 }
 
+// ViewOpt configures a view (Refreshable, PageSize on tables, …). TableOpt is the
+// same underlying type, so table options compose here too.
+type ViewOpt = TableOpt
+
+// Refreshable adds a manual refresh button to the view header (re-fetches on click).
+func Refreshable() ViewOpt { return func(v *ViewDesc) { v.Refresh = true } }
+
+// StatView registers a Stat view: the handler returns StatData (one or more
+// big-number blocks — counts, totals, sizes). Add plugin.Refreshable() for a manual
+// refresh button (e.g. "count rows in my table" on demand).
+func (p *Plugin) StatView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
+	p.claim(method)
+	d := ViewDesc{Method: method, Label: label, Kind: Stat}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
+	return p
+}
+
 // ChartView registers a Chart view; the handler returns ChartData (bar or line,
 // one or more named series over categorical labels). hope draws axes + legend.
 func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {
@@ -325,6 +345,16 @@ func (p *Plugin) HeaderActions(refs ...string) *Plugin {
 	if len(p.contribs) > 0 {
 		c := &p.contribs[len(p.contribs)-1]
 		c.Actions = append(c.Actions, refs...)
+	}
+	return p
+}
+
+// PageID gives the most recently added page contribution a stable id so links and
+// breadcrumbs can target it by name (a plugin doesn't know positional page paths).
+// Call right after Page.
+func (p *Plugin) PageID(id string) *Plugin {
+	if len(p.contribs) > 0 {
+		p.contribs[len(p.contribs)-1].ID = id
 	}
 	return p
 }

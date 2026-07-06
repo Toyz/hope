@@ -20,6 +20,7 @@ const (
 	Tree  ViewKind = "tree"  // hierarchy -> tree browser (e.g. a schema)
 	Chart ViewKind = "chart" // {type, labels, series} -> bar/line chart (see ChartData)
 	Cards ViewKind = "cards" // {items:[Card]} -> a responsive grid of cards (a gallery)
+	Stat  ViewKind = "stat"  // {stats:[Stat]} (or one Stat) -> big-number stat blocks (see StatData)
 )
 
 // ChartData is what a Chart view returns: categorical labels on the x-axis and one
@@ -59,6 +60,23 @@ type Card struct {
 type CardField struct {
 	Label string `json:"label"`
 	Value any    `json:"value"`
+}
+
+// StatData is what a Stat view returns: one or more big-number stat blocks (counts,
+// totals, sizes). Return {stats: [...]} for a row, or a single Stat.
+type StatData struct {
+	Stats []StatBlock `json:"stats"`
+}
+
+// StatBlock is one stat: a big Value with a Label, optional Unit, a Sub line (e.g. a
+// delta or context), a semantic Tone, and an optional Icon.
+type StatBlock struct {
+	Label string `json:"label"`
+	Value any    `json:"value"`
+	Unit  string `json:"unit,omitempty"`
+	Sub   string `json:"sub,omitempty"`
+	Tone  string `json:"tone,omitempty"` // ok|warn|bad|info
+	Icon  string `json:"icon,omitempty"`
 }
 
 // StreamKind tells hope how to render a live NDJSON stream.
@@ -180,6 +198,9 @@ type ViewDesc struct {
 	// ({columns, rows, total}). Required for tables too large to send whole — read
 	// the query with plugin.ReadTableQuery.
 	Server bool `json:"server,omitempty"`
+	// Refresh adds a manual refresh button to the view header that re-fetches it —
+	// e.g. a stat/counter you want to recompute on demand.
+	Refresh bool `json:"refresh,omitempty"`
 }
 
 // RowAction is one author-declared action bound to a table row. hope calls Method

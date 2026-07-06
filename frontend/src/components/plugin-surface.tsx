@@ -23,7 +23,7 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -100,6 +100,17 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   th.srt { cursor: pointer; user-select: none; }
   th.srt:hover { color: var(--mid); }
   .sarrow { margin-left: 4px; color: var(--upd); vertical-align: middle; }
+  .sarrow.off { visibility: hidden; } /* reserve the space so sorting doesn't shift column widths */
+  .llabel.end { justify-content: flex-end; }
+
+  .stats2 { display: flex; flex-wrap: wrap; gap: 26px; padding: 4px 0; }
+  .statb { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 4px 0; border-left: 2px solid transparent; padding-left: 0; }
+  .statb.ok { border-left-color: var(--ok); padding-left: 12px; } .statb.warn { border-left-color: var(--warn); padding-left: 12px; }
+  .statb.bad { border-left-color: var(--bad); padding-left: 12px; } .statb.info { border-left-color: var(--upd); padding-left: 12px; }
+  .stlabel { display: flex; align-items: center; gap: 6px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .stval { color: var(--hi); font: 600 26px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .stunit { color: var(--dim); font-size: 13px; }
+  .stsub { color: var(--dim); font: 11px/1.3 var(--mono); }
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
@@ -415,9 +426,14 @@ export class HopePluginSurface extends LoomElement {
           : cell?.error
             ? <div class="msg bad">{cell.error}</div>
             : <div class="msg">no data</div>;
+    // The label row carries an optional manual refresh button (view.refresh). Keep
+    // the row even when the label is hidden if there's a refresh to show.
+    const refreshBtn = v.refresh ? <button class="sbtn" title="refresh" onClick={() => this.refetchView(ref)}><loom-icon name="rotate" size={11}></loom-icon></button> : null;
+    const label = hideLabel ? (refreshBtn ? <div class="llabel end">{refreshBtn}</div> : null)
+      : <div class="llabel">{this.leafIcon(v.icon)}{v.label}{refreshBtn}</div>;
     return (
       <div class={"leaf" + g}>
-        {hideLabel ? null : <div class="llabel">{this.leafIcon(v.icon)}{v.label}</div>}
+        {label}
         {body}
       </div>
     );
@@ -437,6 +453,8 @@ export class HopePluginSurface extends LoomElement {
         return this.renderChart(data);
       case "cards":
         return this.renderCards(data);
+      case "stat":
+        return this.renderStat(data);
       default:
         return <div class="msg">unsupported view</div>;
     }
@@ -572,7 +590,7 @@ export class HopePluginSurface extends LoomElement {
             <thead><tr>
               {cols.map((c, ci) => (
                 <th class="srt" onClick={() => changeSort(ci)}>
-                  {c}{st.sort === ci ? <loom-icon class="sarrow" name={st.dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon> : null}
+                  {c}<loom-icon class={"sarrow" + (st.sort === ci ? "" : " off")} name={st.dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon>
                 </th>
               ))}
               {hasTrailing ? <th class="rax"></th> : null}
@@ -799,6 +817,24 @@ export class HopePluginSurface extends LoomElement {
                 <div class="pcf"><span class="pcfl">{this.cellStr(f.label)}</span><span class="pcfv">{this.cellNode(f.value)}</span></div>
               ))}</div>
             ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // renderStat draws big-number stat blocks from { stats: [StatBlock] } (or a single
+  // block). Each shows a value + label, optional unit/sub/tone/icon.
+  private renderStat(data: any) {
+    const stats: any[] = Array.isArray(data?.stats) ? data.stats : data && typeof data === "object" && "value" in data ? [data] : [];
+    if (!stats.length) return <div class="msg">no data</div>;
+    return (
+      <div class="stats2">
+        {stats.map((st) => (
+          <div class={"statb" + (st.tone ? " " + st.tone : "")}>
+            <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{this.cellStr(st.label)}</div>
+            <div class="stval">{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
+            {st.sub ? <div class="stsub">{this.cellStr(st.sub)}</div> : null}
           </div>
         ))}
       </div>
