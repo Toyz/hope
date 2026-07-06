@@ -629,11 +629,12 @@ export class HopePluginSurface extends LoomElement {
               onInput={(e: any) => changeFilter(e.target.value)} />
             {server && v?.facets ? v.facets.map((f) => {
               const fk = `${key}|${f.key}`;
+              const cur = this.facetSel[fk] || "";
               return (
-                <select class="tfacet" value={this.facetSel[fk] || ""}
+                <select class="tfacet"
                   onChange={(e: any) => { this.facetSel = { ...this.facetSel, [fk]: e.target.value }; this.setTable(key, { page: 0 }); this.serverFetch(key); }}>
-                  <option value="">{f.label}: all</option>
-                  {f.options.map((o) => <option value={o.value}>{f.label}: {o.label}</option>)}
+                  <option value="" selected={cur === ""}>{f.label}: all</option>
+                  {f.options.map((o) => <option value={o.value} selected={cur === o.value}>{f.label}: {o.label}</option>)}
                 </select>
               );
             }) : null}
