@@ -106,6 +106,7 @@ Identity + capabilities. Returned unauthenticated.
 | `table` | `{ "columns": ["a","b"], "rows": [[...], ...] }`   | paginated grid         |
 | `query` | same `{columns, rows}`, computed from user input  | query editor + grid    |
 | `tree`  | `{ "nodes": [ { "label", "children": [...] } ] }`  | tree browser           |
+| `chart` | `{ "type": "bar"\|"line", "labels": [...], "series": [{ "name", "values": [...] }] }` | bar/line chart w/ axes + legend |
 
 A `query` view receives the user's text in the request params as
 `{ "input": "<text>" }`.
@@ -120,9 +121,15 @@ interactivity; the columns are always dynamic (hope renders exactly the
 | `page_size`   | rows hope shows per page (plugin-level — you know your data). 0 => hope default |
 | `row_method`  | a method hope calls with `{row: {column: value}}` when a row is clicked; the returned kv/table shows in a modal |
 | `row_actions` | per-row action buttons: `[{ "method", "label", "icon?", "danger?", "fields?" }]`. Clicking calls `method` with `{row: {...}}` (plus any collected `fields`); `danger` confirms first, then hope refetches the table |
+| `edit_method` | inline cell edit: editing a cell calls `method` with `{row, column, value}`. `edit_columns` (optional) limits which columns are editable. hope refetches on success |
 
 Every one of these is a call into a method *you* implement — hope proxies, you
 decide. Read the clicked row in your handler as `params.row`.
+
+**Header actions** — a `page`/`container`/`dashboard` contribution may set
+`actions: ["method", ...]` (names of registered actions), rendered as a toolbar in
+the surface header (for pages, hope's page header) — page-level actions distinct
+from leaf actions inside the layout. hope collects fields, confirms danger, audits.
 
 **Stream kinds** (`streams[].kind`): `counter` (numbers ticking), `log`
 (append-only lines), `series` (time series -> sparkline).
@@ -192,7 +199,7 @@ will render in later versions with no protocol change):
 | `page`      | a full custom nav page (incl. dynamic nested pages via `pages[]`) | yes |
 | `command`   | plugin pages + actions in the command palette | yes |
 | `rail`      | a rail/nav entry (plugin pages nest under their container) | yes |
-| `dashboard` | a fleet/host dashboard widget            | later    |
+| `dashboard` | a fleet/host dashboard widget            | yes      |
 | `stack`     | a stack-view widget                      | later    |
 
 **Dynamic pages** — a `page` contribution may carry `pages[]` (one level of
