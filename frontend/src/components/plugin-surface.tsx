@@ -151,6 +151,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .rmt { color: var(--hi); font: 600 13px/1.2 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rmx { display: inline-flex; padding: 4px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
   .rmx:hover { color: var(--hi); }
+  /* lightbox: full-screen image viewer (click backdrop / Esc / X to close) */
+  .lbox { position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--ink) 88%, transparent); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 40px; cursor: zoom-out; animation: lbin .12s ease; }
+  @keyframes lbin { from { opacity: 0; } to { opacity: 1; } }
+  .lbfig { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 94vw; max-height: 92vh; margin: 0; cursor: default; }
+  .lbfig img { max-width: 94vw; max-height: 82vh; object-fit: contain; border: 1px solid var(--line2); background: var(--ink); box-shadow: 0 24px 70px rgba(0,0,0,.6); image-rendering: crisp-edges; }
+  .lbfig figcaption { display: flex; align-items: center; gap: 14px; color: var(--hi); font: 12px/1.4 var(--mono); max-width: 94vw; }
+  .lbopen { color: var(--upd); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--upd) 40%, transparent); }
+  .lbopen:hover { color: var(--hi); border-bottom-color: var(--hi); }
+  .lbx { position: fixed; top: 18px; right: 20px; display: inline-flex; padding: 8px; background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid var(--line2); border-radius: 6px; color: var(--dim); cursor: pointer; }
+  .lbx:hover { color: var(--hi); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .rmbody { padding: 12px 16px; overflow: auto; min-height: 0; }
   .rmfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
 
@@ -223,6 +233,7 @@ export class HopePluginSurface extends LoomElement {
   // modal footer can offer the same row actions).
   @reactive accessor modal: { title: string; data: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
   @reactive accessor editCell: { key: string; row: number; col: number } | null = null; // inline-edit target
+  @reactive accessor lightbox: { src: string; alt: string } | null = null; // full-screen image viewer
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
@@ -230,9 +241,16 @@ export class HopePluginSurface extends LoomElement {
   private streamAborts = new Map<string, AbortController>(); // one controller per live stream
   private curKey = ""; // the surface we last built for
 
-  @mount onMount() { this.rebuild(); }
+  @mount onMount() { this.rebuild(); window.addEventListener("keydown", this.onKeydown); }
   @watch("surface") onSurface() { this.rebuild(); }
-  @unmount onUnmount() { this.stopAll(); }
+  @unmount onUnmount() { this.stopAll(); window.removeEventListener("keydown", this.onKeydown); }
+
+  // Esc closes the lightbox (then the row modal), so overlays are keyboard-dismissible.
+  private onKeydown = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    if (this.lightbox) { this.lightbox = null; e.stopPropagation(); }
+    else if (this.modal) { this.modal = null; e.stopPropagation(); }
+  };
 
   // The host bumps nonce when this surface is shown again (tab re-entry) — refetch
   // the views so a stale/failed load self-heals, without touching live streams.
@@ -1028,9 +1046,10 @@ export class HopePluginSurface extends LoomElement {
             if (fb && img.src !== fb) img.src = fb;   // swap to the fallback once
             else img.style.visibility = "hidden";     // no (or failed) fallback -> hide the broken icon
           };
+          const lb = !!cell.lb;
           return <img class={"pcimg" + (sized ? "" : " thumb")} src={src} alt={alt} title={alt} loading="lazy" style={style}
             onError={onErr}
-            onClick={(e: any) => { e.stopPropagation(); window.open(src, "_blank", "noopener"); }} />;
+            onClick={(e: any) => { e.stopPropagation(); if (lb) this.lightbox = { src, alt }; else window.open(src, "_blank", "noopener"); }} />;
         }
         default:
           return this.cellStr(cell.value);
@@ -1119,9 +1138,25 @@ export class HopePluginSurface extends LoomElement {
     void this.runRowAction(a, cols, cols.map((c) => m.row![c]), m.view);
   };
 
+  private closeLightbox = () => (this.lightbox = null);
+
+  private renderLightbox() {
+    const lb = this.lightbox;
+    if (!lb) return null;
+    return (
+      <div class="lbox" onClick={this.closeLightbox}>
+        <button class="lbx" title="close (Esc)" onClick={this.closeLightbox}><loom-icon name="x" size={16}></loom-icon></button>
+        <figure class="lbfig" onClick={(e: any) => e.stopPropagation()}>
+          <img src={lb.src} alt={lb.alt} />
+          {lb.alt ? <figcaption>{lb.alt}<a class="lbopen" href={lb.src} target="_blank" rel="noopener">open original</a></figcaption> : null}
+        </figure>
+      </div>
+    );
+  }
+
   update() {
     const s = this.surface;
     if (!s || !s.node) return <div class="msg" style="padding:16px">no panel</div>;
-    return <>{this.renderNode(s.node, "r")}{this.renderModal()}</>;
+    return <>{this.renderNode(s.node, "r")}{this.renderModal()}{this.renderLightbox()}</>;
   }
 }

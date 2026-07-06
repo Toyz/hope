@@ -115,3 +115,8 @@ func ImgFit(fit string) ImageOpt { return func(m map[string]any) { m["fit"] = fi
 // also be an absolute http(s) URL. Tried once; if it too fails, the cell renders blank
 // (no browser broken-image icon).
 func ImgFallback(url string) ImageOpt { return func(m map[string]any) { m["fb"] = url } }
+
+// ImgLightbox makes clicking the image open it in an in-app lightbox (a dimmed
+// full-screen overlay, closed by backdrop click / Esc / the close button) instead of
+// a new browser tab — nicer for viewing badge/avatar art in place.
+func ImgLightbox() ImageOpt { return func(m map[string]any) { m["lb"] = true } }
