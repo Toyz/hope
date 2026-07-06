@@ -49,6 +49,23 @@ hope proxies every call. The plugin endpoint stays internal to the docker networ
 agent tunnel for a remote host. So a plugin needs **no CORS, no TLS, no public
 port**. Keep the endpoint unpublished.
 
+### How hope reaches your plugin
+
+hope and the plugin container both join a dedicated bridge network, **`ink-plugins`**
+(created on demand per daemon), and hope dials the plugin by a stable DNS alias on it.
+So in the common case — hope and the plugin on the **same daemon** (co-located, or an
+**agent** on the plugin's host) — you publish **nothing**; just the labels. hope joins
+the network on enable and disconnects the plugin on disable.
+
+The one case that still needs a published port: hope pointed at a **remote `tcp://`
+daemon** it is *not* itself running on (e.g. a dev hope on your laptop driving a remote
+docker). hope isn't a container on that daemon, so it can't join the network — it
+reaches the plugin at the **daemon host's published port** instead. Bind it wildcard
+(`- "18080:8080"`), not to a fixed host IP: a fixed IP hairpins and stalls a
+co-located hope. With a wildcard bind, a co-located hope uses the `ink-plugins` alias
+(and ignores the port) while a remote-tcp hope uses the published port — both work
+from one compose.
+
 ## Authentication
 
 Every method except `hope.schema` requires a bearer token:
