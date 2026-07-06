@@ -3,7 +3,10 @@ name: Build and publish image
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    # hope release tags only. The Go SDK is a nested module tagged `plugin/vX.Y.Z`;
+    # those are SDK versions, not hope images — exclude them so they never build hope.
+    # (`v*` already can't match `plugin/…`; the ignore makes the intent explicit.)
+    tags: ["v*", "!plugin/**"]
   workflow_dispatch:
 
 env:
