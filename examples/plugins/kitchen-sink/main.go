@@ -68,8 +68,16 @@ func main() {
 		}
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
 	},
+		plugin.PageSize(50), // plugin-declared page size (the author knows the data)
 		plugin.RowDetail("rowDetail"),
-		plugin.RowActions(plugin.RowAction{Method: "delRow", Label: "Delete", Danger: true}),
+		plugin.RowActions(
+			// A row action with an input field: hope collects "name" before the call.
+			// Icon "beaker" is this plugin's own SVG (sanitized + namespaced by hope).
+			plugin.RowAction{Method: "renameRow", Label: "Rename", Icon: "beaker", Fields: []plugin.Field{
+				{Key: "name", Label: "New name", Placeholder: "row-name"},
+			}},
+			plugin.RowAction{Method: "delRow", Label: "Delete", Icon: "trash", Danger: true},
+		),
 	)
 
 	// rowDetail: the author-controlled RPC hope calls when a row is clicked. Gets the
@@ -96,6 +104,18 @@ func main() {
 			id = fmt.Sprint(row["id"])
 		}
 		return map[string]any{"ok": true, "message": "deleted row " + id}, nil
+	})
+
+	// renameRow: a row action WITH input — hope collects "name" and merges it with
+	// {row} (a real plugin would UPDATE ... SET name = :name WHERE id = row.id).
+	p.Action("renameRow", "Rename row", []plugin.Field{{Key: "name", Label: "New name"}}, func(ctx context.Context, in map[string]any) (any, error) {
+		row, _ := in["row"].(map[string]any)
+		name, _ := in["name"].(string)
+		id := "?"
+		if row != nil {
+			id = fmt.Sprint(row["id"])
+		}
+		return map[string]any{"ok": true, "message": fmt.Sprintf("renamed row %s to %q", id, name)}, nil
 	})
 
 	// A real query view: SQL-highlighted editor prepopulated with "select * from
