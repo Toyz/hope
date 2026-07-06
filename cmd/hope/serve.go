@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov"
+	"github.com/Toyz/sov/gateway/builtin/batch"
 	"github.com/Toyz/sov/gateway/builtin/explorer"
 	"github.com/Toyz/sov/gateway/builtin/introspect"
 	"github.com/Toyz/sov/gateway/builtin/static"
@@ -261,6 +262,7 @@ func runServe(configPath string) error {
 		gw = sov.New(hostGuard)
 	}
 	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
+	gw.MustUse(batch.New(batch.Config{})) // /rpc/_batch — coalesce a page's many calls into one round-trip
 	gw.RegisterAuth(authRouter)               // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter())   // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
