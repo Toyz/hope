@@ -20,10 +20,10 @@ type Limits struct {
 
 // DefaultLimits are the built-in caps applied when the operator sets nothing.
 var DefaultLimits = Limits{
-	MaxConcurrentCalls:   8,
-	MaxConcurrentStreams: 4,
-	CallRatePerSec:       20,
-	CallBurst:            40,
+	MaxConcurrentCalls:   32, // a rich page fires many views at once (+ schema/layout dials); 8 starved it
+	MaxConcurrentStreams: 8,
+	CallRatePerSec:       40,
+	CallBurst:            80,
 	MaxFrameBytes:        64 << 10,
 	MaxFramesPerSec:      50,
 }
