@@ -63,8 +63,11 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .msg { color: var(--dim); font: 12px/1.5 var(--mono); padding: 6px 0; }
   .msg.bad { color: var(--bad); }
 
-  table.g { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
-  table.g th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  /* separate (not collapse): with border-collapse a sticky th's border doesn't move
+     with it, so scrolled rows bleed through the header seam. Borders via box-shadow
+     so they travel with the sticky header. */
+  table.g { width: 100%; border-collapse: separate; border-spacing: 0; font: 12px/1.5 var(--mono); }
+  table.g th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; padding: 7px 12px; box-shadow: inset 0 -1px 0 var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
   table.g td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--mid); vertical-align: top; }
 
   /* rich cell types */
