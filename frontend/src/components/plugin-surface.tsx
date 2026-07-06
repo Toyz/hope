@@ -35,14 +35,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
 
 @component("hope-plugin-surface")
 @styles(theme, css`
-  :host { display: flex; flex-direction: column; min-height: 100%; }
-  .sec { padding: 4px 0 10px; display: flex; flex-direction: column; min-height: 0; }
-  .tabsw { display: flex; flex-direction: column; min-height: 0; }
-  /* "fill" no longer means flex-grow (that fights a scrolling page and collapses
-     stacked sections). A filled table just gets a tall internal scroll; the page
-     scrolls between sections. */
-  .grow { min-height: 0; }
-  .leaf.grow { display: flex; flex-direction: column; }
+  :host { display: block; }
+  /* Stacked sections must keep their natural height — flex-shrink would compress
+     them below their content and overlap the next section. Plain block flow stacks
+     them; the plugin page owns the scroll. */
+  .sec { padding: 4px 0 10px; }
+  .tabsw { display: flex; flex-direction: column; }
+  /* "fill" no longer means flex-grow (that fights a scrolling page). A filled table
+     just gets a tall internal scroll; the page scrolls between sections. */
+  .grow { }
+  .leaf.grow { }
   .sect { padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
