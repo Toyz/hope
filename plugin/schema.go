@@ -215,6 +215,10 @@ type ViewDesc struct {
 	// state with it (so it arrives in TableQuery.Sort) and shows the arrow on that
 	// column. The user can still re-sort. Column must be one your handler accepts.
 	DefaultSort *SortSpec `json:"default_sort,omitempty"`
+	// NoFilter hides the search box and NoSort makes column headers non-interactive —
+	// for a plain paged list (a fixed order your handler controls, no user search/sort).
+	NoFilter bool `json:"no_filter,omitempty"`
+	NoSort   bool `json:"no_sort,omitempty"`
 }
 
 // SortSpec is a column + direction ("asc" | "desc"). Used for a table's DefaultSort.

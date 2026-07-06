@@ -212,6 +212,14 @@ func DefaultSort(column, dir string) TableOpt {
 	return func(v *ViewDesc) { v.DefaultSort = &SortSpec{Column: column, Dir: dir} }
 }
 
+// NoFilter hides a table's search box — for a plain paged list with no user search.
+func NoFilter() TableOpt { return func(v *ViewDesc) { v.NoFilter = true } }
+
+// NoSort makes a table's column headers non-interactive — the order is fixed by your
+// handler (e.g. always newest-first), not user-sortable. Pair with NoFilter for a
+// pure paged list.
+func NoSort() TableOpt { return func(v *ViewDesc) { v.NoSort = true } }
+
 // RefreshEvery auto-refetches the view every n seconds (a live-ish view without a
 // stream). hope stops the timer when the view leaves the DOM.
 func RefreshEvery(seconds int) ViewOpt { return func(v *ViewDesc) { v.RefreshInterval = seconds } }

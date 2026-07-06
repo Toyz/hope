@@ -27,7 +27,7 @@ interface Node {
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[]; default_sort?: { column: string; dir: string } }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -628,6 +628,7 @@ export class HopePluginSurface extends LoomElement {
     const key = v?.method || "_t";
     const st = this.tableSt(key);
     const server = !!v?.server;
+    const noFilter = !!v?.no_filter, noSort = !!v?.no_sort; // plain paged list: no search box / no sortable headers
     const pageSize = v?.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE; // plugin-declared, else default
 
     // Server tables: the plugin already returned exactly this page + a total, so we
@@ -648,7 +649,7 @@ export class HopePluginSurface extends LoomElement {
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(st.page, pages - 1);
     const shown = server ? idx : idx.slice(page * pageSize, page * pageSize + pageSize);
-    const toolbar = server || rows.length > pageSize || st.filter;
+    const toolbar = (!noFilter && (server || rows.length > pageSize || st.filter)) || total > pageSize;
     // Control handlers route to the plugin (server) or re-render locally (client).
     const changePage = (p: number) => { this.setTable(key, { page: p }); if (server) this.serverFetch(key); };
     // 3-phase sort: unsorted -> ascending -> descending -> unsorted.
@@ -672,8 +673,8 @@ export class HopePluginSurface extends LoomElement {
       <div class="tblwrap">
         {toolbar ? (
           <div class="tbar">
-            <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={filterVal}
-              onInput={(e: any) => changeFilter(e.target.value)} />
+            {noFilter ? null : <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={filterVal}
+              onInput={(e: any) => changeFilter(e.target.value)} />}
             {server && v?.facets ? v.facets.map((f) => {
               const fk = `${key}|${f.key}`;
               const opts = [{ value: "", label: `${f.label}: all` }, ...f.options.map((o) => ({ value: o.value, label: `${f.label}: ${o.label}` }))];
@@ -696,6 +697,8 @@ export class HopePluginSurface extends LoomElement {
           <table class="g">
             <thead><tr>
               {cols.map((c, ci) => {
+                // no_sort -> a plain, non-interactive header (order is fixed by the plugin).
+                if (noSort) return <th>{c}</th>;
                 // No explicit user sort yet -> show the arrow on the view's default-sort
                 // column (matched by name), so a table lands pre-sorted, not blank.
                 const active = st.sort >= 0 ? st.sort === ci : v?.default_sort?.column === c;
