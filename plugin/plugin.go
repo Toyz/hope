@@ -205,6 +205,13 @@ func Facets(facets ...Facet) TableOpt {
 	return func(v *ViewDesc) { v.Facets = append(v.Facets, facets...) }
 }
 
+// DefaultSort sets the sort a server table applies on first load (before the user
+// touches a column header) — e.g. DefaultSort("indexed", "desc") for newest-first.
+// dir is "asc" or "desc"; column must be one your handler's sort map accepts.
+func DefaultSort(column, dir string) TableOpt {
+	return func(v *ViewDesc) { v.DefaultSort = &SortSpec{Column: column, Dir: dir} }
+}
+
 // RefreshEvery auto-refetches the view every n seconds (a live-ish view without a
 // stream). hope stops the timer when the view leaves the DOM.
 func RefreshEvery(seconds int) ViewOpt { return func(v *ViewDesc) { v.RefreshInterval = seconds } }

@@ -209,6 +209,17 @@ type ViewDesc struct {
 	// selected values arrive in the query as filters[key] (see TableQuery.Filters),
 	// which you apply in your store. Distinct from the free-text search box.
 	Facets []Facet `json:"facets,omitempty"`
+	// DefaultSort (server tables) is the sort hope applies on FIRST load, before the
+	// user clicks any column header — e.g. newest-indexed first. hope seeds the query
+	// state with it (so it arrives in TableQuery.Sort) and shows the arrow on that
+	// column. The user can still re-sort. Column must be one your handler accepts.
+	DefaultSort *SortSpec `json:"default_sort,omitempty"`
+}
+
+// SortSpec is a column + direction ("asc" | "desc"). Used for a table's DefaultSort.
+type SortSpec struct {
+	Column string `json:"column"`
+	Dir    string `json:"dir"`
 }
 
 // Facet is one dropdown filter on a server table: a key, a label, and the choices.

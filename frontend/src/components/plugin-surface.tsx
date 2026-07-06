@@ -27,7 +27,7 @@ interface Node {
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[]; default_sort?: { column: string; dir: string } }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -396,7 +396,13 @@ export class HopePluginSurface extends LoomElement {
                 </div>
               ))}
             </div>
-            {kids[sel] ? this.renderNode(kids[sel], idKey + "." + sel) : null}
+            {kids[sel]
+              ? (kids[sel].kind === "leaf"
+                // The tab strip already labels this view — suppress the leaf's own
+                // (duplicate) title, same as a titled section holding a sole leaf.
+                ? this.renderLeaf(kids[sel].ref || "", !!kids[sel].fill, true)
+                : this.renderNode(kids[sel], idKey + "." + sel))
+              : null}
           </div>
         );
       }
@@ -533,7 +539,10 @@ export class HopePluginSurface extends LoomElement {
     const st = this.tableSt(method);
     const size = v.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE;
     const cols: string[] | undefined = this.cells[method]?.data?.columns;
-    const sort = st.sort >= 0 && cols ? { column: cols[st.sort], dir: st.dir } : undefined;
+    // Explicit user sort wins; otherwise the view's declared default (by column NAME,
+    // so it works before any columns have loaded). dir: "desc" -> -1, "asc" -> 1.
+    let sort = st.sort >= 0 && cols ? { column: cols[st.sort], dir: st.dir } : undefined;
+    if (!sort && v.default_sort) sort = { column: v.default_sort.column, dir: v.default_sort.dir === "desc" ? -1 : 1 };
     const filters: Record<string, string> = {};
     for (const f of v.facets || []) { const sel = this.facetSel[`${method}|${f.key}`]; if (sel) filters[f.key] = sel; }
     void this.fetch(method, { _q: { page: st.page, page_size: size, sort, filter: st.filter || "", filters } });
@@ -647,11 +656,17 @@ export class HopePluginSurface extends LoomElement {
         <div class="gwrap">
           <table class="g">
             <thead><tr>
-              {cols.map((c, ci) => (
-                <th class="srt" onClick={() => changeSort(ci)}>
-                  {c}<loom-icon class={"sarrow" + (st.sort === ci ? "" : " off")} name={st.dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon>
-                </th>
-              ))}
+              {cols.map((c, ci) => {
+                // No explicit user sort yet -> show the arrow on the view's default-sort
+                // column (matched by name), so a table lands pre-sorted, not blank.
+                const active = st.sort >= 0 ? st.sort === ci : v?.default_sort?.column === c;
+                const dir = st.sort >= 0 ? st.dir : (v?.default_sort?.dir === "desc" ? -1 : 1);
+                return (
+                  <th class="srt" onClick={() => changeSort(ci)}>
+                    {c}<loom-icon class={"sarrow" + (active ? "" : " off")} name={dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon>
+                  </th>
+                );
+              })}
               {hasTrailing ? <th class="rax"></th> : null}
             </tr></thead>
             <tbody>{shown.map((i) => {
