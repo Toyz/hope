@@ -110,6 +110,20 @@ Identity + capabilities. Returned unauthenticated.
 A `query` view receives the user's text in the request params as
 `{ "input": "<text>" }`.
 
+**Interactive tables** — `table` and `query` view descriptors may declare
+interactivity; the columns are always dynamic (hope renders exactly the
+`columns`/`rows` you return, pgAdmin-style):
+
+| field         | effect                                                                       |
+|---------------|------------------------------------------------------------------------------|
+| `default`     | (query) initial editor text; `{param}` placeholders are filled from the page param, e.g. `"select * from {table}"` |
+| `page_size`   | rows hope shows per page (plugin-level — you know your data). 0 => hope default |
+| `row_method`  | a method hope calls with `{row: {column: value}}` when a row is clicked; the returned kv/table shows in a modal |
+| `row_actions` | per-row action buttons: `[{ "method", "label", "icon?", "danger?", "fields?" }]`. Clicking calls `method` with `{row: {...}}` (plus any collected `fields`); `danger` confirms first, then hope refetches the table |
+
+Every one of these is a call into a method *you* implement — hope proxies, you
+decide. Read the clicked row in your handler as `params.row`.
+
 **Stream kinds** (`streams[].kind`): `counter` (numbers ticking), `log`
 (append-only lines), `series` (time series -> sparkline).
 
@@ -172,14 +186,20 @@ node kinds, and view kinds are skipped, never fatal.
 **Surfaces** (only `container` is rendered in hope v1; the rest are reserved and
 will render in later versions with no protocol change):
 
-| surface     | mount point                              | v1     |
-|-------------|------------------------------------------|--------|
-| `container` | a tab/panel in the container inspector   | yes    |
-| `page`      | a full custom nav page                   | later  |
-| `rail`      | a rail/nav entry + actions               | later  |
-| `dashboard` | a fleet/host dashboard widget            | later  |
-| `stack`     | a stack-view widget                      | later  |
-| `command`   | a command-palette entry                  | later  |
+| surface     | mount point                              | rendered |
+|-------------|------------------------------------------|----------|
+| `container` | a tab/panel in the container inspector   | yes      |
+| `page`      | a full custom nav page (incl. dynamic nested pages via `pages[]`) | yes |
+| `command`   | plugin pages + actions in the command palette | yes |
+| `rail`      | a rail/nav entry (plugin pages nest under their container) | yes |
+| `dashboard` | a fleet/host dashboard widget            | later    |
+| `stack`     | a stack-view widget                      | later    |
+
+**Dynamic pages** — a `page` contribution may carry `pages[]` (one level of
+nesting): each item shares the contribution's `node` but passes its own `param`,
+which hope merges into every call the page makes. So one layout becomes many rail
+entries (e.g. a database's tables), each rendering the same views with a different
+argument. Read it in a handler as `params.<key>`.
 
 **Match** (container/stack surfaces) decides which containers a contribution
 applies to. The plugin declares it; hope does not map containers to plugins. Set
@@ -240,19 +260,38 @@ Standard JSON-RPC 2.0 error object:
 | -32603  | internal error       |
 | -32001  | unauthorized         |
 
+## Protocol version
+
+hope announces the protocol version it speaks on every call via the
+`X-Hope-Protocol-Version` header, and reads yours from `hope.schema`'s
+`protocolVersion`. A skew is not fatal: hope skips surfaces, node kinds, and view
+kinds it doesn't implement, and reports a compat verdict (`ok` / `plugin_newer` /
+`plugin_older`) on the manifest. Build to the version you target; degrade, don't
+break.
+
 ## Limits hope enforces
 
-hope is the control plane and isolates itself from a slow or hostile plugin:
-a per-call timeout, a response body cap (4 MiB), bounded concurrent calls and
-streams per plugin, and stream frame size/rate caps. Design handlers to return
-promptly and to bound their own output.
+hope is the control plane and isolates itself from a slow or hostile plugin: a
+per-call timeout, a response body cap (4 MiB), bounded concurrent calls and streams
+per plugin, a call-rate limit, and stream frame size/rate caps. These are
+**hope-owned** — a plugin cannot raise its own ceiling — but the operator tunes the
+envelope in `[plugins.limits]` (`max_concurrent_calls`, `max_concurrent_streams`,
+`call_rate_per_sec`, `call_burst`, `max_frame_bytes`, `max_frames_per_sec`); unset
+fields use built-in defaults. Design handlers to return promptly and bound their
+own output. Over-cap unary calls are rejected; over-cap stream frames are dropped.
 
-## Trust and change detection
+## Trust, change detection, and audit
 
-On enable, hope fingerprints the plugin (a hash of `hope.schema` + the image
-digest). If either changes later — an image swap, a schema change — hope
-auto-disables the plugin and requires re-approval. A swapped container cannot
-silently inject new actions into the control plane.
+On enable, hope fingerprints the plugin: the image digest (a cheap fleet-wide
+stale check) **and** a hash of `hope.schema` captured at approval. An image swap
+flags the plugin changed; a runtime schema change (new capabilities the operator
+never approved) is caught on inspect and auto-disables the plugin, requiring
+re-approval. A swapped or mutated container cannot silently inject new actions into
+the control plane.
+
+Every **action** hope proxies (not reads) is recorded in an audit log —
+who/plugin/host/method/danger/ok/duration — so there is a trail of everything a
+plugin was asked to do through the control plane.
 
 ## Minimal plugin (Go SDK)
 
@@ -285,6 +324,22 @@ func main() {
 }
 ```
 
+An interactive table with a row-detail modal and a per-row delete action:
+
+```go
+p.TableView("rows", "Rows",
+    func(ctx context.Context) (any, error) {
+        return map[string]any{"columns": []string{"id", "name"}, "rows": rows}, nil
+    },
+    plugin.PageSize(50),
+    plugin.RowDetail("inspect"), // clicking a row calls inspect(row) -> modal
+    plugin.RowActions(plugin.RowAction{Method: "del", Label: "Delete", Danger: true}),
+)
+p.QueryView("sql", "Query", "sql", "select * from {table}", runSQL) // prepopulated editor
+```
+
 Add the labels, deploy it in your stack, enable it in hope. Reference plugins live
 in [`examples/plugins/`](../examples/plugins): `hello-world` (every view kind, a
-starter you can copy) and `hope-postgres` (a real PGAdmin-class panel).
+starter you can copy), `kitchen-sink` (exercises the whole protocol — interactive
+tables, row actions, dynamic pages, every stream/setting kind), and `hope-postgres`
+(a real PGAdmin-class panel).
