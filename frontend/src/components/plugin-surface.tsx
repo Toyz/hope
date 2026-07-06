@@ -686,8 +686,10 @@ export class HopePluginSurface extends LoomElement {
           <div class="rmbody">{this.renderDetail(m.data)}</div>
           {m.actions && m.actions.length && m.row ? (
             <div class="rmfoot">{m.actions.map((a) => (
-              <hope-button size="sm" tone={a.danger ? "danger" : "primary"} icon={a.icon}
-                onClick={() => this.runModalAction(a, m)}>{a.label}</hope-button>
+              <hope-button size="sm" tone={a.danger ? "danger" : "primary"}
+                onClick={() => this.runModalAction(a, m)}>
+                {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}{a.label}
+              </hope-button>
             ))}</div>
           ) : null}
         </div>
