@@ -284,6 +284,16 @@ func (p *Plugin) TextView(method, label string, fn ViewFunc) *Plugin {
 	return p
 }
 
+// SearchView registers a Search (autocomplete) view: hope calls fn with {q: <text>}
+// as the user types and renders the returned SearchData as a live dropdown; selecting
+// a SearchItem navigates to its To. Read the query with plugin.SearchQuery(ctx). Great
+// for a "go to <entity>" jump box.
+func (p *Plugin) SearchView(method, label string, fn ViewFunc) *Plugin {
+	p.claim(method)
+	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Search}, fn}
+	return p
+}
+
 // ChartView registers a Chart view; the handler returns ChartData (bar or line,
 // one or more named series over categorical labels). hope draws axes + legend.
 func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {

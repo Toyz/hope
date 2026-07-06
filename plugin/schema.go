@@ -22,7 +22,27 @@ const (
 	Cards ViewKind = "cards" // {items:[Card]} -> a responsive grid of cards (a gallery)
 	Stat  ViewKind = "stat"  // {stats:[Stat]} (or one Stat) -> big-number stat blocks (see StatData)
 	Text  ViewKind = "text"  // {text:"…"} (or a raw string) -> a monospace scrollable block (logs, config, output)
+	// Search is an autocomplete box: hope calls the method with {q: <typed text>} as the
+	// user types (debounced) and renders the returned SearchItems as a live dropdown.
+	// Selecting one navigates to its To (a DetailPage/link target) — a "go to X" jump.
+	Search ViewKind = "search"
 )
+
+// SearchData is what a Search view returns for a query: the current suggestion list.
+type SearchData struct {
+	Items []SearchItem `json:"items"`
+}
+
+// SearchItem is one autocomplete suggestion. Label is the primary text; Sub is a dim
+// secondary line (e.g. an id); Image is an optional thumbnail (absolute http(s) URL);
+// To is where selecting it navigates — plugin-relative like a Link/DetailLink cell
+// (e.g. "creator/42").
+type SearchItem struct {
+	Label string `json:"label"`
+	Sub   string `json:"sub,omitempty"`
+	Image string `json:"image,omitempty"`
+	To    string `json:"to"`
+}
 
 // ChartData is what a Chart view returns: categorical labels on the x-axis and one
 // or more named series of values. Type is "bar" (default) or "line". A line chart

@@ -98,6 +98,16 @@ func ReadTableQuery(ctx context.Context) (q TableQuery, ok bool) {
 	return *w.Q, true
 }
 
+// SearchQuery reads the text a Search (autocomplete) view was called with (the "q"
+// param). Empty when there's no query yet — return no items for that.
+func SearchQuery(ctx context.Context) string {
+	var w struct {
+		Q string `json:"q"`
+	}
+	_ = Params(ctx, &w)
+	return w.Q
+}
+
 // Handler returns the http.Handler that serves the JSON-RPC endpoint at the
 // plugin's path. Mount it yourself, or use ListenAndServe.
 func (p *Plugin) Handler() http.Handler {

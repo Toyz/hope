@@ -100,6 +100,18 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .pkvr:last-child { border-bottom: none; }
   .pkvk { flex: 0 0 150px; color: var(--mid); font: 11px/1.5 var(--mono); letter-spacing: .02em; text-transform: uppercase; }
   .pkvv { flex: 1 1 auto; min-width: 0; color: var(--hi); font: 12px/1.5 var(--mono); word-break: break-word; }
+  /* Search (autocomplete) view: an input + a live dropdown of suggestions. */
+  .psearch { position: relative; padding: 4px 2px; }
+  .psinput { width: 100%; box-sizing: border-box; height: 38px; padding: 0 12px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 13px/1 var(--mono); }
+  .psinput:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .psdrop { position: absolute; z-index: 20; left: 2px; right: 2px; margin-top: 4px; max-height: 320px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+  .psitem { display: flex; align-items: center; gap: 10px; padding: 7px 11px; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); min-width: 0; }
+  .psitem:last-child { border-bottom: none; }
+  .psitem:hover { background: color-mix(in srgb, var(--upd) 9%, var(--panel)); }
+  .psimg { width: 28px; height: 28px; object-fit: contain; border-radius: 3px; background: var(--ink); border: 1px solid var(--line); flex: 0 0 auto; }
+  .psl { color: var(--hi); font: 12.5px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pssub { margin-left: auto; color: var(--dim); font: 11px/1 var(--mono); flex: 0 0 auto; }
+  .psmsg { padding: 9px 11px; color: var(--dim); font: 11.5px/1 var(--mono); }
   .cprog { display: inline-block; width: 90px; height: 8px; background: var(--line2); border-radius: 999px; overflow: hidden; vertical-align: middle; }
   .cprog i { display: block; height: 100%; background: var(--upd); }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
@@ -234,6 +246,8 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor modal: { title: string; data: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
   @reactive accessor editCell: { key: string; row: number; col: number } | null = null; // inline-edit target
   @reactive accessor lightbox: { src: string; alt: string } | null = null; // full-screen image viewer
+  @reactive accessor search: Record<string, { q: string; items: any[]; loading: boolean }> = {}; // per Search-view autocomplete state
+  private searchDeb = new Map<string, any>(); // per Search-view debounce timers
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
@@ -303,6 +317,7 @@ export class HopePluginSurface extends LoomElement {
     for (const ref of this.leafRefs(s.node)) {
       const v = this.views[ref];
       if (!v) continue;
+      if (v.kind === "search") continue; // autocomplete is query-driven — no eager fetch
       if (v.server) this.serverFetch(ref);
       else void this.fetch(ref);
       // Auto-refresh timer for views that declare an interval (min 2s guard).
@@ -497,13 +512,15 @@ export class HopePluginSurface extends LoomElement {
     // blanks the view; "loading…" only before the first result.
     const body = v.kind === "query"
       ? this.renderQuery(v, cell)
-      : cell?.data != null
-        ? this.renderView(v, cell.data)
-        : cell?.loading
-          ? <div class="msg">loading…</div>
-          : cell?.error
-            ? <div class="msg bad">{cell.error}</div>
-            : <div class="msg">no data</div>;
+      : v.kind === "search"
+        ? this.renderSearch(v) // query-driven: render the box immediately, no auto-fetch
+        : cell?.data != null
+          ? this.renderView(v, cell.data)
+          : cell?.loading
+            ? <div class="msg">loading…</div>
+            : cell?.error
+              ? <div class="msg bad">{cell.error}</div>
+              : <div class="msg">no data</div>;
     // Label row carries an optional refresh button inline. When the label is hidden
     // (sole leaf of a titled section) the section renders the refresh next to its
     // title instead, so it isn't shown here.
@@ -513,6 +530,52 @@ export class HopePluginSurface extends LoomElement {
         {body}
       </div>
     );
+  }
+
+  // renderSearch draws an autocomplete box for a Search view: typing calls the plugin
+  // method with {q} (debounced) and shows the returned items; selecting one navigates.
+  private renderSearch(v: ViewDesc) {
+    const st = this.search[v.method] || { q: "", items: [], loading: false };
+    const pick = (it: any) => { this.search = { ...this.search, [v.method]: { q: "", items: [], loading: false } }; this.navCell({ to: it.to }); };
+    return (
+      <div class="psearch">
+        <input class="psinput" placeholder={v.label || "search…"} value={st.q} autocomplete="off"
+          onInput={(e: any) => { const q = e.target.value; this.search = { ...this.search, [v.method]: { ...st, q } }; this.searchFetch(v.method, q); }} />
+        {st.loading && !st.items.length ? <div class="psdrop"><div class="psmsg">searching…</div></div> : null}
+        {st.items.length ? (
+          <div class="psdrop">
+            {st.items.map((it: any) => (
+              <div class="psitem" onClick={() => pick(it)}>
+                {it.image && /^https?:\/\//i.test(this.cellStr(it.image))
+                  ? <img class="psimg" src={this.cellStr(it.image)} loading="lazy" onError={(e: any) => ((e.target as HTMLElement).style.visibility = "hidden")} />
+                  : null}
+                <span class="psl">{this.cellStr(it.label)}</span>
+                {it.sub ? <span class="pssub">{this.cellStr(it.sub)}</span> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  private searchFetch(method: string, q: string) {
+    clearTimeout(this.searchDeb.get(method));
+    this.searchDeb.set(method, setTimeout(async () => {
+      const s = this.surface;
+      if (!s) return;
+      if (!q.trim()) { this.search = { ...this.search, [method]: { q, items: [], loading: false } }; return; }
+      this.search = { ...this.search, [method]: { ...(this.search[method] || { q, items: [] }), q, loading: true } };
+      try {
+        const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: { q } }]);
+        // Guard against an out-of-order response overwriting a newer query.
+        if ((this.search[method]?.q ?? "") !== q) return;
+        this.search = { ...this.search, [method]: { q, items: Array.isArray(data?.items) ? data.items : [], loading: false } };
+      } catch {
+        if ((this.search[method]?.q ?? "") !== q) return;
+        this.search = { ...this.search, [method]: { q, items: [], loading: false } };
+      }
+    }, 180));
   }
 
   private refreshBtn(ref: string) {
@@ -533,6 +596,8 @@ export class HopePluginSurface extends LoomElement {
         return this.renderChart(data);
       case "cards":
         return this.renderCards(data);
+      case "search":
+        return this.renderSearch(v);
       case "stat":
         return this.renderStat(data);
       case "text":
