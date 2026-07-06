@@ -3,8 +3,9 @@
 // view-kind components (kv/table/query/tree), action buttons, and stream slots,
 // calling the plugin through Plugins.call. The SAME component renders a container
 // panel now and a full page later — it doesn't care which surface hosts it.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
+import { LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { PromptService, type PromptField } from "../prompt";
 import { ConfirmService } from "../confirm";
@@ -62,6 +63,20 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   table.g { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
   table.g th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
   table.g td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--mid); vertical-align: top; }
+
+  /* rich cell types */
+  .pill { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font: 600 10px/1.6 var(--mono); letter-spacing: .04em; background: color-mix(in srgb, var(--mid) 15%, transparent); color: var(--hi); }
+  .pill.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .pill.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+  .pill.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .pill.info, .pill.upd { background: color-mix(in srgb, var(--upd) 18%, transparent); color: var(--upd); }
+  .clink { color: var(--upd); cursor: pointer; text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--upd) 40%, transparent); }
+  .clink:hover { color: var(--hi); border-bottom-color: var(--hi); }
+  .ctime { color: var(--mid); }
+  .cnum { font-variant-numeric: tabular-nums; color: var(--hi); }
+  .ccode { font: 11.5px/1.5 var(--mono); background: var(--ink); padding: 1px 5px; color: var(--upd); }
+  .cprog { display: inline-block; width: 90px; height: 8px; background: var(--line2); border-radius: 999px; overflow: hidden; vertical-align: middle; }
+  .cprog i { display: block; height: 100%; background: var(--upd); }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
   .tblwrap { display: flex; flex-direction: column; min-height: 0; }
   .leaf.grow .tblwrap { flex: 1 1 0; }
@@ -522,7 +537,7 @@ export class HopePluginSurface extends LoomElement {
                           onBlur={(e: any) => void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method)} /></td>
                       );
                     }
-                    return <td class={editable ? "ecell" : ""} onClick={editable ? (e: any) => { e.stopPropagation(); this.editCell = { key, row: i, col: ci }; } : undefined}>{this.cellStr(cell)}</td>;
+                    return <td class={editable ? "ecell" : ""} onClick={editable ? (e: any) => { e.stopPropagation(); this.editCell = { key, row: i, col: ci }; } : undefined}>{this.cellNode(cell)}</td>;
                   })}
                   {hasTrailing ? (
                     <td class="rax">
@@ -729,8 +744,72 @@ export class HopePluginSurface extends LoomElement {
   }
   private cellStr(v: any): string {
     if (v == null) return "—";
-    if (typeof v === "object") return JSON.stringify(v);
+    if (typeof v === "object") {
+      if ("value" in v) return v.value == null ? "—" : String(v.value); // typed cell -> its value
+      return JSON.stringify(v);
+    }
     return String(v);
+  }
+
+  private get router(): LoomRouter { return app.get(LoomRouter); }
+
+  // cellNode renders a table cell. A plain scalar is text; a typed cell object
+  // { type, value, ... } renders as a badge/link/time/number/progress/code so dense
+  // data reads well. Unknown types fall back to text.
+  private cellNode(cell: any): any {
+    if (cell && typeof cell === "object" && typeof cell.type === "string") {
+      switch (cell.type) {
+        case "badge":
+        case "chip":
+          return <span class={"pill " + (cell.tone || "")}>{this.cellStr(cell.value)}</span>;
+        case "link":
+          return <a class="clink" onClick={(e: any) => { e.stopPropagation(); this.navCell(cell); }}>{this.cellStr(cell.value)}</a>;
+        case "time":
+          return <span class="ctime" data-tip={this.absTime(cell.value)}>{this.relTime(cell.value)}</span>;
+        case "number":
+          return <span class="cnum">{this.fmtNum(cell.value)}{cell.unit ? " " + cell.unit : ""}</span>;
+        case "progress": {
+          const p = Math.max(0, Math.min(1, Number(cell.value) || 0));
+          return <span class="cprog" data-tip={Math.round(p * 100) + "%"}><i style={`width:${(p * 100).toFixed(1)}%`}></i></span>;
+        }
+        case "code":
+          return <code class="ccode">{this.cellStr(cell.value)}</code>;
+        default:
+          return this.cellStr(cell.value);
+      }
+    }
+    return this.cellStr(cell);
+  }
+
+  // navCell follows a link cell: an internal `to` routes in-app; an external `href`
+  // opens a new tab.
+  private navCell(cell: any) {
+    if (cell.to) this.router.navigate(String(cell.to));
+    else if (cell.href) window.open(String(cell.href), "_blank", "noopener");
+  }
+
+  private fmtNum(v: any): string {
+    const n = Number(v);
+    return isNaN(n) ? this.cellStr(v) : n.toLocaleString();
+  }
+  private toMs(v: any): number {
+    const n = Number(v);
+    return n < 1e12 ? n * 1000 : n; // seconds vs millis
+  }
+  private absTime(v: any): string {
+    const ms = this.toMs(v);
+    return isNaN(ms) ? "" : new Date(ms).toLocaleString();
+  }
+  private relTime(v: any): string {
+    const ms = this.toMs(v);
+    if (isNaN(ms)) return this.cellStr(v);
+    let s = (Date.now() - ms) / 1000;
+    const future = s < 0; s = Math.abs(s);
+    const u: [number, string][] = [[60, "s"], [60, "m"], [24, "h"], [7, "d"], [4.35, "w"], [12, "mo"], [Infinity, "y"]];
+    let val = s, label = "s";
+    for (const [div, lab] of u) { if (val < div) { label = lab; break; } val /= div; label = lab; }
+    const out = `${Math.round(val)}${label}`;
+    return future ? `in ${out}` : `${out} ago`;
   }
 
   private closeModal = () => (this.modal = null);

@@ -250,10 +250,14 @@ func main() {
 		}
 		// sort (server-side) by the requested column
 		if q.Sort.Column != "" {
+			byScore := func(a, b int) bool { return score(a) < score(b) }
 			less := map[string]func(a, b int) bool{
-				"id":    func(a, b int) bool { return a < b },
-				"name":  func(a, b int) bool { return name(a) < name(b) },
-				"score": func(a, b int) bool { return score(a) < score(b) },
+				"id":       func(a, b int) bool { return a < b },
+				"name":     func(a, b int) bool { return name(a) < name(b) },
+				"band":     byScore,
+				"points":   byScore,
+				"progress": byScore,
+				"seen":     func(a, b int) bool { return a > b }, // larger id = older = seen earlier
 			}[q.Sort.Column]
 			if less != nil {
 				sort.SliceStable(ids, func(x, y int) bool {
@@ -269,9 +273,26 @@ func main() {
 		end := min(start+size, total)
 		rows := make([][]any, 0, end-start)
 		for _, i := range ids[start:end] {
-			rows = append(rows, []any{i, name(i), score(i)})
+			sc := score(i)
+			tone := plugin.ToneOK
+			if sc < 300 {
+				tone = plugin.ToneBad
+			} else if sc < 700 {
+				tone = plugin.ToneWarn
+			}
+			rows = append(rows, []any{
+				plugin.Code(fmt.Sprintf("#%05d", i)),
+				plugin.Link(name(i), fmt.Sprintf("/plugin/%s/user", "kitchen")), // master-detail target (later)
+				plugin.Badge(scoreBand(sc), tone),
+				plugin.Number(sc*137, ""),
+				plugin.Progress(float64(sc) / 1000),
+				plugin.Time(started.Add(-time.Duration(i) * time.Minute).Unix()),
+			})
 		}
-		return map[string]any{"columns": []string{"id", "name", "score"}, "rows": rows, "total": total}, nil
+		return map[string]any{
+			"columns": []string{"id", "name", "band", "points", "progress", "seen"},
+			"rows":    rows, "total": total,
+		}, nil
 	}, plugin.ServerSide(), plugin.PageSize(100))
 
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
@@ -423,6 +444,17 @@ func parseSelect(q string) []string {
 		}
 	}
 	return out
+}
+
+func scoreBand(sc int) string {
+	switch {
+	case sc < 300:
+		return "bronze"
+	case sc < 700:
+		return "silver"
+	default:
+		return "gold"
+	}
 }
 
 func orDefault(s, d string) string {
