@@ -435,10 +435,13 @@ func main() {
 
 	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
-		plugin.Section("Counters", plugin.Leaf("counts")),
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
+		// Traffic chart on the left, the counters column on the right.
+		plugin.Row(
+			plugin.Section("Traffic", plugin.Leaf("chart")),
+			plugin.Section("Counters", plugin.Leaf("counts")),
+		),
 		plugin.Section("Leaderboard", plugin.Leaf("leaders")),
-		plugin.Section("Traffic", plugin.Leaf("chart")),
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
 		plugin.Section("Rows", plugin.Leaf("rows")),
 	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it

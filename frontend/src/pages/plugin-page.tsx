@@ -5,7 +5,7 @@
 import { LoomElement, component, styles, css, mount, unmount, reactive, prop, watch, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
-import { PageCrumbs } from "../events";
+import { PageCrumbs, pluginCrumbs } from "../events";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { PromptService } from "../prompt";
@@ -74,15 +74,23 @@ export class PluginPage extends LoomElement {
   // resolve to absolute /plugin/<key>/… routes.
   private emitCrumbs() {
     const s = this.surface;
-    if (!s) { bus.emit(new PageCrumbs(null)); return; }
-    const enc = encodeURIComponent(this.key);
-    const abs = (to?: string) => (to ? (to.startsWith("/") ? to : `/plugin/${enc}/${to}`) : undefined);
+    if (!s) { this.setCrumbs(null); return; }
+    // this.key is the ENCODED path segment (load() decodes it for the RPC) — do NOT
+    // re-encode it here or the key double-encodes and the target plugin 404s.
+    const abs = (to?: string) => (to ? (to.startsWith("/") ? to : `/plugin/${this.key}/${to}`) : undefined);
     const trail: { label: string; to?: string }[] = [{ label: s.name }];
     for (const c of s.breadcrumbs || []) trail.push({ label: c.label, to: abs(c.to) });
+    this.setCrumbs(trail);
+  }
+
+  // Persist to the holder (survives a reload / topbar mount race) AND nudge the
+  // topbar to re-render via the event.
+  private setCrumbs(trail: { label: string; to?: string }[] | null) {
+    pluginCrumbs.value = trail;
     bus.emit(new PageCrumbs(trail));
   }
 
-  @unmount onUnmount() { bus.emit(new PageCrumbs(null)); }
+  @unmount onUnmount() { this.setCrumbs(null); }
 
   // The page's author-declared header actions go in the phead's action slot (the
   // one header component every page uses) — not a bespoke bar inside the surface.

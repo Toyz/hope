@@ -2,12 +2,12 @@
 // current scope (fleet / host / stack|resource), a command/search stub, and the
 // global refresh + exit. Navigation itself lives in the rail; this bar is
 // orientation + global actions.
-import { LoomElement, component, styles, css, reactive, on, app, bus } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, on, mount, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { withHost } from "../host-url";
-import { PaletteToggle, PageCrumbs } from "../events";
+import { PaletteToggle, PageCrumbs, pluginCrumbs } from "../events";
 import { modLabel } from "../platform";
 import { theme } from "../styles";
 
@@ -45,10 +45,14 @@ export class HopeTopbar extends LoomElement {
 
   private get router(): LoomRouter { return app.get(LoomRouter); }
 
+  // Read the persisted crumbs on mount so a full page reload (where the page may have
+  // emitted before this subscribed) still shows the author trail.
+  @mount private onMount() { this.pageCrumbs = pluginCrumbs.value; }
+
   @on(RouteChanged)
   private onRoute(e: RouteChanged) {
     this.path = e.path;
-    if (!e.path.startsWith("/plugin/")) this.pageCrumbs = null; // stale off a plugin page
+    if (!e.path.startsWith("/plugin/")) { this.pageCrumbs = null; pluginCrumbs.value = null; } // stale off a plugin page
   }
 
   @on(PageCrumbs)

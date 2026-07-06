@@ -45,7 +45,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
      just gets a tall internal scroll; the page scrolls between sections. */
   .grow { }
   .leaf.grow { }
-  .sect { padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+  .sect { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+  .sbtn.rfr { padding: 2px 5px; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0 4px; }
@@ -101,7 +102,6 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   th.srt:hover { color: var(--mid); }
   .sarrow { margin-left: 4px; color: var(--upd); vertical-align: middle; }
   .sarrow.off { visibility: hidden; } /* reserve the space so sorting doesn't shift column widths */
-  .llabel.end { justify-content: flex-end; }
 
   .stats2 { display: flex; flex-wrap: wrap; gap: 26px; padding: 4px 0; }
   .statb { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 4px 0; border-left: 2px solid transparent; padding-left: 0; }
@@ -342,11 +342,13 @@ export class HopePluginSurface extends LoomElement {
       case "section": {
         const kids = n.children || [];
         // A titled section holding a single leaf already labels it — suppress the
-        // leaf's own (duplicate) label.
+        // leaf's own (duplicate) label. If that leaf is refreshable, put its refresh
+        // button next to the section title (not floating in the leaf).
         const soleLeaf = !!n.title && kids.length === 1 && kids[0].kind === "leaf";
+        const soleView = soleLeaf ? this.views[kids[0].ref || ""] : undefined;
         return (
           <div class={"sec" + g}>
-            {n.title ? <div class="sect">{n.title}</div> : null}
+            {n.title ? <div class="sect">{n.title}{soleView?.refresh ? this.refreshBtn(kids[0].ref || "") : null}</div> : null}
             {kids.map((c, i) => (soleLeaf ? this.renderLeaf(c.ref || "", !!c.fill, true) : this.renderNode(c, idKey + "." + i)))}
           </div>
         );
@@ -426,17 +428,19 @@ export class HopePluginSurface extends LoomElement {
           : cell?.error
             ? <div class="msg bad">{cell.error}</div>
             : <div class="msg">no data</div>;
-    // The label row carries an optional manual refresh button (view.refresh). Keep
-    // the row even when the label is hidden if there's a refresh to show.
-    const refreshBtn = v.refresh ? <button class="sbtn" title="refresh" onClick={() => this.refetchView(ref)}><loom-icon name="rotate" size={11}></loom-icon></button> : null;
-    const label = hideLabel ? (refreshBtn ? <div class="llabel end">{refreshBtn}</div> : null)
-      : <div class="llabel">{this.leafIcon(v.icon)}{v.label}{refreshBtn}</div>;
+    // Label row carries an optional refresh button inline. When the label is hidden
+    // (sole leaf of a titled section) the section renders the refresh next to its
+    // title instead, so it isn't shown here.
     return (
       <div class={"leaf" + g}>
-        {label}
+        {hideLabel ? null : <div class="llabel">{this.leafIcon(v.icon)}{v.label}{v.refresh ? this.refreshBtn(ref) : null}</div>}
         {body}
       </div>
     );
+  }
+
+  private refreshBtn(ref: string) {
+    return <button class="sbtn rfr" title="refresh" onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button>;
   }
 
   private renderView(v: ViewDesc, data: any) {

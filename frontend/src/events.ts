@@ -102,6 +102,11 @@ export class PageCrumbs extends LoomEvent {
   }
 }
 
+// The current plugin-page crumbs, persisted so the topbar reads them even across a
+// full page reload (the bus event is fire-and-forget and can be missed if the topbar
+// subscribes after the page emits). Source of truth; the event is the re-render nudge.
+export const pluginCrumbs: { value: { label: string; to?: string }[] | null } = { value: null };
+
 // Fired to open the global command palette (the ⌘K "jump to" search). The topbar
 // search box emits it; <hope-palette> listens (⌘K itself is handled in-palette).
 export class PaletteToggle extends LoomEvent {}
