@@ -200,7 +200,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .pcard.ok { border-left: 2px solid var(--ok); } .pcard.warn { border-left: 2px solid var(--warn); }
   .pcard.bad { border-left: 2px solid var(--bad); } .pcard.info { border-left: 2px solid var(--upd); }
   .pchero { display: flex; justify-content: center; padding: 4px; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
-  .pchero img { max-height: 160px; max-width: 100%; object-fit: contain; image-rendering: crisp-edges; }
+  .pchero img { max-height: 420px; max-width: 100%; object-fit: contain; image-rendering: crisp-edges; }
   .pchead { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .pctitle { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .pct { color: var(--hi); font: 600 13px/1.2 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
