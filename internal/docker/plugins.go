@@ -11,7 +11,71 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 )
+
+// PluginNetwork is the dedicated user bridge hope uses to reach plugins on a daemon:
+// hope (or the agent) and each enabled plugin container both join it, and hope dials
+// the plugin by a stable alias on it — no published port, no hairpin, deterministic
+// DNS. Created on demand per daemon (local socket, or an agent's daemon over tunnel).
+const PluginNetwork = "ink-plugins"
+
+// EnsurePluginNetwork creates the shared ink-plugins bridge if missing (idempotent).
+func (c *Client) EnsurePluginNetwork(ctx context.Context) error {
+	f := filters.NewArgs(filters.Arg("name", PluginNetwork))
+	nets, err := c.sdk().NetworkList(ctx, network.ListOptions{Filters: f})
+	if err != nil {
+		return err
+	}
+	for _, n := range nets {
+		if n.Name == PluginNetwork {
+			return nil
+		}
+	}
+	_, err = c.sdk().NetworkCreate(ctx, PluginNetwork, network.CreateOptions{Driver: "bridge"})
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		return nil
+	}
+	return err
+}
+
+// PluginNetAlias is the stable DNS name a plugin container is aliased to on the shared
+// network — always a valid DNS label (hex id), so hope can dial it directly.
+func PluginNetAlias(containerID string) string {
+	id := containerID
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return "plugin-" + id
+}
+
+// IsLocalSocket reports whether this client talks to a local unix socket (as opposed
+// to a remote tcp:// daemon). Only for a local socket can hope join the plugin's
+// network and reach it by container DNS; a remote tcp daemon needs a published port.
+func (c *Client) IsLocalSocket() bool { return c.daemonHostIP() == "" }
+
+// SelfContainerID resolves the container id of the process on THIS daemon that should
+// join the plugin network — hope on the local daemon, the agent on a tunnel. It tries
+// the hostname/hint first (usually the container id), then falls back to the daemon's
+// HOPE_MANAGED container (hope + agent images bake HOPE_MANAGED=1) — robust even when a
+// custom --hostname hides the id. Returns "" if none is found.
+func (c *Client) SelfContainerID(ctx context.Context) string {
+	if id := c.selfID(); id != "" {
+		if _, err := c.sdk().ContainerInspect(ctx, id); err == nil {
+			return id
+		}
+	}
+	list, err := c.sdk().ContainerList(ctx, container.ListOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, ct := range list {
+		if c.isHopeManaged(ctx, ct.ID) {
+			return ct.ID
+		}
+	}
+	return ""
+}
 
 // Labels a container sets to opt into the hope plugin system. These are the
 // USER-facing namespace (distinct from the ink.hope.* labels hope sets on

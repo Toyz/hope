@@ -70,13 +70,6 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	if path == "" {
 		path = "/__hope"
 	}
-	// Best-effort attach the routing container (hope locally, the agent remotely) to
-	// the plugin's network so the container IP is routable. Harmless if already on
-	// it or not containerized. Done over the same docker client either way (local
-	// daemon, or the agent's daemon over the tunnel).
-	if self := dock.SelfID(); self != "" && netName != "" {
-		_ = dock.AttachNetwork(ctx, self, netName, nil)
-	}
 	// A stream must not use the unary request timeout (it would cut the stream off);
 	// it relies on context cancellation when the UI disconnects instead.
 	timeout := dialTimeout
@@ -91,13 +84,39 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 		return urls
 	}
 
+	// Shared ink-plugins network. Put the routing side (hope on a local socket, the
+	// agent on a remote host) AND the plugin on one bridge, then reach the plugin by a
+	// stable DNS alias — no published port, no hairpin, deterministic. Best-effort; the
+	// raw candidates below remain as fallback. Skipped for a remote tcp:// daemon
+	// (hope isn't a container there, so it can't join — it uses the published port).
+	alias := ""
+	if dock.IsLocalSocket() || (hc.Kind != "local" && r.dialer != nil) {
+		if dock.EnsurePluginNetwork(ctx) == nil {
+			a := docker.PluginNetAlias(pc.ContainerID)
+			if self := dock.SelfContainerID(ctx); self != "" {
+				_ = dock.AttachNetwork(ctx, self, docker.PluginNetwork, nil) // hope/agent joins
+			}
+			if dock.AttachNetwork(ctx, pc.ContainerID, docker.PluginNetwork, []string{a}) == nil {
+				alias = a
+			}
+		}
+	}
+	// Fallback: also attach the routing side to the plugin's OWN network so netTargets
+	// (the container IP) stays reachable if the shared-net path didn't take.
+	if self := dock.SelfID(); self != "" && netName != "" {
+		_ = dock.AttachNetwork(ctx, self, netName, nil)
+	}
+
 	if hc.Kind == "local" {
-		// Local (or hope-driven) daemon: everything is directly reachable. Try the
-		// published host port FIRST — for a remote tcp:// daemon (e.g. hope pointed at
-		// tcp://host:2375) the daemon-host published port is routable while the
-		// container's internal IP is not, and dialing the internal IP first would just
-		// hang until timeout.
-		urls := append(directURLs(directTargets), directURLs(netTargets)...)
+		// Local daemon: dial the shared-net alias first (unix socket), then the
+		// published host port (remote tcp:// daemon — the daemon-host port is routable
+		// while the container IP is not), then the container IP.
+		var urls []string
+		if alias != "" {
+			urls = append(urls, "http://"+alias+":"+strconv.Itoa(pc.Port)+path)
+		}
+		urls = append(urls, directURLs(directTargets)...)
+		urls = append(urls, directURLs(netTargets)...)
 		if len(urls) == 0 {
 			return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
 		}
@@ -105,21 +124,26 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	}
 
 	// Remote host: if the plugin publishes a port on a remote TCP daemon, hope can
-	// reach it DIRECTLY at the daemon's host IP (directTargets) — no agent needed on
-	// that host. This is the path for driving a remote docker over tcp://.
+	// reach it DIRECTLY at the daemon's host IP (directTargets) — no agent needed.
 	if len(directTargets) > 0 {
 		return &endpoint{urls: directURLs(directTargets), token: token, client: &http.Client{Timeout: timeout}}, nil
 	}
 
-	// Otherwise dial the plugin's network IP through the agent tunnel (needs an agent
-	// co-located with the containers so the internal IP is routable).
+	// Otherwise tunnel through the agent: dial the plugin by its shared-net alias (the
+	// agent net.Dials it, resolving DNS on ink-plugins) or, failing that, its raw
+	// network IP. Needs an agent co-located with the containers.
 	if r.dialer == nil {
 		return nil, fmt.Errorf("remote plugin dialing needs the agent hub (or publish the plugin's port so hope can reach it at the docker host)")
 	}
-	if len(netTargets) == 0 {
+	target := ""
+	switch {
+	case alias != "":
+		target = alias + ":" + strconv.Itoa(pc.Port)
+	case len(netTargets) > 0:
+		target = netTargets[0]
+	default:
 		return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
 	}
-	target := netTargets[0]
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{

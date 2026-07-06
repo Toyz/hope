@@ -271,7 +271,25 @@ func (r *PluginsRouter) Disable(ctx *rpc.Context, p *TargetParams) (any, error) 
 	if err := r.store.PutPlugin(*rec); err != nil {
 		return nil, rpc.Internal("persist: %v", err)
 	}
+	r.detachPluginNet(ctx, p.Key) // stop sharing hope's network
 	return map[string]any{"ok": true}, nil
+}
+
+// detachPluginNet best-effort disconnects a plugin's container(s) from the shared
+// ink-plugins network on their daemon — called on disable/forget so a plugin no
+// longer shares hope's network once it's no longer trusted.
+func (r *PluginsRouter) detachPluginNet(ctx context.Context, key string) {
+	members, host, ok := r.group(ctx, key)
+	if !ok {
+		return
+	}
+	hc, ok := r.hostClient(host)
+	if !ok || hc.Client == nil {
+		return
+	}
+	for _, m := range members {
+		_ = hc.Client.DetachNetwork(ctx, m.ContainerID, docker.PluginNetwork)
+	}
 }
 
 // Forget deletes a plugin's approval record entirely (e.g. its stack is gone).
@@ -282,6 +300,7 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if !p.valid() {
 		return nil, rpc.BadRequest("key is required")
 	}
+	r.detachPluginNet(ctx, p.Key)
 	if err := r.store.DeletePlugin(p.Key); err != nil {
 		return nil, rpc.Internal("forget: %v", err)
 	}
