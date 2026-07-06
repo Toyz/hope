@@ -127,10 +127,14 @@ type ViewDesc struct {
 	Icon   string   `json:"icon,omitempty"`
 	Lang    string `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
 	Default string `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
-	// RowMethod (table/query views): a method hope calls when the user clicks a row,
+	// RowMethod (table/query views): a method hope calls to open a row-detail modal,
 	// with params {row: {column: value}}. The result (kv or table) is shown in a
 	// modal — a fully author-controlled row-detail RPC.
 	RowMethod string `json:"row_method,omitempty"`
+	// RowDetailButton triggers RowMethod from a dedicated per-row button instead of a
+	// whole-row click. Use when the row body is otherwise interactive (e.g. inline-
+	// editable cells) so the two don't fight.
+	RowDetailButton bool `json:"row_detail_button,omitempty"`
 	// RowActions (table/query views): per-row action buttons. hope renders each in a
 	// trailing column (and in the row-detail modal); clicking one calls its Method
 	// with {row: {column: value}} — an author-controlled mutation like "delete row".

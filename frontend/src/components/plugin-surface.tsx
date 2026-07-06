@@ -22,7 +22,7 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[] }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -415,11 +415,14 @@ export class HopePluginSurface extends LoomElement {
   private renderTable(data: any, v?: ViewDesc) {
     const cols: string[] = data?.columns || [];
     const rows: any[][] = data?.rows || [];
-    const onRow: string | undefined = v?.row_method || data?.on_row || data?.onRow;
+    const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
+    const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
+    const onRow = detailMethod && !detailAsButton ? detailMethod : undefined; // whole-row click
     const acts: RowAction[] = v?.row_actions || data?.row_actions || [];
     const editMethod: string | undefined = v?.edit_method || data?.edit_method;
     const editCols: string[] | undefined = v?.edit_columns || data?.edit_columns;
     const canEdit = (ci: number) => !!editMethod && (!editCols || !editCols.length || editCols.includes(cols[ci]));
+    const hasTrailing = acts.length > 0 || (!!detailMethod && detailAsButton);
     if (!cols.length && !rows.length) return <div class="msg">empty</div>;
 
     const key = v?.method || "_t";
@@ -464,7 +467,7 @@ export class HopePluginSurface extends LoomElement {
                   {c}{st.sort === ci ? <span class="sarrow">{st.dir === 1 ? "↑" : "↓"}</span> : null}
                 </th>
               ))}
-              {acts.length ? <th class="rax"></th> : null}
+              {hasTrailing ? <th class="rax"></th> : null}
             </tr></thead>
             <tbody>{shown.map((i) => {
               const r = rows[i];
@@ -476,18 +479,25 @@ export class HopePluginSurface extends LoomElement {
                     if (isEditing) {
                       return (
                         <td class="editing"><input class="cellin" autofocus value={this.cellStr(cell)}
-                          onKeyDown={(e: any) => { if (e.key === "Enter") { e.preventDefault(); void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method); } else if (e.key === "Escape") { this.editCell = null; } }}
+                          onKeyDown={(e: any) => { if (e.key === "Enter") { e.preventDefault(); void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method); } else if (e.key === "Escape") { e.preventDefault(); this.cancelEdit(); } }}
                           onBlur={(e: any) => void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method)} /></td>
                       );
                     }
                     return <td class={editable ? "ecell" : ""} onClick={editable ? (e: any) => { e.stopPropagation(); this.editCell = { key, row: i, col: ci }; } : undefined}>{this.cellStr(cell)}</td>;
                   })}
-                  {acts.length ? (
-                    <td class="rax">{acts.map((a) => (
-                      <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
-                        {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
-                      </button>
-                    ))}</td>
+                  {hasTrailing ? (
+                    <td class="rax">
+                      {detailMethod && detailAsButton ? (
+                        <button class="rowbtn" onClick={(e: any) => { e.stopPropagation(); this.openRow(detailMethod, cols, r, acts, v?.method); }}>
+                          <loom-icon name="search" size={11}></loom-icon>view
+                        </button>
+                      ) : null}
+                      {acts.map((a) => (
+                        <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
+                          {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
+                        </button>
+                      ))}
+                    </td>
                   ) : null}
                 </tr>
               );
@@ -501,7 +511,12 @@ export class HopePluginSurface extends LoomElement {
   // commitEdit calls the table's edit_method with {row, column, value} (author's
   // inline-edit RPC), then refetches the owning view. No-op if unchanged. Quiet: no
   // success toast per cell (still audited + error-toasted).
+  // cancelEdit drops the inline edit without committing (Escape). Clearing editCell
+  // first makes the follow-up blur a no-op via commitEdit's guard.
+  private cancelEdit = () => { this.editCell = null; };
+
   private commitEdit = async (method: string, cols: string[], row: any[], colIdx: number, value: string, viewMethod?: string) => {
+    if (!this.editCell) return; // already committed (Enter) or cancelled (Escape) — dedupe the blur
     const s = this.surface;
     const prev = this.cellStr(row[colIdx]);
     this.editCell = null;

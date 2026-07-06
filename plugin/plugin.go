@@ -183,6 +183,13 @@ type TableOpt func(*ViewDesc)
 // value}} and shows the returned kv/table in a modal (an author-controlled RPC).
 func RowDetail(method string) TableOpt { return func(v *ViewDesc) { v.RowMethod = method } }
 
+// RowDetailButton is like RowDetail but triggers from a per-row button instead of a
+// whole-row click — use it when the row is also inline-editable so the click to
+// edit a cell and the click to open the detail don't collide.
+func RowDetailButton(method string) TableOpt {
+	return func(v *ViewDesc) { v.RowMethod = method; v.RowDetailButton = true }
+}
+
 // RowActions adds per-row action buttons; each click calls the action's Method with
 // {row: {column: value}}. Use for row-scoped mutations like "delete row".
 func RowActions(actions ...RowAction) TableOpt {

@@ -112,9 +112,9 @@ func main() {
 		}
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
 	},
-		plugin.PageSize(50),                  // plugin-declared page size (the author knows the data)
-		plugin.Editable("editRow", "name"),   // the "name" column is inline-editable
-		plugin.RowDetail("rowDetail"),
+		plugin.PageSize(50),                    // plugin-declared page size (the author knows the data)
+		plugin.Editable("editRow", "name"),     // the "name" column is inline-editable
+		plugin.RowDetailButton("rowDetail"),    // detail via a "view" button (rows are editable, so no whole-row click)
 		plugin.RowActions(
 			// A row action with an input field: hope collects "name" before the call.
 			// Icon "beaker" is this plugin's own SVG (sanitized + namespaced by hope).
