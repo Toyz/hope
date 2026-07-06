@@ -1,7 +1,7 @@
 // Volumes page: every Docker volume on the active host (or fleet) with the
 // containers mounting it. @rpc queries (SWR — no blank on refetch), @mutate
 // create, cross-host removal via callOn. Shared list mechanics in ResourcePage.
-import { component, styles, css, reactive, prop, mount, watch } from "@toyz/loom";
+import { component, styles, css, reactive, prop, mount, watch, on } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -10,6 +10,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { VolumeInspector } from "../volume-inspector";
+import { VolumeInspectorTarget } from "../events";
 import { System, Deploy } from "../contracts";
 import type { VolumeInfo, FleetVolumesHost } from "../contracts";
 import { bytes } from "../format";
@@ -95,6 +96,15 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
 
   @reactive accessor filter: Filter = "all";
   @prop({ param: "id" }) accessor routeVol = "";
+
+  // Fleet mode opens the inspector in place (no URL id), so mirror the docked
+  // target off the bus to highlight the open row. Cleared when it closes.
+  @reactive accessor inspHost = "";
+  @reactive accessor inspRef = "";
+  @on(VolumeInspectorTarget) private onInspOpen(e: VolumeInspectorTarget) {
+    this.inspHost = e.name ? e.host : "";
+    this.inspRef = e.name;
+  }
 
   @mount
   private onVolMount() {
@@ -324,7 +334,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
               const sz = v.size > 0 ? v.size : 0;
               const big = sz >= maxSize * 0.66 && sz > 0;
               return (
-                <div class={"vrow" + (openRef === v.name ? " on" : "")} onClick={() => this.volInsp.select(v.host || this.hostCtx.token, v.name, () => this.refresh())}>
+                <div class={"vrow" + (openRef === v.name || (fleet && this.inspRef === v.name && this.inspHost === (v.host || "")) ? " on" : "")} onClick={() => this.volInsp.select(v.host || this.hostCtx.token, v.name, () => this.refresh())}>
                   <div class="vname">{v.host ? <span class="hostchip">{v.host}</span> : null}<span class="nm" title={v.name}>{v.name}</span></div>
                   <div class={"sizebar" + (big ? " big" : "")}><span class="track"><i style={`width:${sz ? Math.max(2, (sz / maxSize) * 100) : 0}%`}></i></span></div>
                   <div class="size num">{v.size >= 0 ? bytes(v.size) : "—"}</div>

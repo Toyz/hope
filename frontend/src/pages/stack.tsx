@@ -27,16 +27,6 @@ import { UNGROUPED } from "../const";
 import { stripAnsi } from "../format";
 
 
-// One fixed action order for every row (single, replica, group) so columns line
-// up. Actions that don't apply to a container's state are disabled, not
-// reordered or removed.
-const ROW_ACTIONS: { op: ContainerOp; label: string; icon: string; danger?: boolean }[] = [
-  { op: "start", label: "start", icon: "play" },
-  { op: "restart", label: "restart", icon: "rotate" },
-  { op: "stop", label: "stop", icon: "stop", danger: true },
-  { op: "kill", label: "kill", icon: "x", danger: true },
-];
-
 // Group gating: start only if some replica is down; stop/kill only if some up.
 function groupActionEnabled(items: ContainerSummary[], op: ContainerOp): boolean {
   if (op === "restart" || op === "pull" || op === "redeploy") return true;

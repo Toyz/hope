@@ -1,6 +1,6 @@
 // Images — every local image on the daemon, cleanly: repo:tag, id, size, age,
 // and whether it's in use or dangling. Sorted largest first.
-import { component, styles, css, reactive, watch, unmount, prop, mount, query } from "@toyz/loom";
+import { component, styles, css, reactive, watch, unmount, prop, mount, query, on } from "@toyz/loom";
 import type { HopeRegistries } from "../components/registries";
 import { signalModal } from "../modal";
 import { inject } from "@toyz/loom/di";
@@ -10,6 +10,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { ImageInspector } from "../image-inspector";
+import { ImageInspectorTarget } from "../events";
 import { System } from "../contracts";
 import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
 import { bytes, shortId } from "../format";
@@ -140,6 +141,15 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
   // Optional trailing id: /images/:host/:id opens the docked image inspector for
   // that image (deep-linkable, and how a container's image field jumps here).
   @prop({ param: "id" }) accessor routeImage = "";
+
+  // Fleet mode opens the inspector in place (no URL id), so mirror the docked
+  // target off the bus to highlight the open row. Cleared when it closes.
+  @reactive accessor inspHost = "";
+  @reactive accessor inspRef = "";
+  @on(ImageInspectorTarget) private onInspOpen(e: ImageInspectorTarget) {
+    this.inspHost = e.ref ? e.host : "";
+    this.inspRef = e.ref;
+  }
 
   // Overrides ResourcePage.onMount — replicate its auth-check + refresh, then open
   // the deep-linked image. (A bare @mount here would shadow the base and skip the
@@ -607,7 +617,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
             {vis.map((i) => {
               const big = i.size >= maxSize * 0.66;
               return (
-                <div class={"irow" + (openRef && (openRef === i.id || shortId(i.id) === openRef || i.tags.includes(openRef)) ? " on" : "")} onClick={() => this.imageInsp.select(i.host || this.hostCtx.token, i.id, () => this.refresh())}>
+                <div class={"irow" + ((openRef && (openRef === i.id || shortId(i.id) === openRef || i.tags.includes(openRef))) || (fleet && this.inspRef === i.id && this.inspHost === (i.host || "")) ? " on" : "")} onClick={() => this.imageInsp.select(i.host || this.hostCtx.token, i.id, () => this.refresh())}>
                   <div class="repo">
                     {i.host ? <span class="hostchip">{i.host}</span> : null}
                     <span class="tag" title={i.tags.join(", ")}>{i.tags.length ? i.tags[0] : <span class="untag">&lt;untagged&gt;</span>}</span>

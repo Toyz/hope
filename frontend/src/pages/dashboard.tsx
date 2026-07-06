@@ -2,7 +2,7 @@
 // synthesizes fleet state; a flat fleet ribbon shows every stack as a cell
 // (dark = nominal, lit = trouble); below, an Attention zone then a quiet Fleet
 // list of instrument rows. No glows, no per-row noise. Refreshes every 5s.
-import { LoomElement, component, styles, css, reactive, mount, interval, on, app, persist } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -14,14 +14,13 @@ import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
 import { HostChanged, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
-import { capabilities } from "../caps";
 import { ProcService } from "../proc";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { System, Stacks } from "../contracts";
 import "../components/plugin-widgets"; // registers <hope-plugin-widgets> (self-hides when none)
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
-import { stackSeverity, severityRank, markClass, severityMark, severityTone, healthLabel, type Severity } from "../styles";
+import { stackSeverity, severityRank, severityMark, severityTone, healthLabel, type Severity } from "../styles";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -87,7 +86,7 @@ interface HostSec {
   /* thin top loading bar for a refetch. It starts invisible and only fades in
      after .2s (lbin delay), so quick background polls never flash it — a slower
      host-switch fetch does. */
-  .loadbar { position: sticky; top: 44px; z-index: 19; height: 2px; overflow: hidden;
+  .loadbar { position: sticky; top: 0; z-index: 19; height: 2px; overflow: hidden;
     background: color-mix(in srgb, var(--upd) 18%, transparent); opacity: 0; animation: lbin 0s .2s forwards; }
   .loadbar i { display: block; height: 100%; width: 35%; background: var(--upd); animation: lbslide 1s ease-in-out infinite; }
   @keyframes lbin { to { opacity: 1; } }
@@ -108,10 +107,6 @@ interface HostSec {
   .fleetsec .head:not(.collapsed) .caret { transform: rotate(90deg); }
   .fleetsec .head.hhead:hover .label { color: var(--hi); }
 
-  /* fleet summary reuses the .hostbar strip; these tint the highlight cells */
-  .hostbar .hv.warn { color: var(--warn); }
-  .hostbar .hv.bad { color: var(--bad); }
-  .hostbar .hv.upd { color: var(--upd); }
 
   .row .umark { color: var(--upd); }
   .row .name .svc { color: var(--dim); }
@@ -171,26 +166,6 @@ interface HostSec {
     background: transparent; color: var(--upd); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
   .ubtn:hover { background: color-mix(in srgb, var(--upd) 14%, transparent); }
   .ubtn:disabled { opacity: .5; cursor: default; }
-
-  /* docker host strip */
-  .hostbar { display: flex; flex-wrap: wrap; align-items: stretch; border: 1px solid var(--line);
-    margin-bottom: 22px; }
-  .hostbar .hi { display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; border-right: 1px solid var(--line); }
-  .hostbar .hk { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-style: normal; }
-  .hostbar .hv { font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; font-style: normal; }
-  .hostbar .hv .t { color: var(--dim); }
-  .cacheprune { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 0; padding: 0; cursor: pointer;
-    font: 600 13px/1 var(--mono); color: var(--hi); font-variant-numeric: tabular-nums; }
-  .cacheprune loom-icon { color: var(--dim); }
-  .cacheprune:hover { color: var(--bad); }
-  .cacheprune:hover loom-icon { color: var(--bad); }
-  .cacheprune:disabled { color: var(--dim); cursor: default; }
-  .hostbar .hi.grow { flex: 1; border-right: 0; padding: 0; }
-  .hrefresh { display: inline-flex; align-items: center; gap: 7px; align-self: stretch; padding: 0 16px;
-    background: transparent; border: 0; border-left: 1px solid var(--line); color: var(--dim);
-    font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; cursor: pointer; }
-  .hrefresh:hover { color: var(--hi); background: var(--raised); }
-  .hrefresh:disabled { opacity: .6; cursor: not-allowed; }
 
 
   /* ── fleet ribbon ── */
@@ -354,31 +329,20 @@ export class DashboardPage extends LoomElement {
   @inject(ProcService) accessor proc!: ProcService;
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ToastService) accessor toast!: ToastService;
-  @reactive accessor updBusyProj = "";
   private get router(): LoomRouter {
     return app.get(LoomRouter);
   }
 
   @reactive accessor query = "";
   @reactive accessor diskBusy = false;
-  @reactive accessor cacheBusy = false;
-  @reactive accessor storeOff = false; // state db not mounted → persistence warning
-  @reactive accessor storeEphemeral = false; // db on container rootfs → lost on recreate
   @reactive accessor updBusy = false;
   @reactive accessor fleetBusy = false;
-  // Collapsed host groups (by host id), persisted so the fleet layout sticks.
-  @persist("hope.dash.collapsed") accessor collapsed: string[] = [];
   // Bulk-update picker: open state + selected group keys (host|project).
   @reactive accessor updModalOpen = false;
   @reactive accessor updSel: string[] = [];
   @reactive accessor updModalHost = ""; // scope the picker to one host ("" = all)
   @reactive accessor updModalProject = ""; // scope the picker to one stack ("" = all)
 
-  private toggleHost = (id: string) => {
-    this.collapsed = this.collapsed.includes(id)
-      ? this.collapsed.filter((x) => x !== id)
-      : [...this.collapsed, id];
-  };
 
   // Data via loom-rpc @rpc queries (ApiState, SWR); getters expose .data so the
   // render + computed getters read the same names as before.
@@ -432,10 +396,6 @@ export class DashboardPage extends LoomElement {
     }
     this.load();
     if (!this.fleetMode) this.loadHost(); // single-host strip; skipped in fleet view
-    void capabilities().then((c) => {
-      this.storeOff = !c.store_enabled;
-      this.storeEphemeral = c.store_ephemeral;
-    });
   }
 
   // Host/fleet switched elsewhere — re-fetch in place (no reload).
@@ -465,29 +425,6 @@ export class DashboardPage extends LoomElement {
       this.fleetBusy = false;
     }
   });
-
-  // Reusable stat strip (the .hostbar look), shared by the single-host host
-  // strip and the fleet summary so the markup isn't copy-pasted.
-  // Reusable stack card (the .tile with the segmented health bar), shared by the
-  // single-host Fleet grid and the all-hosts per-host sections so they're identical.
-  private stackTile(s: any, opts: { onClick: () => void; hasUpd: boolean; outIds: Set<string> }) {
-    return (
-      <div class={"tile" + (s.sev === "down" ? " off" : "")} onClick={opts.onClick}>
-        <div class="top">
-          <span class="nm">
-            <span class={"mark " + severityMark(s.sev, opts.hasUpd)}></span>
-            <span class="t">{s.project}</span>
-          </span>
-          <span class="ct">
-            {opts.hasUpd ? <span class="tupd" title="updates available"><loom-icon name="download" size={12}></loom-icon></span> : null}
-            <b>{s.running}</b>
-            <span class="s">/{s.total}</span>
-          </span>
-        </div>
-        {this.segs(s, opts.outIds)}
-      </div>
-    );
-  }
 
   // Mock-style host header: health dot + hostname + state chip + daemon line, with
   // the host actions (check updates, df) on the right. The single source for these
@@ -645,71 +582,6 @@ export class DashboardPage extends LoomElement {
     );
   }
 
-  // The single-host Docker daemon strip, built from the shared statStrip.
-  // Persistence warning — shown in both the single-host and fleet dashboards
-  // when no state db is mounted.
-  private storeBanner() {
-    if (this.storeEphemeral) {
-      return (
-        <hope-alert tone="bad">
-          State db is on the container's filesystem, not a mounted volume — it will be <b>lost on a recreate</b>. Mount a volume at the <code>[store] path</code> directory.
-        </hope-alert>
-      );
-    }
-    if (this.storeOff) {
-      return (
-        <hope-alert tone="warn">
-          No state db mounted — some state (e.g. <b>UI-added registries</b>) won't persist across a restart. Mount a volume and set <code>[store] path</code> to keep it.
-        </hope-alert>
-      );
-    }
-    return null;
-  }
-
-  private hostStrip() {
-    const h = this.host;
-    const dt = this.diskTotals();
-    const cells: Array<{ k: string; v: any; cls?: string }> = [
-      { k: "host", v: h.Name || "—" },
-      { k: "docker", v: h.ServerVersion || "—" },
-      { k: "os", v: `${h.OperatingSystem || h.OSType}${h.Architecture ? " · " + h.Architecture : ""}` },
-      { k: "cpu", v: h.NCPU ?? "—" },
-      { k: "mem", v: gb(h.MemTotal) },
-      { k: "containers", v: <>{h.ContainersRunning ?? 0}<i class="t">/{h.Containers ?? 0}</i></> },
-      { k: "images", v: h.Images ?? 0 },
-    ];
-    if (dt) {
-      cells.push(
-        { k: "disk", v: gb(dt.total) },
-        { k: "volumes", v: gb(dt.volumes) },
-        {
-          k: "build cache",
-          v: dt.cache > 0 ? (
-            <button class="cacheprune" disabled={this.cacheBusy} title="prune the builder cache (reclaims this space)" onClick={this.pruneCache}>
-              {this.cacheBusy ? "pruning…" : gb(dt.cache)}<loom-icon name="trash" size={11}></loom-icon>
-            </button>
-          ) : gb(dt.cache),
-        },
-      );
-    }
-    return this.statStrip(
-      cells,
-      <button class="hrefresh" disabled={this.diskBusy} title={this.disk?.checked_at ? `disk usage · ${ago(this.disk.checked_at)}` : "compute disk usage"} onClick={this.refreshDisk}>
-        <loom-icon name="rotate" size={13}></loom-icon>{this.diskBusy ? "scanning…" : "df"}
-      </button>,
-    );
-  }
-
-  private statStrip(cells: Array<{ k: string; v: any; cls?: string }>, tail?: any) {
-    return (
-      <div class="hostbar">
-        {cells.map((c) => (
-          <span class="hi"><i class="hk">{c.k}</i><i class={"hv " + (c.cls ?? "")}>{c.v}</i></span>
-        ))}
-        {tail ? <><span class="hi grow"></span>{tail}</> : null}
-      </div>
-    );
-  }
 
   // Docker host identity + cached disk usage. Both cheap (df is cached
   // server-side, crawled hourly); fetched once on mount.
@@ -740,28 +612,6 @@ export class DashboardPage extends LoomElement {
       /* ignore */
     } finally {
       this.diskBusy = false;
-    }
-  };
-
-  private pruneCache = async () => {
-    const dt = this.diskTotals();
-    const ok = await this.confirm.ask({
-      title: "prune build cache",
-      danger: true,
-      confirmLabel: "Prune",
-      message: "Clear the Docker builder cache. Frees disk now; the next image build re-caches from scratch (slower once).",
-      stats: [{ label: "reclaims up to", value: dt ? "~" + gb(dt.cache) : "—" }],
-    });
-    if (!ok) return;
-    this.cacheBusy = true;
-    try {
-      const res = await this.rpc.call<{ reclaimed: number }>("System", "pruneBuildCache", []);
-      this.toast.ok(`build cache pruned — freed ${gb(res?.reclaimed || 0)}`);
-      this.refreshDisk();
-    } catch (err: any) {
-      this.toast.error(`prune build cache — ${err?.message ?? "failed"}`);
-    } finally {
-      this.cacheBusy = false;
     }
   };
 
@@ -857,76 +707,6 @@ export class DashboardPage extends LoomElement {
     return oldest;
   }
 
-  // Shared Updates row, used by the single-host and all-hosts views so their
-  // contents are identical (the all view just adds a host tag).
-  private updateRow(
-    g: { project: string; services: { service: string; count: number }[]; count: number },
-    opts: { host?: string; onClick: () => void; linkable?: boolean },
-  ) {
-    const linkable = opts.linkable ?? true;
-    return (
-      <tr class={linkable ? "" : "static"} onClick={() => (linkable ? opts.onClick() : null)}>
-        <td>
-          <span class="nm">
-            {opts.host ? <hope-chip host={true} size="sm">{opts.host}</hope-chip> : null}
-            <span class="mark upd"></span>{g.project}
-          </span>
-        </td>
-        <td class="usvcs">
-          {g.services.slice(0, 8).map((s) => <span class="usvc">{s.service}{s.count > 1 ? ` ×${s.count}` : ""}</span>)}
-          {g.services.length > 8 ? <span class="usvc more">+{g.services.length - 8}</span> : null}
-        </td>
-        <td class="r"><span style="color:var(--upd)">{g.count}</span></td>
-        <td class="uact">
-          {linkable ? (
-            <button class="ubtn" disabled={!!this.updBusyProj} title="pull latest + recreate the outdated containers"
-              onClick={(e: Event) => this.updateStack(g.project, opts.host, e)}>
-              <loom-icon name="download" size={11}></loom-icon>{this.updBusyProj === g.project ? "…" : "update"}
-            </button>
-          ) : null}
-        </td>
-      </tr>
-    );
-  }
-
-  // One-click update straight from the dashboard: pull latest + recreate only the
-  // outdated containers of a stack (force off), on its host, in the proc dialog.
-  private updateStack = async (project: string, host: string | undefined, e: Event) => {
-    e.stopPropagation();
-    if (this.updBusyProj) return;
-    this.updBusyProj = project;
-    let ok = false;
-    await this.proc.run(`update ${project}`, async (emit, signal) => {
-      let sok = true;
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeployStack", [project, "true", "false"], signal, host)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
-      }
-      ok = sok;
-      return sok;
-    });
-    this.updBusyProj = "";
-    if (ok) this.refreshUpdates(); // clear the chip once images are current
-  };
-
-  // Shared Attention row (single-host + all-hosts).
-  private attentionRow(s: any, opts: { host?: string; onClick: () => void }) {
-    return (
-      <div class="row" onClick={opts.onClick}>
-        <span class={"mark " + s.sev}></span>
-        <span class="name">{opts.host ? <hope-chip host={true} title={opts.host}>{opts.host}</hope-chip> : null}{s.project}</span>
-        <span class={"why " + (s.sev === "loop" ? "bad" : "warn")}>
-          {s.sev === "loop"
-            ? `${s.containers.filter((c: any) => c.state === "restarting").length} restarting`
-            : `${s.total - s.running} down`}
-        </span>
-        <span class="count">{s.running}<span class="t">/{s.total}</span></span>
-        <loom-icon class="chev" name="chevron-right" size={15}></loom-icon>
-      </div>
-    );
-  }
-
-
   // Projects with at least one outdated container (respects the loose flag).
   private updSet(): Set<string> {
     const s = new Set<string>();
@@ -956,14 +736,6 @@ export class DashboardPage extends LoomElement {
     this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(p)}`));
   }
 
-
-  // Every stack with an update, for the bulk picker (host carried in fleet mode).
-  private allUpdateGroups(): Array<{ project: string; host?: string; services: { service: string; count: number }[]; count: number }> {
-    return this.fleetMode
-      ? this.fleetUpdateGroups(this.fleet ?? [])
-      : this.updateGroups().filter((g) => g.project !== UNGROUPED).map((g) => ({ ...g, host: undefined }));
-  }
-  private updKey = (g: { project: string; host?: string }) => (g.host ? g.host + "|" : "") + g.project;
 
   // The outdated updates as a host > stack > container tree, scoped to the modal's
   // host/stack. Each leaf is one container (id) we can redeploy on its own — the
@@ -1126,21 +898,6 @@ export class DashboardPage extends LoomElement {
     );
   }
 
-  // segs renders a stack's containers as a thin heat-bar (one cell per
-  // container, colored by state) — texture + density on each tile.
-  private segs(s: StackSummary, outIds: Set<string>) {
-    return (
-      <div class="seg">
-        {s.containers.map((c) => {
-          const st = markClass(c.state);
-          // running-but-outdated reads as an update; down/restarting stays as-is.
-          const cls = st === "ok" && outIds.has(c.id) ? "upd" : st;
-          return <i class={cls}></i>;
-        })}
-      </div>
-    );
-  }
-
   // All outdated container ids (for tile heat-bars; not loose-filtered).
   private outdatedIds(): Set<string> {
     return new Set((this.updates?.updates ?? []).filter((u) => u.status === "outdated").map((u) => u.id));
@@ -1218,42 +975,6 @@ export class DashboardPage extends LoomElement {
     if (!h.online) return "off";
     const t = this.attnTone(h.loops, h.issues);
     return t === "ok" && h.outdated > 0 ? "upd" : t;
-  }
-
-  private hostGroup(h: HostSec, multi: boolean) {
-    const open = (project: string) => (multi ? this.goCross(h.id, project) : this.go(project));
-    const grid = !h.online ? (
-      h.error ? <div class="ferr">{h.error}</div> : null
-    ) : h.ranked.length === 0 ? (
-      <div class="frow-empty">no stacks</div>
-    ) : (
-      <div class="grid">
-        {h.ranked.map((s) => this.stackTile(s, { onClick: () => open(s.project), hasUpd: h.updProjects.has(s.project), outIds: h.outIds }))}
-      </div>
-    );
-    if (!multi) return grid;
-    const collapsed = this.collapsed.includes(h.id);
-    return (
-      <section class="fleetsec" data-host={h.id}>
-        <div class={"head hhead" + (collapsed ? " collapsed" : "")} onClick={() => this.toggleHost(h.id)}>
-          <loom-icon class="caret" name="chevron-right" size={14}></loom-icon>
-          <span class={"hdot " + this.hostDotTone(h)}></span>
-          <span class="label">{h.id}</span>
-          <span class="khint">{h.kind}</span>
-          <span class="rule"></span>
-          {h.online ? (
-            <>
-              {h.issues > 0 ? <hope-chip tone={this.attnTone(h.loops, h.issues)} size="sm">{h.issues} {h.issues === 1 ? "issue" : "issues"}</hope-chip> : null}
-              {h.outdated > 0 ? <hope-chip tone="upd" size="sm" style="cursor:pointer" title="update this host's outdated stacks" onClick={(e: Event) => { e.stopPropagation(); this.openUpdModal(h.id); }}>{h.outdated} {h.outdated === 1 ? "update" : "updates"}</hope-chip> : null}
-              <span class="n">{h.up}<span class="t">/{h.tot}</span></span>
-            </>
-          ) : (
-            <span class="foff">{h.error ? "unreachable" : "offline"}</span>
-          )}
-        </div>
-        {collapsed ? null : grid}
-      </section>
-    );
   }
 
   update() {
@@ -1340,17 +1061,4 @@ function gb(b: number): string {
   const g = b / 1073741824;
   if (g >= 1) return g.toFixed(g >= 100 ? 0 : 1) + " GiB";
   return Math.round(b / 1048576) + " MiB";
-}
-
-// Relative time for the "checked Xm ago" label on the updates section.
-function ago(iso: string): string {
-  const t = Date.parse(iso);
-  if (isNaN(t)) return "pending";
-  const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 90) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }

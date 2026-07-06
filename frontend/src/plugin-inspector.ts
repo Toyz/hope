@@ -1,62 +1,19 @@
-// PluginInspector — DI handle + state for the docked plugin inspector. URL-driven
-// like the others: a plugin is inspected at /plugins/:host/:key, so opening one
-// NAVIGATES and the plugins page's route param drives the panel. onChange refetches
-// the list after a mutation (enable/disable/forget).
+// PluginInspector — the docked plugin inspector handle. Inspected at
+// /plugins/:host/:key; the open/close/apply mechanics live in ResourceInspector.
 //
 // Keyed by the plugin's STABLE identity (host|project/service), URL-encoded — it
-// contains '|' and '/', so it must be a single encoded path segment.
-import { app, bus } from "@toyz/loom";
-import { LoomRouter, RouteChanged } from "@toyz/loom/router";
+// contains '|' and '/', so it must be a single encoded path segment. That key IS
+// the base's "ref", exposed as `.key` for readers that say so.
+import { ResourceInspector } from "./resource-inspector";
 import { PluginInspectorTarget } from "./events";
-import { withHost } from "./host-url";
 
-export class PluginInspector {
-  host = "";
-  key = "";
-  onChange: (() => void) | null = null;
-
-  constructor() {
-    bus.on(RouteChanged, (e: RouteChanged) => {
-      const p = (e.path || "").split("/");
-      const onPlugin = p[1] === "plugins" && !!p[3]; // /plugins/:host/:key
-      if (!onPlugin && this.isOpen) this.apply("", "");
-    });
+export class PluginInspector extends ResourceInspector {
+  protected readonly seg = "plugins";
+  protected event(host: string, ref: string) {
+    return new PluginInspectorTarget(host, ref);
   }
 
-  get isOpen(): boolean {
-    return this.key !== "";
-  }
-
-  private router(): LoomRouter | null {
-    return app.has(LoomRouter) ? app.get(LoomRouter) : null;
-  }
-
-  select(host: string, key: string, onChange?: () => void) {
-    if (onChange) this.onChange = onChange;
-    const r = this.router();
-    if (r) {
-      r.navigate(withHost(host, `/plugins/${encodeURIComponent(key)}`));
-      return;
-    }
-    this.apply(host, key);
-  }
-
-  dismiss() {
-    const r = this.router();
-    if (r) {
-      r.navigate(withHost(this.host || "local", "/plugins"));
-      return;
-    }
-    this.apply("", "");
-  }
-
-  apply(host: string, key: string) {
-    this.host = host;
-    this.key = key;
-    bus.emit(new PluginInspectorTarget(host, key));
-  }
-
-  close() {
-    this.dismiss();
+  get key(): string {
+    return this.ref;
   }
 }
