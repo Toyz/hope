@@ -283,6 +283,10 @@ type Contribution struct {
 	ID       string `json:"id,omitempty"`
 	Hidden   bool   `json:"hidden,omitempty"`    // not listed in the rail (a link/detail target)
 	ParamKey string `json:"param_key,omitempty"` // detail pages: the URL arg becomes param[ParamKey]
+	// Subtitle sets the page header's sub/meta line (page surfaces) — e.g. a record
+	// count or a connection string. {param} placeholders are filled from the page
+	// param. Empty => hope shows the plugin name.
+	Subtitle string `json:"subtitle,omitempty"`
 	// Breadcrumbs render above the page heading (page surfaces). Each Crumb's Label
 	// and To may contain {param} placeholders hope fills from the page param — e.g.
 	// on a user detail page, [{Users, users}, {"user {id}"}].

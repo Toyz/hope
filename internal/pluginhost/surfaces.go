@@ -23,6 +23,7 @@ type ContainerSurface struct {
 	Node        json.RawMessage `json:"node"`
 	Schema      json.RawMessage `json:"schema"`
 	Actions     []string        `json:"actions,omitempty"`     // surface header actions (method refs)
+	Subtitle    string          `json:"subtitle,omitempty"`    // page header sub/meta line (templated)
 	Breadcrumbs []crumbDoc      `json:"breadcrumbs,omitempty"` // page breadcrumb trail (templated)
 	Param       json.RawMessage `json:"param,omitempty"`       // page param merged into calls (dynamic pages)
 }
@@ -55,7 +56,25 @@ type contributionDoc struct {
 	ID          string          `json:"id"`
 	Hidden      bool            `json:"hidden"`
 	ParamKey    string          `json:"param_key"`
+	Subtitle    string          `json:"subtitle"`
 	Breadcrumbs []crumbDoc      `json:"breadcrumbs"`
+}
+
+// fillTemplate substitutes {param} placeholders in s from the page param.
+func fillTemplate(s string, param json.RawMessage) string {
+	if s == "" || len(param) == 0 {
+		return s
+	}
+	var m map[string]any
+	if json.Unmarshal(param, &m) != nil {
+		return s
+	}
+	return crumbVar.ReplaceAllStringFunc(s, func(tok string) string {
+		if v, ok := m[tok[1:len(tok)-1]]; ok {
+			return fmt.Sprint(v)
+		}
+		return tok
+	})
 }
 type pageItemDoc struct {
 	Title    string          `json:"title"`
@@ -449,7 +468,8 @@ func (r *PluginsRouter) Page(ctx *rpc.Context, p *PageParams) (*ContainerSurface
 	}
 	return &ContainerSurface{
 		Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node,
-		Schema: schemaRaw, Actions: c.Actions, Breadcrumbs: fillCrumbs(c.Breadcrumbs, param), Param: param,
+		Schema: schemaRaw, Actions: c.Actions, Subtitle: fillTemplate(c.Subtitle, param),
+		Breadcrumbs: fillCrumbs(c.Breadcrumbs, param), Param: param,
 	}, nil
 }
 

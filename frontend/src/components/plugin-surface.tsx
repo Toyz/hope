@@ -11,6 +11,7 @@ import { PromptService, type PromptField } from "../prompt";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { registerPluginIcons } from "./plugin-icon";
+import "./select"; // registers <hope-select> (custom dropdown; native <select> is banned)
 import { runPluginAction } from "../plugin-run";
 import { theme } from "../styles";
 
@@ -30,7 +31,7 @@ interface ViewDesc { method: string; label: string; kind: string; icon?: string;
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
-export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any> }
+export interface Surface { key: string; name: string; title?: string; subtitle?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
 type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };
@@ -95,12 +96,10 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
      without collapsing siblings; the page scrolls between sections. */
   .leaf.grow .gwrap, .leaf.grow .tblwrap .gwrap { max-height: 62vh; }
   .tbar { display: flex; align-items: center; gap: 12px; padding: 6px 0 8px; }
-  .tfilter { flex: 0 1 220px; padding: 5px 9px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.3 var(--mono); }
+  .tfilter { flex: 0 1 220px; height: 38px; box-sizing: border-box; padding: 0 11px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); }
   .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .tcount { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
-  .tfacet { padding: 5px 8px; background: var(--ink); border: 1px solid var(--line); color: var(--mid); font: 11px/1.2 var(--mono); cursor: pointer; }
-  .tfacet:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
-  .tfacet:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .tfacet { width: 170px; flex: none; }
   .tpager { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
   .pnum { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .pbtn { display: inline-flex; padding: 3px; background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer; }
@@ -629,13 +628,10 @@ export class HopePluginSurface extends LoomElement {
               onInput={(e: any) => changeFilter(e.target.value)} />
             {server && v?.facets ? v.facets.map((f) => {
               const fk = `${key}|${f.key}`;
-              const cur = this.facetSel[fk] || "";
+              const opts = [{ value: "", label: `${f.label}: all` }, ...f.options.map((o) => ({ value: o.value, label: `${f.label}: ${o.label}` }))];
               return (
-                <select class="tfacet"
-                  onChange={(e: any) => { this.facetSel = { ...this.facetSel, [fk]: e.target.value }; this.setTable(key, { page: 0 }); this.serverFetch(key); }}>
-                  <option value="" selected={cur === ""}>{f.label}: all</option>
-                  {f.options.map((o) => <option value={o.value} selected={cur === o.value}>{f.label}: {o.label}</option>)}
-                </select>
+                <hope-select class="tfacet" options={opts} value={this.facetSel[fk] || ""}
+                  onSelect={(e: any) => { this.facetSel = { ...this.facetSel, [fk]: e.detail }; this.setTable(key, { page: 0 }); this.serverFetch(key); }}></hope-select>
               );
             }) : null}
             <span class="tcount">{total.toLocaleString()}{!server && total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>

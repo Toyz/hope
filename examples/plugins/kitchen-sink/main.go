@@ -462,16 +462,18 @@ func main() {
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
 		plugin.Section("Rows", plugin.Leaf("rows")).Collapse(false), // collapsible, starts open
 	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it
+		Subtitle("100,000 users · 60 tables").
 		HeaderActions("greet", "wipe")
 
 	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
 	//     passes the clicked id as param {id}; userView renders it. ---
 	p.DetailPage("user", "User", "id", plugin.Section("",
 		plugin.Section("Profile", plugin.Leaf("userView")),
-	)).Breadcrumbs(
-		plugin.Crumb{Label: "Dashboard", To: "dashboard"}, // links back to the Dashboard page
-		plugin.Crumb{Label: "user-{id}"},                  // filled from the page param -> "user-42"
-	)
+	)).Subtitle("id {id} · bronze tier").
+		Breadcrumbs(
+			plugin.Crumb{Label: "Dashboard", To: "dashboard"}, // links back to the Dashboard page
+			plugin.Crumb{Label: "user-{id}"},                  // filled from the page param -> "user-42"
+		)
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
 	//     all sharing one layout, each passing {db, table} that the rows view reads.

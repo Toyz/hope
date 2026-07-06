@@ -58,7 +58,7 @@ export class PluginPage extends LoomElement {
     if (!this.surface) this.loaded = false;
     try {
       const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path, arg: this.arg || "" }]);
-      this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, actions: s.actions, breadcrumbs: s.breadcrumbs, param: s.param } : null;
+      this.surface = s ? { key: s.key, name: s.name, title: s.title, subtitle: s.subtitle, node: s.node, schema: s.schema, actions: s.actions, breadcrumbs: s.breadcrumbs, param: s.param } : null;
       this.error = this.surface ? "" : "page not found";
       this.emitCrumbs();
     } catch (e: any) {
@@ -111,7 +111,7 @@ export class PluginPage extends LoomElement {
     const s = this.surface;
     return (
       <>
-        <hope-phead heading={s?.title || "Plugin"} scope="plugin" meta={s ? s.name : "custom page"}>
+        <hope-phead heading={s?.title || "Plugin"} scope="plugin" meta={s ? (s.subtitle || s.name) : "custom page"}>
           {s ? this.headerActions(s) : null}
         </hope-phead>
         <div class="body">

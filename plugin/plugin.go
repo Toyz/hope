@@ -377,6 +377,15 @@ func (p *Plugin) PageID(id string) *Plugin {
 	return p
 }
 
+// Subtitle sets the page header's sub/meta line for the most recently added page
+// contribution ({param} placeholders filled from the page param). Call after Page.
+func (p *Plugin) Subtitle(s string) *Plugin {
+	if len(p.contribs) > 0 {
+		p.contribs[len(p.contribs)-1].Subtitle = s
+	}
+	return p
+}
+
 // Breadcrumbs attaches a breadcrumb trail to the most recently added page
 // contribution (call right after Page/DetailPage). {param} placeholders in a
 // crumb's label/to are filled from the page param.
