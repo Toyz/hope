@@ -38,10 +38,11 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   :host { display: flex; flex-direction: column; min-height: 100%; }
   .sec { padding: 4px 0 10px; display: flex; flex-direction: column; min-height: 0; }
   .tabsw { display: flex; flex-direction: column; min-height: 0; }
-  /* a node (or its ancestor chain to a fill leaf) grows to fill remaining height */
-  .grow { flex: 1 1 0; min-height: 0; }
+  /* "fill" no longer means flex-grow (that fights a scrolling page and collapses
+     stacked sections). A filled table just gets a tall internal scroll; the page
+     scrolls between sections. */
+  .grow { min-height: 0; }
   .leaf.grow { display: flex; flex-direction: column; }
-  .leaf.grow .gwrap { flex: 1 1 0; min-height: 0; max-height: none; }
   .sect { padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
@@ -79,10 +80,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .cprog i { display: block; height: 100%; background: var(--upd); }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
   .tblwrap { display: flex; flex-direction: column; min-height: 0; }
-  .leaf.grow .tblwrap { flex: 1 1 0; }
-  /* A filled table grows, but never collapses below a usable height when the page's
-     other content leaves it little room (min-height floor). */
-  .leaf.grow .tblwrap .gwrap { flex: 1 1 0; max-height: none; min-height: 260px; }
+  /* A filled table gets a tall internal scroll (not flex-grow) so it stays usable
+     without collapsing siblings; the page scrolls between sections. */
+  .leaf.grow .gwrap, .leaf.grow .tblwrap .gwrap { max-height: 62vh; }
   .tbar { display: flex; align-items: center; gap: 12px; padding: 6px 0 8px; }
   .tfilter { flex: 0 1 220px; padding: 5px 9px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.3 var(--mono); }
   .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
