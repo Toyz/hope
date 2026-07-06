@@ -88,6 +88,14 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ctime { color: var(--mid); }
   .cnum { font-variant-numeric: tabular-nums; color: var(--hi); }
   .ccode { font: 11.5px/1.5 var(--mono); background: var(--ink); padding: 1px 5px; color: var(--upd); }
+  .pcimg { height: 34px; width: auto; max-width: 120px; object-fit: contain; border-radius: 3px; background: var(--ink); border: 1px solid var(--line); vertical-align: middle; cursor: zoom-in; image-rendering: crisp-edges; }
+  .pcimg:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  /* Native KV rows (used when a value is a typed cell, e.g. an image); plain-scalar KV still uses hope-kvlist. */
+  .pkv { display: flex; flex-direction: column; }
+  .pkvr { display: flex; align-items: center; gap: 14px; padding: 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); min-width: 0; }
+  .pkvr:last-child { border-bottom: none; }
+  .pkvk { flex: 0 0 150px; color: var(--mid); font: 11px/1.5 var(--mono); letter-spacing: .02em; text-transform: uppercase; }
+  .pkvv { flex: 1 1 auto; min-width: 0; color: var(--hi); font: 12px/1.5 var(--mono); word-break: break-word; }
   .cprog { display: inline-block; width: 90px; height: 8px; background: var(--line2); border-radius: 999px; overflow: hidden; vertical-align: middle; }
   .cprog i { display: block; height: 100%; background: var(--upd); }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
@@ -165,6 +173,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .pcard.lk:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); background: color-mix(in srgb, var(--upd) 5%, var(--panel)); }
   .pcard.ok { border-left: 2px solid var(--ok); } .pcard.warn { border-left: 2px solid var(--warn); }
   .pcard.bad { border-left: 2px solid var(--bad); } .pcard.info { border-left: 2px solid var(--upd); }
+  .pchero { display: flex; justify-content: center; padding: 4px; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
+  .pchero img { max-height: 160px; max-width: 100%; object-fit: contain; image-rendering: crisp-edges; }
   .pchead { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .pctitle { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .pct { color: var(--hi); font: 600 13px/1.2 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -484,7 +494,7 @@ export class HopePluginSurface extends LoomElement {
     if (data == null) return <div class="msg">no data</div>;
     switch (v.kind) {
       case "kv":
-        return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
+        return this.renderKV(data);
       case "table":
       case "query":
         return this.renderTable(data, v);
@@ -773,7 +783,7 @@ export class HopePluginSurface extends LoomElement {
 
   private renderDetail(data: any): any {
     if (data && typeof data === "object" && Array.isArray(data.columns)) return this.renderTable(data);
-    return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
+    return this.renderKV(data);
   }
 
   // pickNumeric extracts a value to plot from a stream frame: prefer y, then count,
@@ -882,6 +892,9 @@ export class HopePluginSurface extends LoomElement {
         {items.map((it) => (
           <div class={"pcard" + (it.to ? " lk" : "") + (this.toneClass(it.tone) ? " " + this.toneClass(it.tone) : "")}
             onClick={it.to ? () => this.navCell(it) : undefined}>
+            {it.image && /^https?:\/\//i.test(this.cellStr(it.image))
+              ? <div class="pchero"><img src={this.cellStr(it.image)} alt={this.cellStr(it.title)} loading="lazy" /></div>
+              : null}
             <div class="pchead">
               {it.icon ? <hope-plugin-icon plugin={this.surface?.key} name={it.icon} size={16}></hope-plugin-icon> : null}
               <div class="pctitle"><span class="pct">{this.cellStr(it.title)}</span>{it.subtitle ? <span class="pcsub">{this.cellStr(it.subtitle)}</span> : null}</div>
@@ -925,6 +938,20 @@ export class HopePluginSurface extends LoomElement {
       </ul>
     );
     return walk(nodes);
+  }
+
+  // renderKV draws a key/value view. If any value is a typed cell (image/badge/link/…)
+  // it renders native rows through cellNode so images and pills work in a KV, just like
+  // in a table; an all-scalar map defers to hope-kvlist for its native styling.
+  private renderKV(data: any) {
+    const o = data && typeof data === "object" ? data : {};
+    const keys = Object.keys(o);
+    if (!keys.length) return <div class="msg">empty</div>;
+    const rich = keys.some((k) => { const v = o[k]; return v && typeof v === "object" && typeof v.type === "string"; });
+    if (!rich) return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
+    return <div class="pkv">{keys.map((k) => (
+      <div class="pkvr"><span class="pkvk">{k}</span><span class="pkvv">{this.cellNode(o[k])}</span></div>
+    ))}</div>;
   }
 
   private strMap(o: any): Record<string, string> {
@@ -971,6 +998,15 @@ export class HopePluginSurface extends LoomElement {
         }
         case "code":
           return <code class="ccode">{this.cellStr(cell.value)}</code>;
+        case "image": {
+          // Browser loads src directly (hope proxies RPC, not image bytes). Only allow
+          // http(s) — never a javascript:/data: src — else fall back to alt text.
+          const src = this.cellStr(cell.value);
+          const alt = this.cellStr(cell.alt ?? "");
+          if (!/^https?:\/\//i.test(src)) return alt;
+          return <img class="pcimg" src={src} alt={alt} title={alt} loading="lazy"
+            onClick={(e: any) => { e.stopPropagation(); window.open(src, "_blank", "noopener"); }} />;
+        }
         default:
           return this.cellStr(cell.value);
       }

@@ -70,3 +70,13 @@ func Progress(frac float64) map[string]any {
 func Code(value string) map[string]any {
 	return map[string]any{"type": "code", "value": value}
 }
+
+// Image renders src as an inline thumbnail (fixed height; click opens the full image
+// in a new tab). alt is the hover/accessible label. Unlike RPC calls, hope does NOT
+// proxy image bytes — the browser loads src directly, so src MUST be an absolute
+// http(s) URL reachable from the browser (e.g. a public on-demand webp/avif image
+// proxy). A non-http(s) src renders as its alt text. Usable as a table cell or a
+// stat/card/cards field value.
+func Image(src, alt string) map[string]any {
+	return map[string]any{"type": "image", "value": src, "alt": alt}
+}
