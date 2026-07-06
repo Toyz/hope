@@ -2,9 +2,10 @@
 // same <hope-plugin-surface> renderer that drives the container-inspector panel
 // drives a full page here; the route's :path selects which page (and which param,
 // for dynamic pages that share one layout).
-import { LoomElement, component, styles, css, mount, reactive, prop, watch, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, mount, unmount, reactive, prop, watch, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
+import { PageCrumbs } from "../events";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { PromptService } from "../prompt";
@@ -57,8 +58,9 @@ export class PluginPage extends LoomElement {
     if (!this.surface) this.loaded = false;
     try {
       const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path, arg: this.arg || "" }]);
-      this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, actions: s.actions, param: s.param } : null;
+      this.surface = s ? { key: s.key, name: s.name, title: s.title, node: s.node, schema: s.schema, actions: s.actions, breadcrumbs: s.breadcrumbs, param: s.param } : null;
       this.error = this.surface ? "" : "page not found";
+      this.emitCrumbs();
     } catch (e: any) {
       this.error = e?.message ?? "failed to load page";
       this.surface = null;
@@ -66,6 +68,20 @@ export class PluginPage extends LoomElement {
       this.loaded = true;
     }
   }
+
+  // Feed the plugin's author-declared breadcrumbs into hope's topbar trail, resolving
+  // each plugin-relative `to` to an absolute /plugin/<key>/… route.
+  private emitCrumbs() {
+    const cr = this.surface?.breadcrumbs;
+    if (!cr || !cr.length) { bus.emit(new PageCrumbs(null)); return; }
+    const enc = encodeURIComponent(this.key);
+    bus.emit(new PageCrumbs(cr.map((c) => ({
+      label: c.label,
+      to: c.to ? (c.to.startsWith("/") ? c.to : `/plugin/${enc}/${c.to}`) : undefined,
+    }))));
+  }
+
+  @unmount onUnmount() { bus.emit(new PageCrumbs(null)); }
 
   // The page's author-declared header actions go in the phead's action slot (the
   // one header component every page uses) — not a bespoke bar inside the surface.

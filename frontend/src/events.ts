@@ -93,6 +93,15 @@ export class PluginInspectorTarget extends LoomEvent {
 // so the rail (pages) and container inspector (surfaces) refetch immediately.
 export class PluginsChanged extends LoomEvent {}
 
+// Fired by a plugin page to feed its author-declared breadcrumbs into the topbar's
+// existing scope trail (absolute `to`s already resolved). null clears them, so the
+// topbar falls back to deriving the trail from the path.
+export class PageCrumbs extends LoomEvent {
+  constructor(public crumbs: { label: string; to?: string }[] | null) {
+    super();
+  }
+}
+
 // Fired to open the global command palette (the ⌘K "jump to" search). The topbar
 // search box emits it; <hope-palette> listens (⌘K itself is handled in-palette).
 export class PaletteToggle extends LoomEvent {}

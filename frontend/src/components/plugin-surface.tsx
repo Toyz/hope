@@ -27,7 +27,7 @@ interface ViewDesc { method: string; label: string; kind: string; icon?: string;
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
-export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; actions?: string[]; param?: Record<string, any> }
+export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
 type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };
@@ -99,7 +99,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .pbtn:disabled { opacity: .35; cursor: default; }
   th.srt { cursor: pointer; user-select: none; }
   th.srt:hover { color: var(--mid); }
-  .sarrow { margin-left: 4px; color: var(--upd); }
+  .sarrow { margin-left: 4px; color: var(--upd); vertical-align: middle; }
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
@@ -540,7 +540,15 @@ export class HopePluginSurface extends LoomElement {
     const toolbar = server || rows.length > pageSize || st.filter;
     // Control handlers route to the plugin (server) or re-render locally (client).
     const changePage = (p: number) => { this.setTable(key, { page: p }); if (server) this.serverFetch(key); };
-    const changeSort = (ci: number) => { this.setTable(key, { sort: ci, dir: st.sort === ci ? (st.dir === 1 ? -1 : 1) as 1 | -1 : 1, page: server ? 0 : st.page }); if (server) this.serverFetch(key); };
+    // 3-phase sort: unsorted -> ascending -> descending -> unsorted.
+    const changeSort = (ci: number) => {
+      let sort = ci, dir: 1 | -1 = 1;
+      if (st.sort !== ci) { sort = ci; dir = 1; }
+      else if (st.dir === 1) { sort = ci; dir = -1; }
+      else { sort = -1; dir = 1; } // was descending -> clear
+      this.setTable(key, { sort, dir, page: server ? 0 : st.page });
+      if (server) this.serverFetch(key);
+    };
     const changeFilter = (fv: string) => { this.setTable(key, { filter: fv, page: 0 }); if (server) this.serverFilter(key); };
 
     return (
@@ -564,7 +572,7 @@ export class HopePluginSurface extends LoomElement {
             <thead><tr>
               {cols.map((c, ci) => (
                 <th class="srt" onClick={() => changeSort(ci)}>
-                  {c}{st.sort === ci ? <span class="sarrow">{st.dir === 1 ? "↑" : "↓"}</span> : null}
+                  {c}{st.sort === ci ? <loom-icon class="sarrow" name={st.dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon> : null}
                 </th>
               ))}
               {hasTrailing ? <th class="rax"></th> : null}

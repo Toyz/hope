@@ -433,7 +433,10 @@ func main() {
 	//     passes the clicked id as param {id}; userView renders it. ---
 	p.DetailPage("user", "User", "id", plugin.Section("",
 		plugin.Section("Profile", plugin.Leaf("userView")),
-	))
+	)).Breadcrumbs(
+		plugin.Crumb{Label: "Users"},                 // (could link to a listing page)
+		plugin.Crumb{Label: "user-{id}"},             // filled from the page param -> "user-42"
+	)
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,
 	//     all sharing one layout, each passing {db, table} that the rows view reads.

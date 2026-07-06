@@ -247,6 +247,18 @@ type Contribution struct {
 	ID       string `json:"id,omitempty"`
 	Hidden   bool   `json:"hidden,omitempty"`    // not listed in the rail (a link/detail target)
 	ParamKey string `json:"param_key,omitempty"` // detail pages: the URL arg becomes param[ParamKey]
+	// Breadcrumbs render above the page heading (page surfaces). Each Crumb's Label
+	// and To may contain {param} placeholders hope fills from the page param — e.g.
+	// on a user detail page, [{Users, users}, {"user {id}"}].
+	Breadcrumbs []Crumb `json:"breadcrumbs,omitempty"`
+}
+
+// Crumb is one breadcrumb. To (optional) is a plugin-relative navigation target
+// (like a Link cell / DetailLink); the last crumb is usually the current page and
+// has no To. {param} placeholders in Label/To are filled from the page param.
+type Crumb struct {
+	Label string `json:"label"`
+	To    string `json:"to,omitempty"`
 }
 
 // PageItem is one dynamic subpage: it shares the contribution's Node but carries

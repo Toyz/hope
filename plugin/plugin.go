@@ -329,6 +329,17 @@ func (p *Plugin) HeaderActions(refs ...string) *Plugin {
 	return p
 }
 
+// Breadcrumbs attaches a breadcrumb trail to the most recently added page
+// contribution (call right after Page/DetailPage). {param} placeholders in a
+// crumb's label/to are filled from the page param.
+func (p *Plugin) Breadcrumbs(crumbs ...Crumb) *Plugin {
+	if len(p.contribs) > 0 {
+		c := &p.contribs[len(p.contribs)-1]
+		c.Breadcrumbs = append(c.Breadcrumbs, crumbs...)
+	}
+	return p
+}
+
 // DetailPage contributes a hidden master-detail page addressed by a stable id (not
 // shown in the rail). A Link/DetailLink navigates to it plugin-relative, and hope
 // passes the URL arg as param[paramKey] — read it in a handler with plugin.Params.

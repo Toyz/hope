@@ -7,7 +7,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { withHost } from "../host-url";
-import { PaletteToggle } from "../events";
+import { PaletteToggle, PageCrumbs } from "../events";
 import { modLabel } from "../platform";
 import { theme } from "../styles";
 
@@ -41,17 +41,31 @@ type Crumb = { label: string; to?: string; muted?: boolean };
 export class HopeTopbar extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
   @reactive accessor path = location.pathname;
+  @reactive accessor pageCrumbs: { label: string; to?: string }[] | null = null; // plugin-supplied trail
 
   private get router(): LoomRouter { return app.get(LoomRouter); }
 
   @on(RouteChanged)
-  private onRoute(e: RouteChanged) { this.path = e.path; }
+  private onRoute(e: RouteChanged) {
+    this.path = e.path;
+    if (!e.path.startsWith("/plugin/")) this.pageCrumbs = null; // stale off a plugin page
+  }
+
+  @on(PageCrumbs)
+  private onPageCrumbs(e: PageCrumbs) { this.pageCrumbs = e.crumbs; }
 
   // Turn the current path into a scope breadcrumb.
   private crumbs(): Crumb[] {
     const p = this.path.split("/").filter(Boolean);
     const out: Crumb[] = [{ label: "fleet", to: "/" }];
     if (p.length === 0) { out[0].muted = false; return out; }
+    // A plugin page can supply its own author-declared trail (already absolute).
+    if (p[0] === "plugin" && this.pageCrumbs && this.pageCrumbs.length) {
+      out.push({ label: "plugins", to: "/plugins" });
+      for (const c of this.pageCrumbs) out.push({ label: c.label, to: c.to });
+      out[out.length - 1].muted = true;
+      return out;
+    }
     const [page, host, third] = p;
     if (page === "host" && host) {
       out.push({ label: host === "all" ? "all hosts" : host, to: `/host/${host}` });

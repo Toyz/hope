@@ -2,7 +2,9 @@ package pluginhost
 
 import (
 	"encoding/json"
+	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,10 +20,17 @@ type ContainerSurface struct {
 	Name    string          `json:"name"`
 	Icon    string          `json:"icon"`
 	Title   string          `json:"title"`
-	Node    json.RawMessage `json:"node"`
-	Schema  json.RawMessage `json:"schema"`
-	Actions []string        `json:"actions,omitempty"` // surface header actions (method refs)
-	Param   json.RawMessage `json:"param,omitempty"`   // page param merged into calls (dynamic pages)
+	Node        json.RawMessage `json:"node"`
+	Schema      json.RawMessage `json:"schema"`
+	Actions     []string        `json:"actions,omitempty"`     // surface header actions (method refs)
+	Breadcrumbs []crumbDoc      `json:"breadcrumbs,omitempty"` // page breadcrumb trail (templated)
+	Param       json.RawMessage `json:"param,omitempty"`       // page param merged into calls (dynamic pages)
+}
+
+// crumbDoc is one breadcrumb (label + optional plugin-relative target).
+type crumbDoc struct {
+	Label string `json:"label"`
+	To    string `json:"to,omitempty"`
 }
 
 // SurfacesParams identifies the container being inspected.
@@ -36,13 +45,17 @@ type layoutDoc struct {
 	Contributions []contributionDoc `json:"contributions"`
 }
 type contributionDoc struct {
-	Surface string          `json:"surface"`
-	Title   string          `json:"title"`
-	Icon    string          `json:"icon"`
-	Match   *matchDoc       `json:"match"`
-	Pages   []pageItemDoc   `json:"pages"`
-	Node    json.RawMessage `json:"node"`
-	Actions []string        `json:"actions"`
+	Surface  string          `json:"surface"`
+	Title    string          `json:"title"`
+	Icon     string          `json:"icon"`
+	Match    *matchDoc       `json:"match"`
+	Pages    []pageItemDoc   `json:"pages"`
+	Node        json.RawMessage `json:"node"`
+	Actions     []string        `json:"actions"`
+	ID          string          `json:"id"`
+	Hidden      bool            `json:"hidden"`
+	ParamKey    string          `json:"param_key"`
+	Breadcrumbs []crumbDoc      `json:"breadcrumbs"`
 }
 type pageItemDoc struct {
 	Title    string          `json:"title"`
@@ -296,8 +309,8 @@ func (r *PluginsRouter) Pages(ctx *rpc.Context) ([]PluginPages, error) {
 		}
 		nodes := []PluginPageNode{}
 		for ci, c := range ld.Contributions {
-			if c.Surface != "page" {
-				continue
+			if c.Surface != "page" || c.Hidden {
+				continue // hidden pages (detail/link targets) aren't listed in the rail
 			}
 			if len(c.Pages) > 0 {
 				nodes = append(nodes, buildPageNodes(c.Pages, strconv.Itoa(ci))...)
@@ -340,6 +353,7 @@ func buildPageNodes(items []pageItemDoc, prefix string) []PluginPageNode {
 type PageParams struct {
 	Key  string `json:"key"`
 	Path string `json:"path"`
+	Arg  string `json:"arg,omitempty"` // master-detail: the URL arg for a DetailPage (param[ParamKey])
 }
 
 // Page returns the surface for one page: the contribution's shared node + schema +
@@ -371,12 +385,24 @@ func (r *PluginsRouter) Page(ctx *rpc.Context, p *PageParams) (*ContainerSurface
 		return nil, rpc.Internal("bad plugin layout: %v", err)
 	}
 
+	// Resolve the contribution by positional index (rail pages) OR by stable ID
+	// (master-detail / link targets — a plugin addresses those by name, not index).
 	segs := strings.Split(p.Path, ".")
-	ci, err := strconv.Atoi(segs[0])
-	if err != nil || ci < 0 || ci >= len(ld.Contributions) {
+	var c contributionDoc
+	found := false
+	if ci, cerr := strconv.Atoi(segs[0]); cerr == nil && ci >= 0 && ci < len(ld.Contributions) {
+		c, found = ld.Contributions[ci], true
+	} else {
+		for _, cc := range ld.Contributions {
+			if cc.Surface == "page" && cc.ID != "" && cc.ID == segs[0] {
+				c, found = cc, true
+				break
+			}
+		}
+	}
+	if !found {
 		return nil, rpc.BadRequest("no such page")
 	}
-	c := ld.Contributions[ci]
 	if c.Surface != "page" || len(c.Node) == 0 {
 		return nil, rpc.BadRequest("contribution is not a page")
 	}
@@ -398,11 +424,55 @@ func (r *PluginsRouter) Page(ctx *rpc.Context, p *PageParams) (*ContainerSurface
 	if title == "" {
 		title = sd.Name
 	}
+	// Master-detail: the URL arg becomes param[ParamKey], merged over any positional
+	// page param — so the detail page's handlers read the clicked entity's id.
+	if c.ParamKey != "" && p.Arg != "" {
+		m := map[string]any{}
+		if len(param) > 0 {
+			_ = json.Unmarshal(param, &m)
+		}
+		m[c.ParamKey] = p.Arg
+		if b, merr := json.Marshal(m); merr == nil {
+			param = b
+		}
+	}
 	icon := c.Icon
 	if icon == "" {
 		icon = sd.Icon
 	}
-	return &ContainerSurface{Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions, Param: param}, nil
+	return &ContainerSurface{
+		Key: p.Key, Name: sd.Name, Icon: icon, Title: title, Node: c.Node,
+		Schema: schemaRaw, Actions: c.Actions, Breadcrumbs: fillCrumbs(c.Breadcrumbs, param), Param: param,
+	}, nil
+}
+
+// crumbVar matches a {name} placeholder in a breadcrumb label/target.
+var crumbVar = regexp.MustCompile(`\{(\w+)\}`)
+
+// fillCrumbs substitutes {param} placeholders in each crumb's label + target from
+// the page param, so a detail page's trail reads e.g. "Users / user 42".
+func fillCrumbs(crumbs []crumbDoc, param json.RawMessage) []crumbDoc {
+	if len(crumbs) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if len(param) > 0 {
+		_ = json.Unmarshal(param, &m)
+	}
+	sub := func(s string) string {
+		return crumbVar.ReplaceAllStringFunc(s, func(tok string) string {
+			k := tok[1 : len(tok)-1]
+			if v, ok := m[k]; ok {
+				return fmt.Sprint(v)
+			}
+			return tok
+		})
+	}
+	out := make([]crumbDoc, len(crumbs))
+	for i, cr := range crumbs {
+		out[i] = crumbDoc{Label: sub(cr.Label), To: sub(cr.To)}
+	}
+	return out
 }
 
 func anyGlob(globs []string, s string) bool {
