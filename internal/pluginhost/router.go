@@ -26,6 +26,7 @@ type PluginsRouter struct {
 	mu       sync.Mutex
 	cache    []Discovered
 	cachedAt time.Time
+	scanMu   sync.Mutex // serializes fleet scans so concurrent callers don't stampede
 
 	limMu    sync.Mutex
 	limiters map[string]*pluginLimiter
@@ -217,13 +218,18 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	token := r.store.DeriveToken(p.Key)
 	// Capture the schema hash at approval so a later runtime schema change (new
 	// capabilities the operator never approved) is detected on inspect and forces
-	// re-approval — the image digest alone only catches image swaps.
-	schemaHash := ""
-	if ep, derr := r.dial(ctx, host, rep, token, false); derr == nil {
-		if raw, serr := ep.callRPC(ctx, "hope.schema", nil); serr == nil {
-			schemaHash = hashBytes(raw)
-		}
+	// re-approval — the image digest alone only catches image swaps. Require the
+	// plugin be reachable here: enabling an unreachable plugin would persist an empty
+	// hash, permanently disabling the re-approval gate (and you can't use it anyway).
+	ep, derr := r.dial(ctx, host, rep, token, false)
+	if derr != nil {
+		return nil, rpc.BadRequest("plugin unreachable — start it and try again (needed to pin its schema for change detection)")
 	}
+	raw, serr := ep.callRPC(ctx, "hope.schema", nil)
+	if serr != nil {
+		return nil, rpc.BadRequest("plugin did not answer hope.schema — start it and try again")
+	}
+	schemaHash := hashBytes(raw)
 	// Deterministic token derived from hope's secret + the plugin identity — stable
 	// across disable/enable/forget so the plugin's trust-on-first-use pin keeps
 	// matching (a fresh random token each time would break it once the plugin pins).
@@ -370,8 +376,7 @@ func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginMani
 	// re-approval — the trust boundary must cover runtime capability changes, not
 	// just image swaps.
 	if rec.SchemaHash != "" && hashBytes(schema) != rec.SchemaHash {
-		rec.Enabled = false
-		_ = r.store.PutPlugin(*rec)
+		_ = r.store.DisablePlugin(p.Key) // atomic re-read+write; don't clobber a concurrent update
 		return nil, rpc.BadRequest("plugin schema changed since approval — re-enable to approve the new capabilities")
 	}
 	layout, err := ep.callRPC(ctx, "hope.layout", nil)

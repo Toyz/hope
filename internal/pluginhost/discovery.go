@@ -41,6 +41,19 @@ func (r *PluginsRouter) scan(ctx context.Context, refresh bool) []Discovered {
 	}
 	r.mu.Unlock()
 
+	// Serialize the fan-out: concurrent callers (Surfaces/Dashboard/Pages/tryDial all
+	// force a rescan) would otherwise stampede every Docker daemon at once. After
+	// acquiring, reuse a scan a peer just finished instead of running another.
+	r.scanMu.Lock()
+	defer r.scanMu.Unlock()
+	r.mu.Lock()
+	if r.cache != nil && time.Since(r.cachedAt) < cacheTTL {
+		cached := r.cache
+		r.mu.Unlock()
+		return cached
+	}
+	r.mu.Unlock()
+
 	hcs := r.hosts.All()
 	perHost := make([][]Discovered, len(hcs))
 	var wg sync.WaitGroup

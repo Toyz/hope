@@ -66,6 +66,9 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	if err != nil {
 		return nil, fmt.Errorf("resolve plugin address: %w", err)
 	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("no dial candidates for plugin container %s", pc.ContainerID)
+	}
 	path := pc.Path
 	if path == "" {
 		path = "/__hope"
@@ -204,32 +207,36 @@ func (e *endpoint) stream(ctx context.Context, method string, params any, onFram
 			connErr = err
 			continue
 		}
-		defer resp.Body.Close()
-		sc := bufio.NewScanner(resp.Body)
-		sc.Buffer(make([]byte, 0, 64*1024), maxRespBody)
-		for sc.Scan() {
-			line := bytes.TrimSpace(sc.Bytes())
-			if len(line) == 0 {
-				continue
+		// This iteration owns the stream; read it in a closure so Body.Close fires on
+		// every return path (not a defer stacked inside the candidate loop).
+		return func() error {
+			defer resp.Body.Close()
+			sc := bufio.NewScanner(resp.Body)
+			sc.Buffer(make([]byte, 0, 64*1024), maxRespBody)
+			for sc.Scan() {
+				line := bytes.TrimSpace(sc.Bytes())
+				if len(line) == 0 {
+					continue
+				}
+				var f struct {
+					Result json.RawMessage `json:"result"`
+					Error  *struct {
+						Code    int    `json:"code"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(line, &f); err != nil {
+					continue
+				}
+				if f.Error != nil {
+					return fmt.Errorf("plugin error %d: %s", f.Error.Code, f.Error.Message)
+				}
+				if err := onFrame(f.Result); err != nil {
+					return err
+				}
 			}
-			var f struct {
-				Result json.RawMessage `json:"result"`
-				Error  *struct {
-					Code    int    `json:"code"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if err := json.Unmarshal(line, &f); err != nil {
-				continue
-			}
-			if f.Error != nil {
-				return fmt.Errorf("plugin error %d: %s", f.Error.Code, f.Error.Message)
-			}
-			if err := onFrame(f.Result); err != nil {
-				return err
-			}
-		}
-		return sc.Err()
+			return sc.Err()
+		}()
 	}
 	return fmt.Errorf("%w — hope couldn't reach the plugin for streaming", connErr)
 }

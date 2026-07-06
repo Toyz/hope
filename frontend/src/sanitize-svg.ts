@@ -26,7 +26,7 @@ const ALLOWED_ATTRS = new Set([
 // attribute (e.g. fill="url(http://evil)") — no remote references at all.
 function safeValue(v: string): boolean {
   const s = v.toLowerCase();
-  return !s.includes("url(") && !s.includes("javascript:") && !s.includes("expression");
+  return !s.includes("url(") && !s.includes("javascript:") && !s.includes("data:") && !s.includes("expression");
 }
 
 function cleanElement(el: Element, out: Document): Element | null {

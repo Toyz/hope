@@ -52,7 +52,10 @@ export class HopeTopbar extends LoomElement {
   @on(RouteChanged)
   private onRoute(e: RouteChanged) {
     this.path = e.path;
-    if (!e.path.startsWith("/plugin/")) { this.pageCrumbs = null; pluginCrumbs.value = null; } // stale off a plugin page
+    // Clear on every navigation; the destination plugin page re-emits its own crumbs
+    // on load (this avoids showing the previous page's trail during plugin->plugin nav).
+    this.pageCrumbs = null;
+    pluginCrumbs.value = null;
   }
 
   @on(PageCrumbs)

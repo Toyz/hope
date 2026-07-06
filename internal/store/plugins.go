@@ -104,6 +104,21 @@ func (s *Store) Plugins() ([]PluginRecord, error) {
 	return out, err
 }
 
+// DisablePlugin flips a record's Enabled to false in place, re-reading it first so a
+// concurrent SetSettings/Enable isn't clobbered by a stale in-memory copy (the
+// caller may hold an old *PluginRecord). No-op if the record is gone.
+func (s *Store) DisablePlugin(key string) error {
+	rec, err := s.Plugin(key)
+	if err != nil || rec == nil {
+		return err
+	}
+	if !rec.Enabled {
+		return nil
+	}
+	rec.Enabled = false
+	return s.PutPlugin(*rec)
+}
+
 // DeletePlugin removes a plugin record (e.g. when the container is gone).
 func (s *Store) DeletePlugin(key string) error {
 	return s.Delete(BucketPlugins, key)

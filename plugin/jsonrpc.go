@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // JSON-RPC 2.0 error codes. The negative custom codes stay clear of the reserved
@@ -103,9 +104,11 @@ func (p *Plugin) Handler() http.Handler {
 	return mux
 }
 
-// ListenAndServe serves the plugin on addr (e.g. ":8080"). Blocks.
+// ListenAndServe serves the plugin on addr (e.g. ":8080"). Blocks. A
+// ReadHeaderTimeout guards against a slow-header (Slowloris) client holding a
+// goroutine; no WriteTimeout is set because stream handlers write indefinitely.
 func (p *Plugin) ListenAndServe(addr string) error {
-	srv := &http.Server{Addr: addr, Handler: p.Handler()}
+	srv := &http.Server{Addr: addr, Handler: p.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	return srv.ListenAndServe()
 }
 

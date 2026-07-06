@@ -17,10 +17,12 @@ const registry = new Map<string, Map<string, string>>();
 /** Register a plugin's icon map (sanitizing each). Safe to call repeatedly. */
 export function registerPluginIcons(pluginKey: string, icons?: Record<string, string>) {
   if (!pluginKey || !icons) return;
-  let m = registry.get(pluginKey);
-  if (!m) { m = new Map(); registry.set(pluginKey, m); }
+  // Re-sanitize on every register so a redeployed plugin's updated icons take effect
+  // (first-write-wins would pin a stale/buggy icon for the tab's lifetime).
+  const m = new Map<string, string>();
+  registry.set(pluginKey, m);
   for (const [name, markup] of Object.entries(icons)) {
-    if (!m.has(name)) m.set(name, sanitizeSvgInner(markup));
+    m.set(name, sanitizeSvgInner(markup));
   }
 }
 

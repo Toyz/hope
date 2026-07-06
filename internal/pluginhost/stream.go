@@ -85,9 +85,13 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 	if rec == nil || !rec.Enabled {
 		return errResp(http.StatusBadRequest, "plugin is not enabled")
 	}
-	// Cap concurrent streams per plugin so a plugin (or a runaway UI) can't hold
-	// unbounded live connections through the control plane.
-	releaseStream, ok := h.r.limiter(key).acquireStream()
+	// Cap concurrent streams per plugin AND consume a rate token (the stream path
+	// otherwise bypasses the per-plugin rate envelope the unary Call enforces).
+	lim := h.r.limiter(key)
+	if !lim.allowRate() {
+		return errResp(http.StatusTooManyRequests, "rate limit exceeded for this plugin")
+	}
+	releaseStream, ok := lim.acquireStream()
 	if !ok {
 		return errResp(http.StatusTooManyRequests, "too many concurrent streams for this plugin")
 	}
@@ -99,6 +103,12 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		defer releaseStream()
+		// Cancel the reader goroutine when this pipe returns for ANY reason (client
+		// gone, ping-write failure) — not just ctx cancellation. Otherwise the reader
+		// can block forever on `frames <- fr` once nobody drains it, holding the
+		// plugin's HTTP body + connection open (goroutine leak).
+		sctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 		gate := newFrameGate(h.r.limits)
 		enc := json.NewEncoder(w)
 		var mu sync.Mutex
@@ -114,7 +124,7 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		frames := make(chan json.RawMessage, 16)
 		done := make(chan error, 1)
 		go func() {
-			done <- ep.stream(ctx, method, nil, func(fr json.RawMessage) error {
+			done <- ep.stream(sctx, method, nil, func(fr json.RawMessage) error {
 				// Drop oversize or too-fast frames — a plugin must not flood the UI /
 				// control plane. Dropping (not erroring) keeps a bursty-but-benign
 				// stream alive while starving an abusive one.
@@ -124,8 +134,8 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 				select {
 				case frames <- fr:
 					return nil
-				case <-ctx.Done():
-					return ctx.Err()
+				case <-sctx.Done():
+					return sctx.Err()
 				}
 			})
 		}()

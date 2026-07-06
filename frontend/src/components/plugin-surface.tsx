@@ -42,9 +42,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sec { padding: 4px 0 10px; }
   .tabsw { display: flex; flex-direction: column; }
   /* "fill" no longer means flex-grow (that fights a scrolling page). A filled table
-     just gets a tall internal scroll; the page scrolls between sections. */
-  .grow { }
-  .leaf.grow { }
+     just gets a tall internal scroll (see .leaf.grow .gwrap); the page scrolls
+     between sections. .grow/.leaf.grow are markers used by those selectors. */
   .sect { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .sbtn.rfr { padding: 2px 5px; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
@@ -225,6 +224,8 @@ export class HopePluginSurface extends LoomElement {
   private stopAll() {
     for (const c of this.streamAborts.values()) c.abort();
     this.streamAborts.clear();
+    for (const t of this.debFetch.values()) clearTimeout(t); // cancel pending filter debounces
+    this.debFetch.clear();
     this.streamOn = {};
   }
 
@@ -245,6 +246,7 @@ export class HopePluginSurface extends LoomElement {
     this.cells = {};
     this.streamData = {};
     this.streamHist = {};
+    this.filterDraft = {};
     if (!s) return;
     registerPluginIcons(s.key, s.schema.icons); // sanitize + namespace this plugin's icons
     for (const v of s.schema.views || []) this.views[v.method] = v;
@@ -315,8 +317,10 @@ export class HopePluginSurface extends LoomElement {
     this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: true } };
     try {
       const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs(extra) }]);
+      if (this.surface !== s) return; // navigated away mid-fetch — don't write stale data
       this.cells = { ...this.cells, [method]: { loading: false, data } };
     } catch (e: any) {
+      if (this.surface !== s) return;
       this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: false, error: e?.message ?? "call failed" } };
     }
   }
@@ -396,7 +400,7 @@ export class HopePluginSurface extends LoomElement {
     const g = fill ? " grow" : "";
     if (this.actions[ref]) {
       const a = this.actions[ref];
-      return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => this.runAction(a)}>{a.label}</hope-button></div>;
+      return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{a.label}</hope-button></div>;
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];
@@ -477,7 +481,7 @@ export class HopePluginSurface extends LoomElement {
       <div>
         <hope-code lang={v.lang || "sql"} value={text} placeholder="enter a query…" onInput={(e: any) => (this.queryText = { ...this.queryText, [v.method]: e.detail })}></hope-code>
         <div class="qrun">
-          <hope-button size="sm" tone="primary" icon="play" onClick={() => this.fetch(v.method, { input: this.queryText[v.method] ?? this.queryDefault(v) })}>run</hope-button>
+          <hope-button size="sm" tone="primary" icon="play" onClick={() => { void this.fetch(v.method, { input: this.queryText[v.method] ?? this.queryDefault(v) }); }}>run</hope-button>
         </div>
         {cell?.loading ? <div class="msg">running…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : cell?.data ? this.renderTable(cell.data, v) : <div class="msg">no results yet</div>}
       </div>
@@ -489,6 +493,7 @@ export class HopePluginSurface extends LoomElement {
   }
 
   private debFetch = new Map<string, any>(); // per-view filter debounce timers
+  private filterDraft: Record<string, string> = {}; // server-table filter text (non-reactive: typing must not re-render/lose focus)
 
   // serverFetch re-calls a server-driven table with the current query state ({_q}):
   // page, page_size, the sorted column NAME (resolved from the last columns), and
@@ -503,10 +508,15 @@ export class HopePluginSurface extends LoomElement {
     void this.fetch(method, { _q: { page: st.page, page_size: size, sort, filter: st.filter || "" } });
   }
 
-  // serverFilter debounces filter typing so we don't hammer the plugin per keystroke.
+  // serverFilter debounces filter typing: the text lives in filterDraft (non-reactive
+  // so keystrokes don't re-render + drop focus); on the debounce we commit it to
+  // tableState (one re-render) and refetch.
   private serverFilter(method: string) {
     clearTimeout(this.debFetch.get(method));
-    this.debFetch.set(method, setTimeout(() => this.serverFetch(method), 250));
+    this.debFetch.set(method, setTimeout(() => {
+      this.setTable(method, { filter: this.filterDraft[method] ?? "", page: 0 });
+      this.serverFetch(method);
+    }, 250));
   }
   private setTable(key: string, patch: Partial<TableState>) {
     this.tableState = { ...this.tableState, [key]: { ...this.tableSt(key), ...patch } };
@@ -571,13 +581,19 @@ export class HopePluginSurface extends LoomElement {
       this.setTable(key, { sort, dir, page: server ? 0 : st.page });
       if (server) this.serverFetch(key);
     };
-    const changeFilter = (fv: string) => { this.setTable(key, { filter: fv, page: 0 }); if (server) this.serverFilter(key); };
+    // Server: stash text in filterDraft (no re-render, keeps focus) + debounce. Client:
+    // commit to state immediately to re-filter locally.
+    const changeFilter = (fv: string) => {
+      if (server) { this.filterDraft[key] = fv; this.serverFilter(key); }
+      else this.setTable(key, { filter: fv, page: 0 });
+    };
+    const filterVal = server ? (this.filterDraft[key] ?? st.filter) : st.filter;
 
     return (
       <div class="tblwrap">
         {toolbar ? (
           <div class="tbar">
-            <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={st.filter}
+            <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={filterVal}
               onInput={(e: any) => changeFilter(e.target.value)} />
             <span class="tcount">{total.toLocaleString()}{!server && total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>
             {pages > 1 ? (
@@ -810,7 +826,7 @@ export class HopePluginSurface extends LoomElement {
     return (
       <div class="cards">
         {items.map((it) => (
-          <div class={"pcard" + (it.to ? " lk" : "") + (it.tone ? " " + it.tone : "")}
+          <div class={"pcard" + (it.to ? " lk" : "") + (this.toneClass(it.tone) ? " " + this.toneClass(it.tone) : "")}
             onClick={it.to ? () => this.navCell(it) : undefined}>
             <div class="pchead">
               {it.icon ? <hope-plugin-icon plugin={this.surface?.key} name={it.icon} size={16}></hope-plugin-icon> : null}
@@ -835,7 +851,7 @@ export class HopePluginSurface extends LoomElement {
     return (
       <div class="stats2">
         {stats.map((st) => (
-          <div class={"statb" + (st.tone ? " " + st.tone : "")}>
+          <div class={"statb" + (this.toneClass(st.tone) ? " " + this.toneClass(st.tone) : "")}>
             <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{this.cellStr(st.label)}</div>
             <div class="stval">{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
             {st.sub ? <div class="stsub">{this.cellStr(st.sub)}</div> : null}
@@ -862,6 +878,13 @@ export class HopePluginSurface extends LoomElement {
     if (o && typeof o === "object") for (const k of Object.keys(o)) out[k] = this.cellStr(o[k]);
     return out;
   }
+  // toneClass allowlists a plugin-supplied tone to hope's semantic set, so untrusted
+  // data can't inject arbitrary class strings.
+  private toneClass(t: any): string {
+    const s = String(t ?? "");
+    return ["ok", "warn", "bad", "info", "upd"].includes(s) ? s : "";
+  }
+
   private cellStr(v: any): string {
     if (v == null) return "—";
     if (typeof v === "object") {
@@ -881,7 +904,7 @@ export class HopePluginSurface extends LoomElement {
       switch (cell.type) {
         case "badge":
         case "chip":
-          return <span class={"pill " + (cell.tone || "")}>{this.cellStr(cell.value)}</span>;
+          return <span class={"pill " + this.toneClass(cell.tone)}>{this.cellStr(cell.value)}</span>;
         case "link":
           return <a class="clink" onClick={(e: any) => { e.stopPropagation(); this.navCell(cell); }}>{this.cellStr(cell.value)}</a>;
         case "time":
@@ -907,10 +930,18 @@ export class HopePluginSurface extends LoomElement {
   private navCell(cell: any) {
     if (cell.to) {
       const to = String(cell.to);
-      const abs = to.startsWith("/") ? to : `/plugin/${encodeURIComponent(this.surface?.key || "")}/${to}`;
+      // In-app nav only. An absolute `to` must be a single-slash path (reject
+      // protocol-relative "//host" which routers treat as off-site); relative `to`
+      // is resolved under this plugin.
+      const abs = to.startsWith("/")
+        ? (to.startsWith("//") ? "/" : to)
+        : `/plugin/${encodeURIComponent(this.surface?.key || "")}/${to}`;
       this.router.navigate(abs);
     } else if (cell.href) {
-      window.open(String(cell.href), "_blank", "noopener");
+      // External link: http(s) only — never javascript:/data:/etc (window.open runs
+      // a javascript: URI in the opener's origin even with noopener).
+      const href = String(cell.href);
+      if (/^https?:\/\//i.test(href)) window.open(href, "_blank", "noopener,noreferrer");
     }
   }
 
@@ -919,7 +950,9 @@ export class HopePluginSurface extends LoomElement {
     return isNaN(n) ? this.cellStr(v) : n.toLocaleString();
   }
   private toMs(v: any): number {
+    if (v == null || v === "") return NaN; // no timestamp -> "—", not epoch ("56y ago")
     const n = Number(v);
+    if (isNaN(n)) return NaN;
     return n < 1e12 ? n * 1000 : n; // seconds vs millis
   }
   private absTime(v: any): string {
