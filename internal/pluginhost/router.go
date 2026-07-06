@@ -29,6 +29,8 @@ type PluginsRouter struct {
 
 	limMu    sync.Mutex
 	limiters map[string]*pluginLimiter
+
+	metrics metricsRegistry
 }
 
 // limiter returns the per-plugin resource limiter, creating it on first use.
@@ -429,8 +431,10 @@ func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, 
 	}
 	start := time.Now()
 	res, err := ep.callRPC(ctx, p.Method, args)
+	dur := time.Since(start)
+	r.metrics.get(p.Key).record(err == nil, dur)
 	if p.Audit {
-		r.audit(ctx, rec, p, err, time.Since(start))
+		r.audit(ctx, rec, p, err, dur)
 	}
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
@@ -475,6 +479,15 @@ func (r *PluginsRouter) Audit(ctx *rpc.Context, p *AuditParams) ([]store.AuditEn
 		key, limit = p.Key, p.Limit
 	}
 	return r.store.AuditLog(key, limit)
+}
+
+// Metrics returns per-plugin in-memory observability (call/error counts + latency)
+// since hope started — so the operator can spot hot, slow, or failing plugins.
+func (r *PluginsRouter) Metrics(ctx *rpc.Context) ([]PluginMetrics, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	return r.metrics.snapshot(), nil
 }
 
 // SetSettingsParams sets operator-managed setting values for a plugin.
