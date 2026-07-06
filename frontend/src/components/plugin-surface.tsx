@@ -22,7 +22,7 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -165,7 +165,11 @@ export class HopePluginSurface extends LoomElement {
   @watch("reloadTick") onReload() {
     const s = this.surface;
     if (!s) return;
-    for (const ref of this.leafRefs(s.node)) if (this.views[ref]) void this.fetch(ref);
+    for (const ref of this.leafRefs(s.node)) {
+      if (!this.views[ref]) continue;
+      if (this.views[ref].server) this.serverFetch(ref);
+      else void this.fetch(ref);
+    }
   }
 
   private stopAll() {
@@ -196,8 +200,11 @@ export class HopePluginSurface extends LoomElement {
     for (const st of s.schema.streams || []) this.streams[st.method] = st;
     // Fetch views eagerly; streams are OPT-IN (a live connection is precious —
     // one held stream can starve the dev proxy / the browser's per-host limit).
+    // Server tables get their first page via the query protocol.
     for (const ref of this.leafRefs(s.node)) {
-      if (this.views[ref]) void this.fetch(ref);
+      if (!this.views[ref]) continue;
+      if (this.views[ref].server) this.serverFetch(ref);
+      else void this.fetch(ref);
     }
   }
 
@@ -397,6 +404,27 @@ export class HopePluginSurface extends LoomElement {
   private tableSt(key: string): TableState {
     return this.tableState[key] || { page: 0, sort: -1, dir: 1, filter: "" };
   }
+
+  private debFetch = new Map<string, any>(); // per-view filter debounce timers
+
+  // serverFetch re-calls a server-driven table with the current query state ({_q}):
+  // page, page_size, the sorted column NAME (resolved from the last columns), and
+  // the filter. The plugin returns just that page + a total.
+  private serverFetch(method: string) {
+    const v = this.views[method];
+    if (!v?.server) return;
+    const st = this.tableSt(method);
+    const size = v.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE;
+    const cols: string[] | undefined = this.cells[method]?.data?.columns;
+    const sort = st.sort >= 0 && cols ? { column: cols[st.sort], dir: st.dir } : undefined;
+    void this.fetch(method, { _q: { page: st.page, page_size: size, sort, filter: st.filter || "" } });
+  }
+
+  // serverFilter debounces filter typing so we don't hammer the plugin per keystroke.
+  private serverFilter(method: string) {
+    clearTimeout(this.debFetch.get(method));
+    this.debFetch.set(method, setTimeout(() => this.serverFetch(method), 250));
+  }
   private setTable(key: string, patch: Partial<TableState>) {
     this.tableState = { ...this.tableState, [key]: { ...this.tableSt(key), ...patch } };
   }
@@ -427,34 +455,45 @@ export class HopePluginSurface extends LoomElement {
 
     const key = v?.method || "_t";
     const st = this.tableSt(key);
-
-    // filter -> sort -> page over row INDICES (keeps the original rows intact).
-    let idx = rows.map((_, i) => i);
-    if (st.filter) {
-      const f = st.filter.toLowerCase();
-      idx = idx.filter((i) => rows[i].some((c) => this.cellStr(c).toLowerCase().includes(f)));
-    }
-    if (st.sort >= 0) idx.sort((a, b) => this.cmpCells(rows[a][st.sort], rows[b][st.sort]) * st.dir);
-
+    const server = !!v?.server;
     const pageSize = v?.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE; // plugin-declared, else default
-    const total = idx.length;
+
+    // Server tables: the plugin already returned exactly this page + a total, so we
+    // don't filter/sort/slice here — the controls re-call the plugin. Client tables:
+    // filter -> sort -> page over row INDICES locally.
+    let idx = rows.map((_, i) => i);
+    let total: number;
+    if (server) {
+      total = typeof data?.total === "number" ? data.total : rows.length;
+    } else {
+      if (st.filter) {
+        const f = st.filter.toLowerCase();
+        idx = idx.filter((i) => rows[i].some((c) => this.cellStr(c).toLowerCase().includes(f)));
+      }
+      if (st.sort >= 0) idx.sort((a, b) => this.cmpCells(rows[a][st.sort], rows[b][st.sort]) * st.dir);
+      total = idx.length;
+    }
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(st.page, pages - 1);
-    const shown = idx.slice(page * pageSize, page * pageSize + pageSize);
-    const toolbar = rows.length > pageSize || st.filter;
+    const shown = server ? idx : idx.slice(page * pageSize, page * pageSize + pageSize);
+    const toolbar = server || rows.length > pageSize || st.filter;
+    // Control handlers route to the plugin (server) or re-render locally (client).
+    const changePage = (p: number) => { this.setTable(key, { page: p }); if (server) this.serverFetch(key); };
+    const changeSort = (ci: number) => { this.setTable(key, { sort: ci, dir: st.sort === ci ? (st.dir === 1 ? -1 : 1) as 1 | -1 : 1, page: server ? 0 : st.page }); if (server) this.serverFetch(key); };
+    const changeFilter = (fv: string) => { this.setTable(key, { filter: fv, page: 0 }); if (server) this.serverFilter(key); };
 
     return (
       <div class="tblwrap">
         {toolbar ? (
           <div class="tbar">
-            <input class="tfilter" placeholder="filter…" value={st.filter}
-              onInput={(e: any) => this.setTable(key, { filter: e.target.value, page: 0 })} />
-            <span class="tcount">{total.toLocaleString()}{total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>
+            <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={st.filter}
+              onInput={(e: any) => changeFilter(e.target.value)} />
+            <span class="tcount">{total.toLocaleString()}{!server && total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>
             {pages > 1 ? (
               <span class="tpager">
-                <button class="pbtn" disabled={page <= 0} onClick={() => this.setTable(key, { page: page - 1 })}><loom-icon name="chevron-left" size={13}></loom-icon></button>
+                <button class="pbtn" disabled={page <= 0} onClick={() => changePage(page - 1)}><loom-icon name="chevron-left" size={13}></loom-icon></button>
                 <span class="pnum">{page + 1} / {pages}</span>
-                <button class="pbtn" disabled={page >= pages - 1} onClick={() => this.setTable(key, { page: page + 1 })}><loom-icon name="chevron-right" size={13}></loom-icon></button>
+                <button class="pbtn" disabled={page >= pages - 1} onClick={() => changePage(page + 1)}><loom-icon name="chevron-right" size={13}></loom-icon></button>
               </span>
             ) : null}
           </div>
@@ -463,7 +502,7 @@ export class HopePluginSurface extends LoomElement {
           <table class="g">
             <thead><tr>
               {cols.map((c, ci) => (
-                <th class="srt" onClick={() => this.setTable(key, { sort: ci, dir: st.sort === ci ? (st.dir === 1 ? -1 : 1) as 1 | -1 : 1 })}>
+                <th class="srt" onClick={() => changeSort(ci)}>
                   {c}{st.sort === ci ? <span class="sarrow">{st.dir === 1 ? "↑" : "↓"}</span> : null}
                 </th>
               ))}
@@ -562,10 +601,13 @@ export class HopePluginSurface extends LoomElement {
     if (out.refetch) this.refetchView(viewMethod);
   };
 
-  // refetchView reloads a view leaf (re-running a query with its current input).
+  // refetchView reloads a view leaf: a server table via the query protocol, a query
+  // view with its current input, else a plain fetch.
   private refetchView(viewMethod?: string) {
     if (!viewMethod || !this.views[viewMethod]) return;
-    void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
+    const v = this.views[viewMethod];
+    if (v.server) { this.serverFetch(viewMethod); return; }
+    void this.fetch(viewMethod, v.kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
   }
 
   private renderDetail(data: any): any {

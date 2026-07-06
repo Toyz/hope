@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -227,6 +228,52 @@ func main() {
 		}, nil
 	})
 
+	// A SERVER-DRIVEN table: 100k synthetic rows the plugin pages/sorts/filters —
+	// hope never ships them all. Read the query with plugin.ReadTableQuery, return
+	// one page + a total. This is the pattern data-heavy plugins need.
+	p.TableView("big", "Big Table (server-side)", func(ctx context.Context) (any, error) {
+		const totalRows = 100000
+		q, _ := plugin.ReadTableQuery(ctx)
+		size := q.PageSize
+		if size <= 0 {
+			size = 100
+		}
+		f := strings.ToLower(strings.TrimSpace(q.Filter))
+		name := func(i int) string { return fmt.Sprintf("user-%05d", i) }
+		score := func(i int) int { return i * 7 % 1000 }
+		// filter (server-side) -> list of matching ids
+		ids := make([]int, 0, totalRows)
+		for i := range totalRows {
+			if f == "" || strings.Contains(name(i), f) || strings.Contains(strconv.Itoa(score(i)), f) {
+				ids = append(ids, i)
+			}
+		}
+		// sort (server-side) by the requested column
+		if q.Sort.Column != "" {
+			less := map[string]func(a, b int) bool{
+				"id":    func(a, b int) bool { return a < b },
+				"name":  func(a, b int) bool { return name(a) < name(b) },
+				"score": func(a, b int) bool { return score(a) < score(b) },
+			}[q.Sort.Column]
+			if less != nil {
+				sort.SliceStable(ids, func(x, y int) bool {
+					if q.Sort.Dir < 0 {
+						return less(ids[y], ids[x])
+					}
+					return less(ids[x], ids[y])
+				})
+			}
+		}
+		total := len(ids)
+		start := min(q.Page*size, total)
+		end := min(start+size, total)
+		rows := make([][]any, 0, end-start)
+		for _, i := range ids[start:end] {
+			rows = append(rows, []any{i, name(i), score(i)})
+		}
+		return map[string]any{"columns": []string{"id", "name", "score"}, "rows": rows, "total": total}, nil
+	}, plugin.ServerSide(), plugin.PageSize(100))
+
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
 		return map[string]any{"nodes": []any{
 			node("app", node("users"), node("orders"), node("events")),
@@ -318,7 +365,8 @@ func main() {
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
 		plugin.Section("Traffic", plugin.Leaf("chart")),
-		plugin.Section("Rows", plugin.Leaf("rows").Filled()),
+		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
+		plugin.Section("Rows", plugin.Leaf("rows")),
 	)).HeaderActions("greet", "wipe") // buttons in the page header, not inline
 
 	// --- dynamic nested pages for LOAD: 3 databases x 20 tables = 60 rail entries,

@@ -66,6 +66,35 @@ func Input(ctx context.Context) string {
 	return p.Input
 }
 
+// TableSort is the sort request for a server-driven table: which column, and the
+// direction (1 ascending, -1 descending; 0 = unsorted).
+type TableSort struct {
+	Column string `json:"column"`
+	Dir    int    `json:"dir"`
+}
+
+// TableQuery is hope's per-call query state for a ServerSide table: which page (0-
+// based) of what size, an optional sort, and the filter text. Use it to run just
+// that slice of your data and return {columns, rows, total}.
+type TableQuery struct {
+	Page     int       `json:"page"`
+	PageSize int       `json:"page_size"`
+	Sort     TableSort `json:"sort"`
+	Filter   string    `json:"filter"`
+}
+
+// ReadTableQuery reads the server-table query state hope sends (under "_q"). ok is
+// false when the call carried none (e.g. a non-server table) — treat that as page 0.
+func ReadTableQuery(ctx context.Context) (q TableQuery, ok bool) {
+	var w struct {
+		Q *TableQuery `json:"_q"`
+	}
+	if err := Params(ctx, &w); err != nil || w.Q == nil {
+		return TableQuery{}, false
+	}
+	return *w.Q, true
+}
+
 // Handler returns the http.Handler that serves the JSON-RPC endpoint at the
 // plugin's path. Mount it yourself, or use ListenAndServe.
 func (p *Plugin) Handler() http.Handler {

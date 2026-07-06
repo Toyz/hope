@@ -199,6 +199,11 @@ func RowActions(actions ...RowAction) TableOpt {
 // PageSize sets how many rows hope shows per page for this table (0 => hope default).
 func PageSize(n int) TableOpt { return func(v *ViewDesc) { v.PageSize = n } }
 
+// ServerSide marks a table server-driven: hope sends the query state each call and
+// expects one page + a total back, so a table too large to ship whole still works.
+// Read the query with plugin.ReadTableQuery and return {columns, rows, total}.
+func ServerSide() TableOpt { return func(v *ViewDesc) { v.Server = true } }
+
 // Editable makes cells editable: editing one calls method with {row, column, value}.
 // Pass column names to limit which are editable (none => every column).
 func Editable(method string, columns ...string) TableOpt {

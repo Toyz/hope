@@ -150,6 +150,12 @@ type ViewDesc struct {
 	// author-controlled inline-edit RPC — hope refetches the table on success.
 	EditMethod  string   `json:"edit_method,omitempty"`
 	EditColumns []string `json:"edit_columns,omitempty"`
+	// Server marks a table server-driven: hope does NOT ship every row and page in
+	// the browser. Instead it sends the query state ({_q: {page, page_size, sort,
+	// filter}}) on each call and expects one page back plus a total row count
+	// ({columns, rows, total}). Required for tables too large to send whole — read
+	// the query with plugin.ReadTableQuery.
+	Server bool `json:"server,omitempty"`
 }
 
 // RowAction is one author-declared action bound to a table row. hope calls Method

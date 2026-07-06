@@ -122,6 +122,24 @@ interactivity; the columns are always dynamic (hope renders exactly the
 | `row_method`  | a method hope calls with `{row: {column: value}}` when a row is clicked; the returned kv/table shows in a modal |
 | `row_actions` | per-row action buttons: `[{ "method", "label", "icon?", "danger?", "fields?" }]`. Clicking calls `method` with `{row: {...}}` (plus any collected `fields`); `danger` confirms first, then hope refetches the table |
 | `edit_method` | inline cell edit: editing a cell calls `method` with `{row, column, value}`. `edit_columns` (optional) limits which columns are editable. hope refetches on success |
+| `server`      | server-driven table: hope does NOT ship every row. It sends the query state and expects one page + a total back (see below). For tables too large to send whole |
+
+**Server-driven tables** (`server: true`) — the keystone for large data. hope sends
+the query state on each call and expects one page plus a total:
+
+```json
+// params hope sends (merged with the page param):
+{ "_q": { "page": 2, "page_size": 100, "sort": { "column": "score", "dir": -1 }, "filter": "gold" } }
+
+// your result:
+{ "columns": ["id","name","score"], "rows": [ ... ], "total": 148213 }
+```
+
+Do the paging/sort/filter in your store (SQL `LIMIT/OFFSET/ORDER BY/WHERE`, a NATS
+KV scan, etc.) and return only that page; `total` drives the pager. hope's filter
+box becomes a server search (debounced), column headers sort server-side, and the
+pager walks pages — none of it ships the whole table. Read the query in Go with
+`plugin.ReadTableQuery(ctx)`; declare it with the `plugin.ServerSide()` table option.
 
 Every one of these is a call into a method *you* implement — hope proxies, you
 decide. Read the clicked row in your handler as `params.row`.
