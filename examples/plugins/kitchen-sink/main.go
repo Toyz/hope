@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -134,9 +135,7 @@ func main() {
 		}
 		_ = plugin.Params(ctx, &pr)
 		out := map[string]any{}
-		for k, v := range pr.Row {
-			out[k] = v
-		}
+		maps.Copy(out, pr.Row)
 		out["note"] = "loaded by the plugin, not hope"
 		return out, nil
 	})
@@ -504,7 +503,7 @@ func parseSelect(q string) []string {
 		return nil
 	}
 	var out []string
-	for _, part := range strings.Split(list, ",") {
+	for part := range strings.SplitSeq(list, ",") {
 		if c := strings.TrimSpace(part); c != "" {
 			out = append(out, c)
 		}
