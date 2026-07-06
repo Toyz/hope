@@ -189,6 +189,9 @@ func RowActions(actions ...RowAction) TableOpt {
 	return func(v *ViewDesc) { v.RowActions = append(v.RowActions, actions...) }
 }
 
+// PageSize sets how many rows hope shows per page for this table (0 => hope default).
+func PageSize(n int) TableOpt { return func(v *ViewDesc) { v.PageSize = n } }
+
 // TableView registers a Table view. Add RowDetail/RowActions opts to make rows
 // interactive — e.g. TableView("rows","Rows",fn, plugin.RowDetail("inspect"),
 // plugin.RowActions(plugin.RowAction{Method:"del",Label:"Delete",Danger:true})).

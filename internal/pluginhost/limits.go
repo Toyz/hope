@@ -5,22 +5,57 @@ import (
 	"time"
 )
 
-// Per-plugin resource caps so a single bad or hostile plugin cannot exhaust the
-// control plane. hope is the control plane; every plugin is isolated to a bounded
-// slice of it. Tunables are deliberately generous for real use but finite.
-const (
-	maxConcurrentCalls   = 8  // in-flight unary calls per plugin
-	maxConcurrentStreams = 4  // live streams per plugin
-	callRatePerSec       = 20 // sustained unary call rate per plugin
-	callBurst            = 40 // token-bucket burst
+// Limits is the per-plugin safety envelope that isolates the control plane from a
+// bad or hostile plugin. hope OWNS these (a plugin must never raise its own DoS
+// ceiling); the operator tunes them in [plugins.limits]. Defaults are generous for
+// real use but finite.
+type Limits struct {
+	MaxConcurrentCalls   int
+	MaxConcurrentStreams int
+	CallRatePerSec       int
+	CallBurst            int
+	MaxFrameBytes        int
+	MaxFramesPerSec      int
+}
 
-	maxFrameBytes   = 64 << 10 // drop stream frames larger than this
-	maxFramesPerSec = 50       // drop stream frames beyond this rate
-)
+// DefaultLimits are the built-in caps applied when the operator sets nothing.
+var DefaultLimits = Limits{
+	MaxConcurrentCalls:   8,
+	MaxConcurrentStreams: 4,
+	CallRatePerSec:       20,
+	CallBurst:            40,
+	MaxFrameBytes:        64 << 10,
+	MaxFramesPerSec:      50,
+}
+
+// WithDefaults fills any zero/negative field from DefaultLimits, so a partial
+// operator config still yields a complete, safe envelope.
+func (l Limits) WithDefaults() Limits {
+	if l.MaxConcurrentCalls <= 0 {
+		l.MaxConcurrentCalls = DefaultLimits.MaxConcurrentCalls
+	}
+	if l.MaxConcurrentStreams <= 0 {
+		l.MaxConcurrentStreams = DefaultLimits.MaxConcurrentStreams
+	}
+	if l.CallRatePerSec <= 0 {
+		l.CallRatePerSec = DefaultLimits.CallRatePerSec
+	}
+	if l.CallBurst <= 0 {
+		l.CallBurst = DefaultLimits.CallBurst
+	}
+	if l.MaxFrameBytes <= 0 {
+		l.MaxFrameBytes = DefaultLimits.MaxFrameBytes
+	}
+	if l.MaxFramesPerSec <= 0 {
+		l.MaxFramesPerSec = DefaultLimits.MaxFramesPerSec
+	}
+	return l
+}
 
 // pluginLimiter holds one plugin's concurrency semaphores + a call-rate token
-// bucket. All methods are safe for concurrent use.
+// bucket, bounded by the operator-configured Limits. Safe for concurrent use.
 type pluginLimiter struct {
+	lim     Limits
 	calls   chan struct{}
 	streams chan struct{}
 
@@ -29,11 +64,12 @@ type pluginLimiter struct {
 	last   time.Time
 }
 
-func newPluginLimiter() *pluginLimiter {
+func newPluginLimiter(lim Limits) *pluginLimiter {
 	return &pluginLimiter{
-		calls:   make(chan struct{}, maxConcurrentCalls),
-		streams: make(chan struct{}, maxConcurrentStreams),
-		tokens:  callBurst,
+		lim:     lim,
+		calls:   make(chan struct{}, lim.MaxConcurrentCalls),
+		streams: make(chan struct{}, lim.MaxConcurrentStreams),
+		tokens:  float64(lim.CallBurst),
 		last:    time.Now(),
 	}
 }
@@ -44,9 +80,9 @@ func (l *pluginLimiter) allowRate() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
-	l.tokens += now.Sub(l.last).Seconds() * callRatePerSec
-	if l.tokens > callBurst {
-		l.tokens = callBurst
+	l.tokens += now.Sub(l.last).Seconds() * float64(l.lim.CallRatePerSec)
+	if l.tokens > float64(l.lim.CallBurst) {
+		l.tokens = float64(l.lim.CallBurst)
 	}
 	l.last = now
 	if l.tokens < 1 {
@@ -77,19 +113,23 @@ func (l *pluginLimiter) acquireStream() (func(), bool) {
 	}
 }
 
-// frameGate enforces per-stream frame size + rate caps. Not safe for concurrent use
-// — one lives per stream goroutine.
+// frameGate enforces per-stream frame size + rate caps from the plugin's Limits.
+// Not safe for concurrent use — one lives per stream goroutine.
 type frameGate struct {
+	maxBytes    int
+	maxPerSec   int
 	windowStart time.Time
 	count       int
 }
 
-func newFrameGate() *frameGate { return &frameGate{windowStart: time.Now()} }
+func newFrameGate(lim Limits) *frameGate {
+	return &frameGate{maxBytes: lim.MaxFrameBytes, maxPerSec: lim.MaxFramesPerSec, windowStart: time.Now()}
+}
 
 // allow reports whether a frame of n bytes may pass: oversize frames are always
-// dropped; otherwise up to maxFramesPerSec pass per rolling second.
+// dropped; otherwise up to maxPerSec pass per rolling second.
 func (g *frameGate) allow(n int) bool {
-	if n > maxFrameBytes {
+	if n > g.maxBytes {
 		return false
 	}
 	now := time.Now()
@@ -97,7 +137,7 @@ func (g *frameGate) allow(n int) bool {
 		g.windowStart = now
 		g.count = 0
 	}
-	if g.count >= maxFramesPerSec {
+	if g.count >= g.maxPerSec {
 		return false
 	}
 	g.count++

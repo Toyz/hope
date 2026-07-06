@@ -119,15 +119,22 @@ type ViewDesc struct {
 	// with {row: {column: value}} — an author-controlled mutation like "delete row".
 	// A Danger action is confirmed first; on success hope refetches the table.
 	RowActions []RowAction `json:"row_actions,omitempty"`
+	// PageSize (table/query views) sets how many rows hope shows per page — the
+	// author knows the shape of their data, so paging is plugin-level. 0 => hope's
+	// default.
+	PageSize int `json:"page_size,omitempty"`
 }
 
 // RowAction is one author-declared action bound to a table row. hope calls Method
 // with {row: {column: value}} (plus the page param); use for row-scoped mutations.
+// If Fields is set, hope collects them first and merges the values into the call
+// params alongside row — e.g. a "Rename" action with a new-name field.
 type RowAction struct {
-	Method string `json:"method"`
-	Label  string `json:"label"`
-	Icon   string `json:"icon,omitempty"`
-	Danger bool   `json:"danger,omitempty"` // hope confirms before running and audit-logs it
+	Method string  `json:"method"`
+	Label  string  `json:"label"`
+	Icon   string  `json:"icon,omitempty"`
+	Danger bool    `json:"danger,omitempty"` // hope confirms before running and audit-logs it
+	Fields []Field `json:"fields,omitempty"` // optional input collected before the call
 }
 
 // StreamDesc describes a live stream and how to render it.

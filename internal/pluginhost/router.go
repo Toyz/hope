@@ -21,6 +21,7 @@ type PluginsRouter struct {
 	store   *store.Store
 	dialer  ContainerDialer // agent hub for remote container dialing; nil if no hub
 	enabled bool            // [plugins] enabled capability gate
+	limits  Limits          // operator-tuned per-plugin safety caps
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -39,7 +40,7 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 	}
 	l := r.limiters[key]
 	if l == nil {
-		l = newPluginLimiter()
+		l = newPluginLimiter(r.limits)
 		r.limiters[key] = l
 	}
 	return l
@@ -49,8 +50,8 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 // (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
 // when false every method reports the feature is off. sov derives the wire name
 // "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled bool) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled}
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled bool, limits Limits) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled, limits: limits.WithDefaults()}
 }
 
 // gate blocks every method when the feature is disabled in config.

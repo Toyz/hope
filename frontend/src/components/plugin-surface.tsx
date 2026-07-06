@@ -20,8 +20,8 @@ interface Node {
   fill?: boolean;
   children?: Node[];
 }
-interface RowAction { method: string; label: string; icon?: string; danger?: boolean }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[] }
+interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[]; page_size?: number }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -29,7 +29,7 @@ export interface Surface { key: string; name: string; title?: string; node: Node
 
 type Cell = { loading: boolean; error?: string; data?: any };
 type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };
-const TABLE_PAGE = 100; // rows per page — client-side windowing so big results don't blow up the DOM
+const TABLE_PAGE = 100; // default rows per page when a view doesn't declare page_size
 
 @component("hope-plugin-surface")
 @styles(theme, css`
@@ -424,11 +424,12 @@ export class HopePluginSurface extends LoomElement {
     }
     if (st.sort >= 0) idx.sort((a, b) => this.cmpCells(rows[a][st.sort], rows[b][st.sort]) * st.dir);
 
+    const pageSize = v?.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE; // plugin-declared, else default
     const total = idx.length;
-    const pages = Math.max(1, Math.ceil(total / TABLE_PAGE));
+    const pages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(st.page, pages - 1);
-    const shown = idx.slice(page * TABLE_PAGE, page * TABLE_PAGE + TABLE_PAGE);
-    const toolbar = rows.length > TABLE_PAGE || st.filter;
+    const shown = idx.slice(page * pageSize, page * pageSize + pageSize);
+    const toolbar = rows.length > pageSize || st.filter;
 
     return (
       <div class="tblwrap">
@@ -504,9 +505,16 @@ export class HopePluginSurface extends LoomElement {
     const s = this.surface;
     if (!s) return;
     const obj = this.rowObj(cols, row);
+    // Collect the action's input fields (if any) first, then confirm a danger action.
+    let values: any = undefined;
+    if (a.fields && a.fields.length) {
+      const v = await this.prompt.ask({ title: a.label, submitLabel: "Run", fields: a.fields });
+      if (!v) return;
+      values = v;
+    }
     if (a.danger && !(await this.confirm.ask({ title: a.label, message: `${a.label} — ${String(obj[cols[0]] ?? "this row")}?`, danger: true }))) return;
     try {
-      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj }), audit: true, danger: !!a.danger }]);
+      const res = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: a.method, args: this.callArgs({ row: obj, ...(values || {}) }), audit: true, danger: !!a.danger }]);
       this.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
       this.modal = null;
       if (viewMethod && this.views[viewMethod]) void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);

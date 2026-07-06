@@ -34,6 +34,23 @@ type Config struct {
 // persist approvals across restarts.
 type PluginsConfig struct {
 	Enabled bool `mapstructure:"enabled"`
+	// Limits are the per-plugin safety caps that isolate the control plane from a
+	// bad or hostile plugin. These are hope-owned (a plugin must NOT be able to
+	// raise its own DoS ceiling) but operator-tunable here; zero fields fall back to
+	// built-in defaults (see plugins.Limits.WithDefaults).
+	Limits PluginLimitsConfig `mapstructure:"limits"`
+}
+
+// PluginLimitsConfig is the operator-tunable safety envelope applied per plugin.
+// Distinct from anything the plugin declares — presentation (page size, etc.) is
+// plugin-level; these caps are the operator's control-plane protection.
+type PluginLimitsConfig struct {
+	MaxConcurrentCalls   int `mapstructure:"max_concurrent_calls"`
+	MaxConcurrentStreams int `mapstructure:"max_concurrent_streams"`
+	CallRatePerSec       int `mapstructure:"call_rate_per_sec"`
+	CallBurst            int `mapstructure:"call_burst"`
+	MaxFrameBytes        int `mapstructure:"max_frame_bytes"`
+	MaxFramesPerSec      int `mapstructure:"max_frames_per_sec"`
 }
 
 // StoreConfig points at hope's optional embedded state db (bbolt). Empty Path =

@@ -99,7 +99,7 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		defer releaseStream()
-		gate := newFrameGate()
+		gate := newFrameGate(h.r.limits)
 		enc := json.NewEncoder(w)
 		var mu sync.Mutex
 		write := func(f streamFrame) error {

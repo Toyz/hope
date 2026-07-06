@@ -272,7 +272,14 @@ func runServe(configPath string) error {
 	if hub != nil {
 		pluginDialer = hub // remote plugin dialing over the agent tunnel
 	}
-	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled)
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled, pluginhost.Limits{
+		MaxConcurrentCalls:   cfg.Plugins.Limits.MaxConcurrentCalls,
+		MaxConcurrentStreams: cfg.Plugins.Limits.MaxConcurrentStreams,
+		CallRatePerSec:       cfg.Plugins.Limits.CallRatePerSec,
+		CallBurst:            cfg.Plugins.Limits.CallBurst,
+		MaxFrameBytes:        cfg.Plugins.Limits.MaxFrameBytes,
+		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
+	})
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
 	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
