@@ -140,6 +140,12 @@ type ViewDesc struct {
 	// author knows the shape of their data, so paging is plugin-level. 0 => hope's
 	// default.
 	PageSize int `json:"page_size,omitempty"`
+	// EditMethod (table/query views): editing a cell calls this method with
+	// {row: {column: value}, column, value}. Return ok (and optionally a message).
+	// EditColumns limits which columns are editable (empty => all). An
+	// author-controlled inline-edit RPC — hope refetches the table on success.
+	EditMethod  string   `json:"edit_method,omitempty"`
+	EditColumns []string `json:"edit_columns,omitempty"`
 }
 
 // RowAction is one author-declared action bound to a table row. hope calls Method

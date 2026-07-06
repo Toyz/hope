@@ -68,7 +68,8 @@ func main() {
 		}
 		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
 	},
-		plugin.PageSize(50), // plugin-declared page size (the author knows the data)
+		plugin.PageSize(50),                  // plugin-declared page size (the author knows the data)
+		plugin.Editable("editRow", "name"),   // the "name" column is inline-editable
 		plugin.RowDetail("rowDetail"),
 		plugin.RowActions(
 			// A row action with an input field: hope collects "name" before the call.
@@ -104,6 +105,19 @@ func main() {
 			id = fmt.Sprint(row["id"])
 		}
 		return map[string]any{"ok": true, "message": "deleted row " + id}, nil
+	})
+
+	// editRow: inline cell edit. Gets {row, column, value} — a real plugin would
+	// UPDATE ... SET <column> = :value WHERE id = row.id.
+	p.Action("editRow", "Edit cell", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		row, _ := in["row"].(map[string]any)
+		col, _ := in["column"].(string)
+		val, _ := in["value"].(string)
+		id := "?"
+		if row != nil {
+			id = fmt.Sprint(row["id"])
+		}
+		return map[string]any{"ok": true, "message": fmt.Sprintf("row %s: %s = %q", id, col, val)}, nil
 	})
 
 	// renameRow: a row action WITH input — hope collects "name" and merges it with

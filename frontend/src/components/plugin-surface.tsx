@@ -22,7 +22,7 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[]; page_size?: number }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[] }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -81,6 +81,11 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
+  td.ecell { cursor: text; }
+  td.ecell:hover { background: color-mix(in srgb, var(--upd) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--upd) 35%, transparent); }
+  td.editing { padding: 0; }
+  .cellin { width: 100%; box-sizing: border-box; padding: 6px 12px; background: var(--ink); border: 1px solid var(--upd); color: var(--hi); font: 12px/1.5 var(--mono); }
+  .cellin:focus { outline: none; }
   tr.clk { cursor: pointer; }
   tr.clk:hover td { background: color-mix(in srgb, var(--upd) 8%, transparent); color: var(--hi); }
   td.rax, th.rax { text-align: right; white-space: nowrap; width: 1%; }
@@ -143,6 +148,7 @@ export class HopePluginSurface extends LoomElement {
   // row-detail modal: the returned detail plus the clicked row + its actions (so the
   // modal footer can offer the same row actions).
   @reactive accessor modal: { title: string; data: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
+  @reactive accessor editCell: { key: string; row: number; col: number } | null = null; // inline-edit target
 
   private views: Record<string, ViewDesc> = {};
   private actions: Record<string, ActionDesc> = {};
@@ -411,6 +417,9 @@ export class HopePluginSurface extends LoomElement {
     const rows: any[][] = data?.rows || [];
     const onRow: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const acts: RowAction[] = v?.row_actions || data?.row_actions || [];
+    const editMethod: string | undefined = v?.edit_method || data?.edit_method;
+    const editCols: string[] | undefined = v?.edit_columns || data?.edit_columns;
+    const canEdit = (ci: number) => !!editMethod && (!editCols || !editCols.length || editCols.includes(cols[ci]));
     if (!cols.length && !rows.length) return <div class="msg">empty</div>;
 
     const key = v?.method || "_t";
@@ -461,7 +470,18 @@ export class HopePluginSurface extends LoomElement {
               const r = rows[i];
               return (
                 <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
-                  {r.map((cell) => <td>{this.cellStr(cell)}</td>)}
+                  {r.map((cell, ci) => {
+                    const editable = canEdit(ci);
+                    const isEditing = !!this.editCell && this.editCell.row === i && this.editCell.col === ci;
+                    if (isEditing) {
+                      return (
+                        <td class="editing"><input class="cellin" autofocus value={this.cellStr(cell)}
+                          onKeyDown={(e: any) => { if (e.key === "Enter") { e.preventDefault(); void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method); } else if (e.key === "Escape") { this.editCell = null; } }}
+                          onBlur={(e: any) => void this.commitEdit(editMethod!, cols, r, ci, e.target.value, v?.method)} /></td>
+                      );
+                    }
+                    return <td class={editable ? "ecell" : ""} onClick={editable ? (e: any) => { e.stopPropagation(); this.editCell = { key, row: i, col: ci }; } : undefined}>{this.cellStr(cell)}</td>;
+                  })}
                   {acts.length ? (
                     <td class="rax">{acts.map((a) => (
                       <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
@@ -477,6 +497,21 @@ export class HopePluginSurface extends LoomElement {
       </div>
     );
   }
+
+  // commitEdit calls the table's edit_method with {row, column, value} (author's
+  // inline-edit RPC), then refetches the owning view. No-op if unchanged. Quiet: no
+  // success toast per cell (still audited + error-toasted).
+  private commitEdit = async (method: string, cols: string[], row: any[], colIdx: number, value: string, viewMethod?: string) => {
+    const s = this.surface;
+    const prev = this.cellStr(row[colIdx]);
+    this.editCell = null;
+    if (!s || value === prev) return;
+    const obj = this.rowObj(cols, row);
+    const res = await runPluginAction(this.deps(), s.key, { method, label: "Edit" }, { row: obj, column: cols[colIdx], value }, this.surface?.param, { quiet: true });
+    if (res !== undefined && viewMethod && this.views[viewMethod]) {
+      void this.fetch(viewMethod, this.views[viewMethod].kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
+    }
+  };
 
   private rowObj(cols: string[], row: any[]): Record<string, any> {
     const obj: Record<string, any> = {};

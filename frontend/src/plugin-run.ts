@@ -30,6 +30,7 @@ export async function runPluginAction(
   a: PluginActionDesc,
   extra?: Record<string, any>,
   param?: Record<string, any>,
+  opts?: { quiet?: boolean }, // quiet: skip the success toast (inline edits), keep error toast
 ): Promise<any | undefined> {
   let values: Record<string, any> | undefined;
   if (a.fields && a.fields.length) {
@@ -44,7 +45,7 @@ export async function runPluginAction(
   const args = Object.keys(merged).length ? merged : undefined;
   try {
     const res = await deps.rpc.call<any>("Plugins", "call", [{ key: surfaceKey, method: a.method, args, audit: true, danger: !!a.danger }]);
-    deps.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
+    if (!opts?.quiet) deps.toast.ok(res && typeof res === "object" && res.message ? String(res.message) : `${a.label} ok`);
     return res;
   } catch (e: any) {
     deps.toast.error(`${a.label} — ${e?.message ?? "failed"}`);

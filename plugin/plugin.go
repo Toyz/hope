@@ -192,6 +192,12 @@ func RowActions(actions ...RowAction) TableOpt {
 // PageSize sets how many rows hope shows per page for this table (0 => hope default).
 func PageSize(n int) TableOpt { return func(v *ViewDesc) { v.PageSize = n } }
 
+// Editable makes cells editable: editing one calls method with {row, column, value}.
+// Pass column names to limit which are editable (none => every column).
+func Editable(method string, columns ...string) TableOpt {
+	return func(v *ViewDesc) { v.EditMethod = method; v.EditColumns = append(v.EditColumns, columns...) }
+}
+
 // TableView registers a Table view. Add RowDetail/RowActions opts to make rows
 // interactive — e.g. TableView("rows","Rows",fn, plugin.RowDetail("inspect"),
 // plugin.RowActions(plugin.RowAction{Method:"del",Label:"Delete",Danger:true})).
