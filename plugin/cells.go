@@ -71,12 +71,47 @@ func Code(value string) map[string]any {
 	return map[string]any{"type": "code", "value": value}
 }
 
-// Image renders src as an inline thumbnail (fixed height; click opens the full image
-// in a new tab). alt is the hover/accessible label. Unlike RPC calls, hope does NOT
-// proxy image bytes — the browser loads src directly, so src MUST be an absolute
-// http(s) URL reachable from the browser (e.g. a public on-demand webp/avif image
-// proxy). A non-http(s) src renders as its alt text. Usable as a table cell or a
-// stat/card/cards field value.
-func Image(src, alt string) map[string]any {
-	return map[string]any{"type": "image", "value": src, "alt": alt}
+// Image renders src as an image (click opens the full image in a new tab). alt is the
+// hover/accessible label. Unlike RPC calls, hope does NOT proxy image bytes — the
+// browser loads src directly, so src MUST be an absolute http(s) URL reachable from
+// the browser (e.g. a public on-demand webp/avif image proxy). A non-http(s) src
+// renders as its alt text. Usable as a table cell or a stat/card/cards field value.
+//
+// With no opts it's a small inline thumbnail. Control the render box with opts:
+//
+//	Image(u, alt)                      // default thumbnail
+//	Image(u, alt, ImgW(240))           // 240px wide, height auto (keeps aspect)
+//	Image(u, alt, ImgBox(110, 110))    // fixed 110×110 box, image centered, contained
+//	Image(u, alt, ImgBox(110,110), ImgFit("cover")) // fill the box, cropping overflow
+func Image(src, alt string, opts ...ImageOpt) map[string]any {
+	m := map[string]any{"type": "image", "value": src, "alt": alt}
+	for _, o := range opts {
+		o(m)
+	}
+	return m
 }
+
+// ImageOpt configures an Image cell's render box (size + fit).
+type ImageOpt func(map[string]any)
+
+// ImgW fixes the image width in px; height is auto, so the aspect ratio is kept
+// (e.g. "240×N"). Combine with ImgH for a fixed box (see ImgBox).
+func ImgW(px int) ImageOpt { return func(m map[string]any) { m["w"] = px } }
+
+// ImgH fixes the image height in px; width is auto (keeps aspect).
+func ImgH(px int) ImageOpt { return func(m map[string]any) { m["h"] = px } }
+
+// ImgBox fixes both dimensions: the image is centered in a w×h box and, by default,
+// contained (scaled to fit, no crop). Add ImgFit("cover") to fill and crop instead.
+func ImgBox(w, h int) ImageOpt {
+	return func(m map[string]any) { m["w"], m["h"] = w, h }
+}
+
+// ImgFit sets object-fit: "contain" (default — whole image, letterboxed) or "cover"
+// (fill the box, cropping overflow).
+func ImgFit(fit string) ImageOpt { return func(m map[string]any) { m["fit"] = fit } }
+
+// ImgFallback sets an image shown when src fails to load (broken/404/blocked). It must
+// also be an absolute http(s) URL. Tried once; if it too fails, the cell renders blank
+// (no browser broken-image icon).
+func ImgFallback(url string) ImageOpt { return func(m map[string]any) { m["fb"] = url } }

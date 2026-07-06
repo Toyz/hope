@@ -50,22 +50,31 @@ export class PluginPage extends LoomElement {
   @watch("path") onPath() { void this.load(); }
   @watch("arg") onArg() { void this.load(); }
 
+  private loadSeq = 0; // supersedes overlapping loads (a nav changes path+arg -> two watchers fire)
+
   private async load() {
     if (!this.key || !this.path) return;
+    // A single navigation updates BOTH path and arg, firing two watchers -> two
+    // overlapping load()s. Tag each; only the LATEST may mutate state, so a slower
+    // stale call (e.g. the path-change one that ran before arg updated) can't clobber
+    // the correct result and leave the page stuck on "not found".
+    const seq = ++this.loadSeq;
     // Stale-while-revalidate: only show "loading…" on the FIRST load. On a page
     // change keep the current page rendered until the new one arrives, so
     // navigating between plugin pages doesn't flash empty/loading.
     if (!this.surface) this.loaded = false;
     try {
       const s = await this.rpc.call<any>("Plugins", "page", [{ key: decodeURIComponent(this.key), path: this.path, arg: this.arg || "" }]);
+      if (seq !== this.loadSeq) return; // a newer navigation is in flight; discard this result
       this.surface = s ? { key: s.key, name: s.name, title: s.title, subtitle: s.subtitle, node: s.node, schema: s.schema, actions: s.actions, breadcrumbs: s.breadcrumbs, param: s.param } : null;
       this.error = this.surface ? "" : "page not found";
       this.emitCrumbs();
     } catch (e: any) {
+      if (seq !== this.loadSeq) return;
       this.error = e?.message ?? "failed to load page";
       this.surface = null;
     } finally {
-      this.loaded = true;
+      if (seq === this.loadSeq) this.loaded = true;
     }
   }
 

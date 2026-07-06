@@ -88,7 +88,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ctime { color: var(--mid); }
   .cnum { font-variant-numeric: tabular-nums; color: var(--hi); }
   .ccode { font: 11.5px/1.5 var(--mono); background: var(--ink); padding: 1px 5px; color: var(--upd); }
-  .pcimg { height: 34px; width: auto; max-width: 120px; object-fit: contain; border-radius: 3px; background: var(--ink); border: 1px solid var(--line); vertical-align: middle; cursor: zoom-in; image-rendering: crisp-edges; }
+  .pcimg { max-width: 100%; object-fit: contain; border-radius: 3px; background: var(--ink); border: 1px solid var(--line); vertical-align: middle; cursor: zoom-in; image-rendering: crisp-edges; }
+  .pcimg.thumb { height: 34px; width: auto; max-width: 120px; } /* default inline size when no w/h given */
   .pcimg:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   /* Native KV rows (used when a value is a typed cell, e.g. an image); plain-scalar KV still uses hope-kvlist. */
   .pkv { display: flex; flex-direction: column; }
@@ -893,7 +894,8 @@ export class HopePluginSurface extends LoomElement {
           <div class={"pcard" + (it.to ? " lk" : "") + (this.toneClass(it.tone) ? " " + this.toneClass(it.tone) : "")}
             onClick={it.to ? () => this.navCell(it) : undefined}>
             {it.image && /^https?:\/\//i.test(this.cellStr(it.image))
-              ? <div class="pchero"><img src={this.cellStr(it.image)} alt={this.cellStr(it.title)} loading="lazy" /></div>
+              ? <div class="pchero"><img src={this.cellStr(it.image)} alt={this.cellStr(it.title)} loading="lazy"
+                  onError={(e: any) => { (e.target as HTMLElement).closest(".pchero")?.remove(); }} /></div>
               : null}
             <div class="pchead">
               {it.icon ? <hope-plugin-icon plugin={this.surface?.key} name={it.icon} size={16}></hope-plugin-icon> : null}
@@ -1004,7 +1006,20 @@ export class HopePluginSurface extends LoomElement {
           const src = this.cellStr(cell.value);
           const alt = this.cellStr(cell.alt ?? "");
           if (!/^https?:\/\//i.test(src)) return alt;
-          return <img class="pcimg" src={src} alt={alt} title={alt} loading="lazy"
+          // Optional render box: w and/or h in px. w-only keeps aspect ("240×N"); both
+          // = a fixed box the image is centered in (object-fit contain, or cover to crop).
+          const w = Number(cell.w) || 0, h = Number(cell.h) || 0;
+          const fit = cell.fit === "cover" ? "cover" : "contain";
+          const sized = w || h;
+          const style = sized ? `${w ? `width:${w}px;` : ""}${h ? `height:${h}px;` : ""}object-fit:${fit};` : undefined;
+          const fb = typeof cell.fb === "string" && /^https?:\/\//i.test(cell.fb) ? cell.fb : "";
+          const onErr = (e: any) => {
+            const img = e.target as HTMLImageElement;
+            if (fb && img.src !== fb) img.src = fb;   // swap to the fallback once
+            else img.style.visibility = "hidden";     // no (or failed) fallback -> hide the broken icon
+          };
+          return <img class={"pcimg" + (sized ? "" : " thumb")} src={src} alt={alt} title={alt} loading="lazy" style={style}
+            onError={onErr}
             onClick={(e: any) => { e.stopPropagation(); window.open(src, "_blank", "noopener"); }} />;
         }
         default:
