@@ -64,7 +64,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .msg.bad { color: var(--bad); }
 
   table.g { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
-  table.g th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  table.g th { position: sticky; top: 0; z-index: 2; background: var(--panel); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
   table.g td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--mid); vertical-align: top; }
 
   /* rich cell types */
@@ -294,12 +294,14 @@ export class HopePluginSurface extends LoomElement {
   private async fetch(method: string, extra?: any) {
     const s = this.surface;
     if (!s) return;
-    this.cells = { ...this.cells, [method]: { loading: true } };
+    // Keep the prior data while refetching (stale-while-revalidate) so a filter/page
+    // change on a server table doesn't blank the table and flash "loading…".
+    this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: true } };
     try {
       const data = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs(extra) }]);
       this.cells = { ...this.cells, [method]: { loading: false, data } };
     } catch (e: any) {
-      this.cells = { ...this.cells, [method]: { loading: false, error: e?.message ?? "call failed" } };
+      this.cells = { ...this.cells, [method]: { ...(this.cells[method] || {}), loading: false, error: e?.message ?? "call failed" } };
     }
   }
 
@@ -321,13 +323,18 @@ export class HopePluginSurface extends LoomElement {
   private renderNode(n: Node, idKey: string): any {
     const g = this.hasFill(n) ? " grow" : "";
     switch (n.kind) {
-      case "section":
+      case "section": {
+        const kids = n.children || [];
+        // A titled section holding a single leaf already labels it — suppress the
+        // leaf's own (duplicate) label.
+        const soleLeaf = !!n.title && kids.length === 1 && kids[0].kind === "leaf";
         return (
           <div class={"sec" + g}>
             {n.title ? <div class="sect">{n.title}</div> : null}
-            {(n.children || []).map((c, i) => this.renderNode(c, idKey + "." + i))}
+            {kids.map((c, i) => (soleLeaf ? this.renderLeaf(c.ref || "", !!c.fill, true) : this.renderNode(c, idKey + "." + i)))}
           </div>
         );
+      }
       case "tabs": {
         const kids = n.children || [];
         const sel = this.tabSel[idKey] ?? 0;
@@ -367,7 +374,7 @@ export class HopePluginSurface extends LoomElement {
     return this.views[r]?.label || this.actions[r]?.label || this.streams[r]?.label || "";
   }
 
-  private renderLeaf(ref: string, fill = false) {
+  private renderLeaf(ref: string, fill = false, hideLabel = false) {
     const g = fill ? " grow" : "";
     if (this.actions[ref]) {
       const a = this.actions[ref];
@@ -392,10 +399,21 @@ export class HopePluginSurface extends LoomElement {
     const v = this.views[ref];
     if (!v) return null;
     const cell = this.cells[ref];
+    // Show data whenever we have it (even mid-refetch) so a filter/page change never
+    // blanks the view; "loading…" only before the first result.
+    const body = v.kind === "query"
+      ? this.renderQuery(v, cell)
+      : cell?.data != null
+        ? this.renderView(v, cell.data)
+        : cell?.loading
+          ? <div class="msg">loading…</div>
+          : cell?.error
+            ? <div class="msg bad">{cell.error}</div>
+            : <div class="msg">no data</div>;
     return (
       <div class={"leaf" + g}>
-        <div class="llabel">{this.leafIcon(v.icon)}{v.label}</div>
-        {v.kind === "query" ? this.renderQuery(v, cell) : cell?.loading ? <div class="msg">loading…</div> : cell?.error ? <div class="msg bad">{cell.error}</div> : this.renderView(v, cell?.data)}
+        {hideLabel ? null : <div class="llabel">{this.leafIcon(v.icon)}{v.label}</div>}
+        {body}
       </div>
     );
   }
