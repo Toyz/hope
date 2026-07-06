@@ -238,7 +238,7 @@ func main() {
 			{Label: "Tables", Value: 60},
 			{Label: "Deleted rows", Value: del, Tone: plugin.ToneBad, Sub: "since start"},
 		}}, nil
-	}, plugin.Refreshable())
+	}, plugin.Refreshable(), plugin.RefreshEvery(10)) // manual button + auto every 10s
 
 	// A SERVER-DRIVEN table: 100k synthetic rows the plugin pages/sorts/filters —
 	// hope never ships them all. Read the query with plugin.ReadTableQuery, return
@@ -251,11 +251,15 @@ func main() {
 			size = 100
 		}
 		f := strings.ToLower(strings.TrimSpace(q.Filter))
+		band := q.Filters["band"] // the facet dropdown selection ("" = all)
 		name := func(i int) string { return fmt.Sprintf("user-%05d", i) }
 		score := func(i int) int { return i * 7 % 1000 }
-		// filter (server-side) -> list of matching ids
+		// filter (search + band facet, server-side) -> list of matching ids
 		ids := make([]int, 0, totalRows)
 		for i := range totalRows {
+			if band != "" && scoreBand(score(i)) != band {
+				continue
+			}
 			if f == "" || strings.Contains(name(i), f) || strings.Contains(strconv.Itoa(score(i)), f) {
 				ids = append(ids, i)
 			}
@@ -305,7 +309,10 @@ func main() {
 			"columns": []string{"id", "name", "band", "points", "progress", "seen"},
 			"rows":    rows, "total": total,
 		}, nil
-	}, plugin.ServerSide(), plugin.PageSize(100))
+	}, plugin.ServerSide(), plugin.PageSize(100), plugin.Facets(plugin.Facet{
+		Key: "band", Label: "band",
+		Options: []plugin.Option{{Label: "Bronze", Value: "bronze"}, {Label: "Silver", Value: "silver"}, {Label: "Gold", Value: "gold"}},
+	}))
 
 	// text: a monospace scrollable block (logs, config, raw output).
 	p.TextView("config", "Config", func(ctx context.Context) (any, error) {
@@ -437,9 +444,9 @@ func main() {
 		plugin.Section("Actions", plugin.Row(plugin.Leaf("greet"), plugin.Leaf("wipe"))),
 	))
 
-	// --- a dashboard widget: a compact panel on hope's fleet/host dashboard ---
+	// --- a dashboard widget: keep it COMPACT (stat blocks), not a full panel ---
 	p.DashboardWidget("Kitchen Sink", plugin.Section("",
-		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("series")),
+		plugin.Leaf("counts"),
 	))
 
 	// --- a single full page, with page-level header actions (a toolbar) ---

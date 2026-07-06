@@ -15,14 +15,17 @@ type Widget = Surface & { host: string; icon?: string };
 
 @component("hope-plugin-widgets")
 @styles(theme, css`
-  :host { display: contents; }
-  .wsec { margin-bottom: 34px; }
-  .whead { display: flex; align-items: center; gap: 8px; padding: 0 0 12px; color: var(--dim); font: 600 10px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; }
-  .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
-  .wcard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
-  .wtitle { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--hi); font: 600 12px/1.2 var(--mono); }
+  :host { display: block; }
+  /* Align with the dashboard's content inset (its section header uses 22px/28px). */
+  .wsec { margin: 8px 0 28px; padding: 0 28px; }
+  .whead { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; }
+  .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 14px; }
+  .wcard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; transition: border-color .12s ease; }
+  .wcard:hover { border-color: var(--line2); }
+  .wtitle { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line); color: var(--hi); font: 600 12px/1.2 var(--mono); }
   .wtitle .wsub { margin-left: auto; color: var(--dim); font: 10px/1 var(--mono); }
-  .wbody { min-width: 0; }
+  /* Trim the surface's own outer padding inside the compact widget body. */
+  .wbody { min-width: 0; padding: 4px 2px; }
 `)
 export class HopePluginWidgets extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -44,12 +47,12 @@ export class HopePluginWidgets extends LoomElement {
     if (!this.widgets.length) return <></>;
     return (
       <div class="wsec">
-        <div class="whead"><loom-icon name="plug" size={12}></loom-icon>plugin widgets</div>
+        <div class="whead"><loom-icon name="plugin" size={12}></loom-icon>plugin widgets</div>
         <div class="wgrid">
           {this.widgets.map((w) => (
             <div class="wcard">
               <div class="wtitle">
-                <hope-plugin-icon plugin={w.key} name={w.icon || "plug"} size={14}></hope-plugin-icon>
+                <hope-plugin-icon plugin={w.key} name={w.icon || "plugin"} size={14}></hope-plugin-icon>
                 {w.title || w.name}
                 <span class="wsub">{w.name}</span>
               </div>

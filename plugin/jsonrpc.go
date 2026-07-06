@@ -75,13 +75,15 @@ type TableSort struct {
 }
 
 // TableQuery is hope's per-call query state for a ServerSide table: which page (0-
-// based) of what size, an optional sort, and the filter text. Use it to run just
-// that slice of your data and return {columns, rows, total}.
+// based) of what size, an optional sort, the free-text filter, and any Facet
+// selections (filters[key] = chosen value). Use it to run just that slice of your
+// data and return {columns, rows, total}.
 type TableQuery struct {
-	Page     int       `json:"page"`
-	PageSize int       `json:"page_size"`
-	Sort     TableSort `json:"sort"`
-	Filter   string    `json:"filter"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+	Sort     TableSort         `json:"sort"`
+	Filter   string            `json:"filter"`
+	Filters  map[string]string `json:"filters"`
 }
 
 // ReadTableQuery reads the server-table query state hope sends (under "_q"). ok is

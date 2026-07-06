@@ -127,6 +127,8 @@ interactivity; the columns are always dynamic (hope renders exactly the
 | `edit_method` | inline cell edit: editing a cell calls `method` with `{row, column, value}`. `edit_columns` (optional) limits which columns are editable. hope refetches on success |
 | `server`      | server-driven table: hope does NOT ship every row. It sends the query state and expects one page + a total back (see below). For tables too large to send whole |
 | `refresh`     | (any view) add a manual refresh button to the view header that re-fetches on click |
+| `refresh_interval` | (any view) auto-refetch every N seconds — a live-ish view without a stream |
+| `facets`      | (server tables) dropdown filters: `[{ "key", "label", "options": [{label, value}] }]`. Selections arrive in the query as `_q.filters[key]`; apply them in your store |
 
 **Server-driven tables** (`server: true`) — the keystone for large data. hope sends
 the query state on each call and expects one page plus a total:

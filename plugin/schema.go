@@ -202,6 +202,20 @@ type ViewDesc struct {
 	// Refresh adds a manual refresh button to the view header that re-fetches it —
 	// e.g. a stat/counter you want to recompute on demand.
 	Refresh bool `json:"refresh,omitempty"`
+	// RefreshInterval auto-refetches the view every N seconds (0 = off) — a live-ish
+	// view without a stream. hope stops the timer when the view leaves the DOM.
+	RefreshInterval int `json:"refresh_interval,omitempty"`
+	// Facets (server tables) are dropdown filters hope renders in the toolbar; the
+	// selected values arrive in the query as filters[key] (see TableQuery.Filters),
+	// which you apply in your store. Distinct from the free-text search box.
+	Facets []Facet `json:"facets,omitempty"`
+}
+
+// Facet is one dropdown filter on a server table: a key, a label, and the choices.
+type Facet struct {
+	Key     string   `json:"key"`
+	Label   string   `json:"label"`
+	Options []Option `json:"options"`
 }
 
 // RowAction is one author-declared action bound to a table row. hope calls Method

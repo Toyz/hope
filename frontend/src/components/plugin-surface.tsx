@@ -25,7 +25,8 @@ interface Node {
   children?: Node[];
 }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean }
+interface Facet { key: string; label: string; options: { label: string; value: string }[] }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[] }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -97,6 +98,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .tfilter { flex: 0 1 220px; padding: 5px 9px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.3 var(--mono); }
   .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .tcount { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .tfacet { padding: 5px 8px; background: var(--ink); border: 1px solid var(--line); color: var(--mid); font: 11px/1.2 var(--mono); cursor: pointer; }
+  .tfacet:hover { border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .tfacet:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .tpager { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
   .pnum { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .pbtn { display: inline-flex; padding: 3px; background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer; }
@@ -197,6 +201,8 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor secOpen: Record<string, boolean> = {}; // collapsible section open state
   @reactive accessor queryText: Record<string, string> = {};
   @reactive accessor tableState: Record<string, TableState> = {}; // per-table filter/sort/page
+  @reactive accessor facetSel: Record<string, string> = {}; // "method|facetKey" -> selected value ("" = all)
+  private intervalTimers = new Map<string, any>(); // per-view auto-refresh timers
   @reactive accessor streamData: Record<string, any> = {};
   @reactive accessor streamHist: Record<string, number[]> = {}; // numeric history for sparklines
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
@@ -232,6 +238,8 @@ export class HopePluginSurface extends LoomElement {
     this.streamAborts.clear();
     for (const t of this.debFetch.values()) clearTimeout(t); // cancel pending filter debounces
     this.debFetch.clear();
+    for (const t of this.intervalTimers.values()) clearInterval(t); // stop auto-refresh timers
+    this.intervalTimers.clear();
     this.streamOn = {};
   }
 
@@ -262,9 +270,15 @@ export class HopePluginSurface extends LoomElement {
     // one held stream can starve the dev proxy / the browser's per-host limit).
     // Server tables get their first page via the query protocol.
     for (const ref of this.leafRefs(s.node)) {
-      if (!this.views[ref]) continue;
-      if (this.views[ref].server) this.serverFetch(ref);
+      const v = this.views[ref];
+      if (!v) continue;
+      if (v.server) this.serverFetch(ref);
       else void this.fetch(ref);
+      // Auto-refresh timer for views that declare an interval (min 2s guard).
+      if (v.refresh_interval && v.refresh_interval > 0 && !this.intervalTimers.has(ref)) {
+        const ms = Math.max(2, v.refresh_interval) * 1000;
+        this.intervalTimers.set(ref, setInterval(() => this.refetchView(ref), ms));
+      }
     }
   }
 
@@ -521,7 +535,9 @@ export class HopePluginSurface extends LoomElement {
     const size = v.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE;
     const cols: string[] | undefined = this.cells[method]?.data?.columns;
     const sort = st.sort >= 0 && cols ? { column: cols[st.sort], dir: st.dir } : undefined;
-    void this.fetch(method, { _q: { page: st.page, page_size: size, sort, filter: st.filter || "" } });
+    const filters: Record<string, string> = {};
+    for (const f of v.facets || []) { const sel = this.facetSel[`${method}|${f.key}`]; if (sel) filters[f.key] = sel; }
+    void this.fetch(method, { _q: { page: st.page, page_size: size, sort, filter: st.filter || "", filters } });
   }
 
   // serverFilter debounces filter typing: the text lives in filterDraft (non-reactive
@@ -611,6 +627,16 @@ export class HopePluginSurface extends LoomElement {
           <div class="tbar">
             <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={filterVal}
               onInput={(e: any) => changeFilter(e.target.value)} />
+            {server && v?.facets ? v.facets.map((f) => {
+              const fk = `${key}|${f.key}`;
+              return (
+                <select class="tfacet" value={this.facetSel[fk] || ""}
+                  onChange={(e: any) => { this.facetSel = { ...this.facetSel, [fk]: e.target.value }; this.setTable(key, { page: 0 }); this.serverFetch(key); }}>
+                  <option value="">{f.label}: all</option>
+                  {f.options.map((o) => <option value={o.value}>{f.label}: {o.label}</option>)}
+                </select>
+              );
+            }) : null}
             <span class="tcount">{total.toLocaleString()}{!server && total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>
             {pages > 1 ? (
               <span class="tpager">

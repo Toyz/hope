@@ -199,6 +199,16 @@ func RowActions(actions ...RowAction) TableOpt {
 // PageSize sets how many rows hope shows per page for this table (0 => hope default).
 func PageSize(n int) TableOpt { return func(v *ViewDesc) { v.PageSize = n } }
 
+// Facets adds dropdown filters to a server table; the selected values arrive in the
+// query as filters[key] (read with ReadTableQuery). Apply them in your store.
+func Facets(facets ...Facet) TableOpt {
+	return func(v *ViewDesc) { v.Facets = append(v.Facets, facets...) }
+}
+
+// RefreshEvery auto-refetches the view every n seconds (a live-ish view without a
+// stream). hope stops the timer when the view leaves the DOM.
+func RefreshEvery(seconds int) ViewOpt { return func(v *ViewDesc) { v.RefreshInterval = seconds } }
+
 // ServerSide marks a table server-driven: hope sends the query state each call and
 // expects one page + a total back, so a table too large to ship whole still works.
 // Read the query with plugin.ReadTableQuery and return {columns, rows, total}.
