@@ -28,6 +28,8 @@ interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamD
 export interface Surface { key: string; name: string; title?: string; node: Node; schema: Schema; param?: Record<string, any> }
 
 type Cell = { loading: boolean; error?: string; data?: any };
+type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };
+const TABLE_PAGE = 100; // rows per page — client-side windowing so big results don't blow up the DOM
 
 @component("hope-plugin-surface")
 @styles(theme, css`
@@ -60,6 +62,21 @@ type Cell = { loading: boolean; error?: string; data?: any };
   table.g th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
   table.g td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--mid); vertical-align: top; }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
+  .tblwrap { display: flex; flex-direction: column; min-height: 0; }
+  .leaf.grow .tblwrap { flex: 1 1 0; }
+  .leaf.grow .tblwrap .gwrap { flex: 1 1 0; max-height: none; }
+  .tbar { display: flex; align-items: center; gap: 12px; padding: 6px 0 8px; }
+  .tfilter { flex: 0 1 220px; padding: 5px 9px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12px/1.3 var(--mono); }
+  .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .tcount { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .tpager { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .pnum { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .pbtn { display: inline-flex; padding: 3px; background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer; }
+  .pbtn:hover:not(:disabled) { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  .pbtn:disabled { opacity: .35; cursor: default; }
+  th.srt { cursor: pointer; user-select: none; }
+  th.srt:hover { color: var(--mid); }
+  .sarrow { margin-left: 4px; color: var(--upd); }
 
   .qrun { display: flex; justify-content: flex-end; margin: 8px 0; }
 
@@ -88,6 +105,13 @@ type Cell = { loading: boolean; error?: string; data?: any };
   .stream { display: inline-flex; flex-direction: column; gap: 6px; padding: 8px 0; }
   .stream .k { color: var(--dim); font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
   .stream .v { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
+
+  .spark { display: flex; align-items: center; gap: 14px; padding: 4px 0; }
+  .sparksvg { width: 240px; height: 44px; overflow: visible; }
+  .sfill { fill: color-mix(in srgb, var(--upd) 14%, transparent); stroke: none; }
+  .sline { fill: none; stroke: var(--upd); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .sdot { fill: var(--upd); }
+  .sval { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
 `)
 export class HopePluginSurface extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -102,7 +126,9 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor cells: Record<string, Cell> = {};
   @reactive accessor tabSel: Record<string, number> = {};
   @reactive accessor queryText: Record<string, string> = {};
+  @reactive accessor tableState: Record<string, TableState> = {}; // per-table filter/sort/page
   @reactive accessor streamData: Record<string, any> = {};
+  @reactive accessor streamHist: Record<string, number[]> = {}; // numeric history for sparklines
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
   // row-detail modal: the returned detail plus the clicked row + its actions (so the
   // modal footer can offer the same row actions).
@@ -146,6 +172,7 @@ export class HopePluginSurface extends LoomElement {
     this.streams = {};
     this.cells = {};
     this.streamData = {};
+    this.streamHist = {};
     if (!s) return;
     registerPluginIcons(s.key, s.schema.icons); // sanitize + namespace this plugin's icons
     for (const v of s.schema.views || []) this.views[v.method] = v;
@@ -167,10 +194,14 @@ export class HopePluginSurface extends LoomElement {
     const ctrl = new AbortController();
     this.streamAborts.set(method, ctrl);
     this.streamOn = { ...this.streamOn, [method]: true };
+    this.streamHist = { ...this.streamHist, [method]: [] }; // fresh history per live session
     try {
       for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], ctrl.signal)) {
-        if (frame?.type === "data") this.streamData = { ...this.streamData, [method]: frame.data };
-        else if (frame?.type === "error") this.streamData = { ...this.streamData, [method]: { error: frame.error } };
+        if (frame?.type === "data") {
+          this.streamData = { ...this.streamData, [method]: frame.data };
+          const val = this.pickNumeric(frame.data);
+          if (val != null) this.streamHist = { ...this.streamHist, [method]: [...(this.streamHist[method] || []), val].slice(-60) };
+        } else if (frame?.type === "error") this.streamData = { ...this.streamData, [method]: { error: frame.error } };
       }
     } catch {
       /* aborted or transport closed */
@@ -307,7 +338,7 @@ export class HopePluginSurface extends LoomElement {
               ? <button class="sbtn on" onClick={() => this.stopStream(ref)}><loom-icon name="stop" size={11}></loom-icon>stop</button>
               : <button class="sbtn" onClick={() => this.startStream(ref)}><loom-icon name="play" size={11}></loom-icon>live</button>}
           </div>
-          {on ? (d != null ? this.renderStream(d) : <div class="msg">connecting…</div>) : <div class="msg">not live — click live to stream</div>}
+          {on ? (d != null ? this.renderStream(d, st.kind, ref) : <div class="msg">connecting…</div>) : <div class="msg">not live — click live to stream</div>}
         </div>
       );
     }
@@ -357,33 +388,91 @@ export class HopePluginSurface extends LoomElement {
     );
   }
 
-  // renderTable draws {columns, rows}. If the view declares row_method the rows are
-  // clickable (opens a detail modal); if it declares row_actions each row gets a
-  // trailing cell of author-controlled action buttons. Columns are fully dynamic —
-  // whatever the plugin returns (pgAdmin-style query results).
+  private tableSt(key: string): TableState {
+    return this.tableState[key] || { page: 0, sort: -1, dir: 1, filter: "" };
+  }
+  private setTable(key: string, patch: Partial<TableState>) {
+    this.tableState = { ...this.tableState, [key]: { ...this.tableSt(key), ...patch } };
+  }
+  // cmpCells is numeric-aware: numbers sort as numbers, everything else as strings.
+  private cmpCells(a: any, b: any): number {
+    const na = typeof a === "number" ? a : parseFloat(a);
+    const nb = typeof b === "number" ? b : parseFloat(b);
+    if (!isNaN(na) && !isNaN(nb) && String(a).trim() !== "" && String(b).trim() !== "") return na - nb;
+    return this.cellStr(a).localeCompare(this.cellStr(b));
+  }
+
+  // renderTable draws {columns, rows} with client-side filter, column sort, and
+  // pagination (so a 5000-row result doesn't blow up the DOM). If the view declares
+  // row_method the rows are clickable (detail modal); row_actions add a trailing
+  // action cell. Columns are fully dynamic — whatever the plugin returns.
   private renderTable(data: any, v?: ViewDesc) {
     const cols: string[] = data?.columns || [];
     const rows: any[][] = data?.rows || [];
     const onRow: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const acts: RowAction[] = v?.row_actions || data?.row_actions || [];
     if (!cols.length && !rows.length) return <div class="msg">empty</div>;
+
+    const key = v?.method || "_t";
+    const st = this.tableSt(key);
+
+    // filter -> sort -> page over row INDICES (keeps the original rows intact).
+    let idx = rows.map((_, i) => i);
+    if (st.filter) {
+      const f = st.filter.toLowerCase();
+      idx = idx.filter((i) => rows[i].some((c) => this.cellStr(c).toLowerCase().includes(f)));
+    }
+    if (st.sort >= 0) idx.sort((a, b) => this.cmpCells(rows[a][st.sort], rows[b][st.sort]) * st.dir);
+
+    const total = idx.length;
+    const pages = Math.max(1, Math.ceil(total / TABLE_PAGE));
+    const page = Math.min(st.page, pages - 1);
+    const shown = idx.slice(page * TABLE_PAGE, page * TABLE_PAGE + TABLE_PAGE);
+    const toolbar = rows.length > TABLE_PAGE || st.filter;
+
     return (
-      <div class="gwrap">
-        <table class="g">
-          <thead><tr>{cols.map((c) => <th>{c}</th>)}{acts.length ? <th class="rax"></th> : null}</tr></thead>
-          <tbody>{rows.map((r) => (
-            <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
-              {r.map((cell) => <td>{this.cellStr(cell)}</td>)}
-              {acts.length ? (
-                <td class="rax">{acts.map((a) => (
-                  <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
-                    {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
-                  </button>
-                ))}</td>
-              ) : null}
-            </tr>
-          ))}</tbody>
-        </table>
+      <div class="tblwrap">
+        {toolbar ? (
+          <div class="tbar">
+            <input class="tfilter" placeholder="filter…" value={st.filter}
+              onInput={(e: any) => this.setTable(key, { filter: e.target.value, page: 0 })} />
+            <span class="tcount">{total.toLocaleString()}{total !== rows.length ? ` / ${rows.length.toLocaleString()}` : ""} rows</span>
+            {pages > 1 ? (
+              <span class="tpager">
+                <button class="pbtn" disabled={page <= 0} onClick={() => this.setTable(key, { page: page - 1 })}><loom-icon name="chevron-left" size={13}></loom-icon></button>
+                <span class="pnum">{page + 1} / {pages}</span>
+                <button class="pbtn" disabled={page >= pages - 1} onClick={() => this.setTable(key, { page: page + 1 })}><loom-icon name="chevron-right" size={13}></loom-icon></button>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div class="gwrap">
+          <table class="g">
+            <thead><tr>
+              {cols.map((c, ci) => (
+                <th class="srt" onClick={() => this.setTable(key, { sort: ci, dir: st.sort === ci ? (st.dir === 1 ? -1 : 1) as 1 | -1 : 1 })}>
+                  {c}{st.sort === ci ? <span class="sarrow">{st.dir === 1 ? "↑" : "↓"}</span> : null}
+                </th>
+              ))}
+              {acts.length ? <th class="rax"></th> : null}
+            </tr></thead>
+            <tbody>{shown.map((i) => {
+              const r = rows[i];
+              return (
+                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => this.openRow(onRow, cols, r, acts, v?.method) : undefined}>
+                  {r.map((cell) => <td>{this.cellStr(cell)}</td>)}
+                  {acts.length ? (
+                    <td class="rax">{acts.map((a) => (
+                      <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
+                        {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
+                      </button>
+                    ))}</td>
+                  ) : null}
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -431,8 +520,47 @@ export class HopePluginSurface extends LoomElement {
     return <hope-kvlist data={this.strMap(data)}></hope-kvlist>;
   }
 
-  private renderStream(d: any) {
+  // pickNumeric extracts a value to plot from a stream frame: prefer y, then count,
+  // then the first numeric field — so counter and series streams both spark.
+  private pickNumeric(d: any): number | null {
+    if (typeof d === "number") return d;
+    if (d && typeof d === "object") {
+      for (const k of ["y", "value", "count", "rps"]) if (typeof d[k] === "number") return d[k];
+      for (const k of Object.keys(d)) if (typeof d[k] === "number") return d[k];
+    }
+    return null;
+  }
+
+  // renderSparkline draws a min-max-normalized area+line from the numeric history,
+  // with an emphasized endpoint — the live shape of a counter/series stream.
+  private renderSparkline(vals: number[], latest: any) {
+    const W = 240, H = 44, pad = 3;
+    if (vals.length < 2) return <div class="msg">collecting…</div>;
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi === lo) hi = lo + 1;
+    const x = (i: number) => pad + (i / (vals.length - 1)) * (W - 2 * pad);
+    const y = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const area = `${pad},${H - pad} ${pts} ${(W - pad).toFixed(1)},${H - pad}`;
+    const ex = x(vals.length - 1), ey = y(vals[vals.length - 1]);
+    return (
+      <div class="spark">
+        <svg viewBox={`0 0 ${W} ${H}`} class="sparksvg">
+          <polygon points={area} class="sfill"></polygon>
+          <polyline points={pts} class="sline"></polyline>
+          <circle cx={ex} cy={ey} r={2.5} class="sdot"></circle>
+        </svg>
+        <span class="sval">{this.cellStr(latest)}</span>
+      </div>
+    );
+  }
+
+  private renderStream(d: any, kind?: string, method?: string) {
     if (d && typeof d === "object" && d.error) return <div class="msg bad">{String(d.error)}</div>;
+    if ((kind === "series" || kind === "counter") && method) {
+      const hist = this.streamHist[method] || [];
+      if (hist.length >= 2) return this.renderSparkline(hist, this.pickNumeric(d));
+    }
     if (d && typeof d === "object") {
       return <div class="streams">{Object.keys(d).map((k) => <div class="stream"><span class="k">{k}</span><span class="v">{this.cellStr(d[k])}</span></div>)}</div>;
     }
