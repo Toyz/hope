@@ -66,11 +66,22 @@ import { theme } from "../styles";
   .lyhead { display: grid; grid-template-columns: 72px minmax(0, 1fr) 44px; gap: 12px; padding: 4px 15px 7px; border-bottom: 1px solid var(--line); }
   .lyhead span { font: 600 8.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .lyhead .r { text-align: right; }
-  .lyrow { display: grid; grid-template-columns: 72px minmax(0, 1fr) 44px; gap: 12px; align-items: baseline; padding: 6px 15px; font: 11.5px/1.5 var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+  .lyrow { display: grid; grid-template-columns: 72px minmax(0, 1fr) 44px; gap: 12px; align-items: baseline; padding: 6px 15px; font: 11.5px/1.5 var(--mono); border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); cursor: pointer; }
+  .lyrow:hover { background: var(--raised); }
+  .lyrow.on { background: color-mix(in srgb, var(--upd) 10%, transparent); }
   .lyrow.meta { color: var(--dim); }
+  /* click-to-expand layer details drawer */
+  .lyexp { padding: 8px 15px 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); background: color-mix(in srgb, var(--upd) 5%, transparent); }
+  .lyexp .lek { font: 600 8.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+  .lyexp .lecmd { margin: 0 0 10px; padding: 8px 10px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 11.5px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+  .lyexp .lefacts { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  .lyexp .lefacts span { display: inline-flex; align-items: baseline; gap: 7px; font: 12px/1.5 var(--mono); color: var(--hi); }
+  .lyexp .lefacts i { font-style: normal; font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .lysz { color: var(--mid); font-variant-numeric: tabular-nums; text-align: right; }
   .lysz.heavy { color: var(--hi); font-weight: 600; }
-  .lycmd { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lycmd { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .lycmdtip { min-width: 0; overflow: hidden; } /* keep the clipped command ellipsizing inside the tooltip wrapper */
+  .lycmdtip .lycmd { display: block; width: 100%; }
   .lyrow.meta .lycmd { color: var(--dim); }
   .lybadge { text-align: right; color: var(--dim); font: 600 10px/1.5 var(--mono); font-variant-numeric: tabular-nums; }
   .empty { padding: 18px 15px; color: var(--dim); font: 12px/1.4 var(--mono); }
@@ -91,6 +102,7 @@ export class HopeImageInspector extends LoomElement {
   @reactive accessor showMeta = false;  // include 0-byte metadata layers
   @reactive accessor laySort: "step" | "size" = "step"; // layer order: build step | heaviest first
   @reactive accessor busy = false;
+  @reactive accessor openLayer = ""; // expanded layer (by step key), for the details drawer
 
   @mount
   onMount() { this.host = this.insp.host; this.ref = this.insp.ref; this.load(); }
@@ -102,7 +114,7 @@ export class HopeImageInspector extends LoomElement {
   private onTarget(e: ImageInspectorTarget) {
     if (!e.ref || (e.ref === this.ref && e.host === this.host)) return;
     this.host = e.host; this.ref = e.ref;
-    this.info = null; this.layers = null; this.error = ""; this.reveal = false; this.showMeta = false;
+    this.info = null; this.layers = null; this.error = ""; this.reveal = false; this.showMeta = false; this.openLayer = "";
     this.load();
   }
 
@@ -204,12 +216,29 @@ export class HopeImageInspector extends LoomElement {
           const cmd = cleanLayer(l.created_by) || (l.empty ? "(metadata)" : "");
           const text = this.reveal ? cmd : redactCmd(cmd);
           const heavy = l.size >= max * 0.5 && l.size > 0;
+          const key = String(step);
+          const open = this.openLayer === key;
           return (
-            <div class={"lyrow" + (l.empty ? " meta" : "")}>
-              <span class={"lysz" + (heavy ? " heavy" : "")}>{l.size ? bytes(l.size) : "—"}</span>
-              <span class="lycmd" title={text}>{text}</span>
-              <span class="lybadge">{l.empty ? "meta" : "L" + step}</span>
-            </div>
+            <>
+              <div class={"lyrow" + (l.empty ? " meta" : "") + (open ? " on" : "")} onClick={() => (this.openLayer = open ? "" : key)}>
+                <span class={"lysz" + (heavy ? " heavy" : "")}>{l.size ? bytes(l.size) : "—"}</span>
+                <hope-tip class="lycmdtip" text={text} pos="top"><span class="lycmd">{text}</span></hope-tip>
+                <span class="lybadge">{l.empty ? "meta" : "L" + step}</span>
+              </div>
+              {open ? (
+                <div class="lyexp">
+                  <div class="lek">command</div>
+                  <pre class="lecmd">{text || "(none)"}</pre>
+                  <div class="lefacts">
+                    <span><i>size</i>{l.size ? bytes(l.size) : "0 B"}</span>
+                    {l.created ? <span><i>created</i>{age(l.created)}</span> : null}
+                    <span><i>layer</i>{l.empty ? "metadata (0 B)" : "L" + step}</span>
+                    {l.comment ? <span><i>comment</i>{l.comment}</span> : null}
+                    {l.id ? <span><i>id</i><code>{shortId(l.id)}</code></span> : null}
+                  </div>
+                </div>
+              ) : null}
+            </>
           );
         })}
       </div>
@@ -253,7 +282,7 @@ export class HopeImageInspector extends LoomElement {
               <div class="row"><span class="k">source</span>{i.registry ? <span class="v">{i.registry}</span> : <span class="v dim">local only</span>}</div>
               <div class="row"><span class="k">tags</span><span class="v">{i.tags.length ? i.tags.map((t) => <span class="tag">{t}</span>) : <span class="dim">untagged</span>}</span></div>
               {i.digests && i.digests.length ? (
-                <div class="row"><span class="k">digest</span><span class="v">{i.digests.map((d) => { const at = d.lastIndexOf("@"); const sha = at > 0 ? d.slice(at + 1) : d; return <button class="digest" title={d} onClick={() => this.copyDigest(d)}>{shortSha(sha)}<loom-icon name="copy" size={11}></loom-icon></button>; })}</span></div>
+                <div class="row"><span class="k">digest</span><span class="v">{i.digests.map((d) => { const at = d.lastIndexOf("@"); const sha = at > 0 ? d.slice(at + 1) : d; return <hope-tip text={d} pos="top-end"><button class="digest" onClick={() => this.copyDigest(d)}>{shortSha(sha)}<loom-icon name="copy" size={11}></loom-icon></button></hope-tip>; })}</span></div>
               ) : null}
               <div class="ctitle sep">used by &middot; {i.used_by.length}</div>
               {i.used_by.length ? (

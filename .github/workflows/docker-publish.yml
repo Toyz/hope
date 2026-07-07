@@ -34,6 +34,8 @@ jobs:
           # them (stdlib+driver only — no sov, no private-repo secrets needed).
           - name: hope-postgres
             dockerfile: examples/plugins/hope-postgres/Dockerfile
+          - name: hope-redis
+            dockerfile: examples/plugins/hope-redis/Dockerfile
     steps:
       - uses: actions/checkout@v5
 
