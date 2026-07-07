@@ -55,8 +55,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ptext { margin: 0; padding: 12px 16px; max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--ink); border: 1px solid var(--line); color: var(--mid); font: 12px/1.55 var(--mono); }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
-  /* a row of action buttons is a group, not columns — size to content, don't spread */
-  .row > .rcell.act { flex: 0 0 auto; }
+  /* a toolbar of action buttons: content-sized, grouped, wraps — see the Buttons node */
+  .btngroup { display: flex; flex-wrap: wrap; gap: 10px; padding: 6px 16px 12px; }
+  .btngroup .leaf { padding: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0 4px; }
   /* Row/grid child wrapper: carries the per-child weight/span; its content fills it. */
   .rcell { display: flex; flex-direction: column; min-width: 0; }
@@ -500,12 +501,13 @@ export class HopePluginSurface extends LoomElement {
       }
       case "row":
         // Wrap each child so a per-child `size` sets its flex WEIGHT (width share);
-        // size 0 => the default equal 1 1 240px share from `.row > *`. An action-button
-        // leaf sizes to content (`.act`) so a maintenance row groups, not spreads.
-        return <div class={"row" + g}>{(n.children || []).map((c, i) => {
-          const act = c.kind === "leaf" && !!this.actions[c.ref || ""];
-          return <div class={"rcell" + (act ? " act" : "")} style={c.size ? `flex-grow:${c.size};flex-basis:0;` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>;
-        })}</div>;
+        // size 0 => the default equal 1 1 240px share from `.row > *`.
+        return <div class={"row" + g}>{(n.children || []).map((c, i) => (
+          <div class="rcell" style={c.size ? `flex-grow:${c.size};flex-basis:0;` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>
+        ))}</div>;
+      case "buttons":
+        // A toolbar of action buttons, sized to content (not stretched like a row).
+        return <div class="btngroup">{(n.children || []).map((c) => this.renderLeaf(c.ref || "", false, true))}</div>;
       case "grid":
         // In a grid, `size` is a column SPAN (how many tracks the child occupies).
         return <div class={"grid" + g}>{(n.children || []).map((c, i) => (
@@ -534,7 +536,7 @@ export class HopePluginSurface extends LoomElement {
     const g = fill ? " grow" : "";
     if (this.actions[ref]) {
       const a = this.actions[ref];
-      return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{a.label}</hope-button></div>;
+      return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{this.leafIcon(a.icon)}{a.label}</hope-button></div>;
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];

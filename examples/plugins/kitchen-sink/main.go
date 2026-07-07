@@ -421,10 +421,10 @@ func main() {
 			name = "world"
 		}
 		return map[string]any{"message": "hello, " + name}, nil
-	})
+	}, plugin.ActionIcon("beaker"))
 	p.DangerAction("wipe", "Wipe (danger)", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		return map[string]any{"ok": true, "message": "pretend-wiped"}, nil
-	})
+	}, plugin.ActionIcon("trash"))
 
 	// --- container panel: every layout primitive (section/row/grid/tabs/leaf) ---
 	p.ContainerPanel("Kitchen Sink", &plugin.Match{Always: true}, plugin.Section("",
@@ -441,7 +441,7 @@ func main() {
 			plugin.Leaf("rows").Titled("Rows").Filled(),
 			plugin.Leaf("log").Titled("Log"),
 		),
-		plugin.Section("Actions", plugin.Row(plugin.Leaf("greet"), plugin.Leaf("wipe"))),
+		plugin.Section("Actions", plugin.Buttons("greet", "wipe")),
 	))
 
 	// --- a dashboard widget: keep it COMPACT (stat blocks), not a full panel ---

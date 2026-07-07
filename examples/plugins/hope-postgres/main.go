@@ -531,7 +531,7 @@ func registerMaintenance(p *plugin.Plugin) {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "message": "planner statistics refreshed"}, nil
-	})
+	}, plugin.ActionIcon("rotate"))
 	p.DangerAction("vacuum", "Vacuum database", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		pool, err := getPool(ctx)
 		if err != nil {
@@ -542,7 +542,7 @@ func registerMaintenance(p *plugin.Plugin) {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "message": "vacuum + analyze complete"}, nil
-	})
+	}, plugin.ActionIcon("trash"))
 }
 
 // --- Layout ---------------------------------------------------------------------
@@ -562,7 +562,7 @@ func registerLayout(p *plugin.Plugin) {
 				plugin.Leaf("explain").Titled("Explain"),
 				plugin.Leaf("activity").Titled("Activity"),
 			),
-			plugin.Section("Maintenance", plugin.Row(plugin.Leaf("analyze"), plugin.Leaf("vacuum"))),
+			plugin.Section("Maintenance", plugin.Buttons("analyze", "vacuum")),
 		))
 
 	// A standalone nav page — a first-class rail entry + a ⌘K command-palette entry,
