@@ -153,7 +153,7 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Method == "hope.layout" {
-		writeResult(w, req.ID, p.layout())
+		writeResult(w, req.ID, p.layout(r.Context()))
 		return
 	}
 

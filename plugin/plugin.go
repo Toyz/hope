@@ -71,6 +71,10 @@ type Plugin struct {
 	actions  map[string]actionEntry
 	streams  map[string]streamEntry
 	contribs []Contribution
+	// pageFns[i] produces the Pages of contribs[i] LIVE at each hope.layout (a
+	// DynamicPageFunc contribution) — kept off the wire Contribution so it stays
+	// pure data. Keyed by index; contribs is append-only, so the index is stable.
+	pageFns map[int]func(ctx context.Context) []PageItem
 
 	// Operator-managed settings: the declared schema + the current values hope
 	// pushes via hope.settings (read in a handler with SettingValue).
@@ -454,6 +458,20 @@ func (p *Plugin) DynamicPage(title string, node *Node, items []PageItem) *Plugin
 	return p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node, Pages: items})
 }
 
+// DynamicPageFunc is DynamicPage with LIVE items: fn runs on every hope.layout to
+// produce the rail entries, so the set reflects current state (a database's tables,
+// a broker's topics) instead of a snapshot frozen at startup — the answer to "my
+// pages depend on data I don't have until runtime." Keep fn fast: hope fetches the
+// layout per surface, so cache if it hits a slow backend.
+func (p *Plugin) DynamicPageFunc(title string, node *Node, fn func(ctx context.Context) []PageItem) *Plugin {
+	p.Contribute(Contribution{Surface: SurfacePage, Title: title, Icon: p.icon, Node: node})
+	if p.pageFns == nil {
+		p.pageFns = map[int]func(ctx context.Context) []PageItem{}
+	}
+	p.pageFns[len(p.contribs)-1] = fn
+	return p
+}
+
 // schema builds the hope.schema result from the registered capabilities, in
 // author declaration order.
 func (p *Plugin) schema() Schema {
@@ -485,10 +503,19 @@ func (p *Plugin) schema() Schema {
 // contributions, it synthesizes one container contribution (matching the
 // plugin's own container) that lists views/streams first, then actions — a
 // sensible default so trivial plugins render with zero layout code.
-func (p *Plugin) layout() Layout {
+func (p *Plugin) layout(ctx context.Context) Layout {
 	l := Layout{ProtocolVersion: ProtocolVersion}
 	if len(p.contribs) > 0 {
-		l.Contributions = p.contribs
+		// Copy so a DynamicPageFunc's live Pages don't mutate the registered
+		// contribution (fn is re-evaluated fresh on every fetch).
+		out := make([]Contribution, len(p.contribs))
+		copy(out, p.contribs)
+		for i := range out {
+			if fn := p.pageFns[i]; fn != nil {
+				out[i].Pages = fn(ctx)
+			}
+		}
+		l.Contributions = out
 		return l
 	}
 	var data, acts []*Node

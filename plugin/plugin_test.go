@@ -182,3 +182,27 @@ func TestReservedNamespacePanics(t *testing.T) {
 	}()
 	New("x", "1").View("hope.schema", "bad", KV, func(ctx context.Context) (any, error) { return nil, nil })
 }
+
+// TestDynamicPageFuncLive verifies a DynamicPageFunc's items are produced fresh on
+// every hope.layout (not frozen at registration) and don't mutate the stored contrib.
+func TestDynamicPageFuncLive(t *testing.T) {
+	p := New("test", "1.0.0")
+	calls := 0
+	p.DynamicPageFunc("Browse", Section(""), func(ctx context.Context) []PageItem {
+		calls++
+		return make([]PageItem, calls) // count grows each call -> proves live re-eval
+	})
+	l1 := p.layout(context.Background())
+	if len(l1.Contributions) != 1 || l1.Contributions[0].Surface != SurfacePage {
+		t.Fatalf("want one page contribution, got %+v", l1.Contributions)
+	}
+	if got := len(l1.Contributions[0].Pages); got != 1 {
+		t.Fatalf("want 1 live page on first fetch, got %d", got)
+	}
+	if got := len(p.layout(context.Background()).Contributions[0].Pages); got != 2 {
+		t.Fatalf("want fn re-evaluated (2 pages) on second fetch, got %d", got)
+	}
+	if p.contribs[0].Pages != nil {
+		t.Fatalf("registered contribution must stay unmutated, got %+v", p.contribs[0].Pages)
+	}
+}
