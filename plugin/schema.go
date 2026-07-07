@@ -393,7 +393,8 @@ type NodeKind string
 const (
 	NodeSection NodeKind = "section" // titled group
 	NodeTabs    NodeKind = "tabs"    // tabbed children
-	NodeRow     NodeKind = "row"     // horizontal arrangement
+	NodeRow     NodeKind = "row"     // horizontal arrangement (equal-width columns)
+	NodeButtons NodeKind = "buttons" // horizontal group of action buttons, sized to content
 	NodeGrid    NodeKind = "grid"    // grid arrangement
 	NodeLeaf    NodeKind = "leaf"    // a single view/action/stream
 )
@@ -424,8 +425,21 @@ func Tabs(children ...*Node) *Node {
 	return &Node{Kind: NodeTabs, Children: children}
 }
 
-// Row builds a horizontal row from children.
+// Row builds a horizontal row from children — equal-width columns (each child gets
+// an equal flex share). For a group of action buttons use Buttons instead, so they
+// size to content and don't spread across the row.
 func Row(children ...*Node) *Node { return &Node{Kind: NodeRow, Children: children} }
+
+// Buttons builds a horizontal group of action buttons from action method refs. The
+// buttons size to content and sit together (a toolbar), unlike Row's stretched
+// columns — e.g. Buttons("analyze", "vacuum") for a maintenance section.
+func Buttons(refs ...string) *Node {
+	kids := make([]*Node, len(refs))
+	for i, r := range refs {
+		kids[i] = Leaf(r)
+	}
+	return &Node{Kind: NodeButtons, Children: kids}
+}
 
 // Grid builds a grid from children.
 func Grid(children ...*Node) *Node { return &Node{Kind: NodeGrid, Children: children} }

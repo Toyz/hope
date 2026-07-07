@@ -6,6 +6,6 @@ module github.com/toyz/hope/examples/plugins/kitchen-sink
 
 go 1.25
 
-require github.com/toyz/hope/plugin v0.0.2
+require github.com/toyz/hope/plugin v0.0.3
 
 replace github.com/toyz/hope/plugin => ../../../plugin

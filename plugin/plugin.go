@@ -306,19 +306,35 @@ func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {
 	return p
 }
 
+// ActionOpt configures a registered action beyond its label (its icon, …). Pass
+// these to Action/DangerAction; the danger tone is set by DangerAction itself.
+type ActionOpt func(*ActionDesc)
+
+// ActionIcon sets the action button's icon — a hope built-in icon name or one of
+// this plugin's Icons keys. e.g. plugin.ActionIcon("rotate").
+func ActionIcon(name string) ActionOpt { return func(a *ActionDesc) { a.Icon = name } }
+
 // Action registers an invocable action. The UI collects fields, then calls fn
 // with the values. Mark destructive actions with DangerAction.
-func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc) *Plugin {
+func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc, opts ...ActionOpt) *Plugin {
 	p.claim(method)
-	p.actions[method] = actionEntry{ActionDesc{Method: method, Label: label, Fields: fields}, fn}
+	d := ActionDesc{Method: method, Label: label, Fields: fields}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.actions[method] = actionEntry{d, fn}
 	return p
 }
 
 // DangerAction is like Action but flags the action destructive, so hope confirms
 // before running it and audit-logs the invocation.
-func (p *Plugin) DangerAction(method, label string, fields []Field, fn ActionFunc) *Plugin {
+func (p *Plugin) DangerAction(method, label string, fields []Field, fn ActionFunc, opts ...ActionOpt) *Plugin {
 	p.claim(method)
-	p.actions[method] = actionEntry{ActionDesc{Method: method, Label: label, Fields: fields, Danger: true}, fn}
+	d := ActionDesc{Method: method, Label: label, Fields: fields, Danger: true}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.actions[method] = actionEntry{d, fn}
 	return p
 }
 
