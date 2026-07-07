@@ -90,8 +90,8 @@ func registerOverview(p *plugin.Plugin) {
 			{Label: "Database", Value: db, Sub: serverVersion(version), Icon: "database", Tone: plugin.ToneInfo},
 			{Label: "Size", Value: humanBytes(sizeBytes), Icon: "hdd"},
 			{Label: "Tables", Value: tables},
-			{Label: "Connections", Value: total, Sub: strconv.FormatInt(active, 10) + " active", Icon: "activity"},
-			{Label: "Cache hit", Value: hitVal, Tone: hitTone, Sub: "blocks served from cache"},
+			{Label: "Connections", Value: total, Sub: strconv.FormatInt(active, 10) + " active", Icon: "activity", Tip: plugin.Tip("Total backends vs the ones actively running a query right now")},
+			{Label: "Cache hit", Value: hitVal, Tone: hitTone, Sub: "blocks served from cache", Tip: plugin.Tip("Share of block reads served from shared_buffers instead of disk — low means add RAM or tune shared_buffers")},
 		}}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(15))
 
@@ -232,6 +232,10 @@ func registerBrowser(p *plugin.Plugin) {
 		return map[string]any{
 			"columns": []string{"schema", "table", "rows", "size", "", "health"},
 			"rows":    rows,
+			"column_tips": map[string]*plugin.Tooltip{
+				"rows":   plugin.Tip("Live row estimate from planner stats (n_live_tup)"),
+				"health": plugin.Tip("Scan/bloat state: seq-scan-heavy or a high dead-tuple ratio"),
+			},
 		}, nil
 	})
 
@@ -483,11 +487,15 @@ func registerActivity(p *plugin.Plugin) {
 		return map[string]any{
 			"columns": []string{"pid", "user", "db", "state", "wait", "age", "query"},
 			"rows":    rows,
+			"column_tips": map[string]*plugin.Tooltip{
+				"wait": plugin.Tip("Wait-event type if the backend is blocked (Lock, IO, …)"),
+				"age":  plugin.Tip("Seconds since the current query started"),
+			},
 		}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(5),
 		plugin.RowActions(
-			plugin.RowAction{Method: "cancel", Label: "Cancel query", Icon: "stop"},
-			plugin.RowAction{Method: "terminate", Label: "Terminate", Icon: "trash", Danger: true},
+			plugin.RowAction{Method: "cancel", Label: "Cancel query", Icon: "stop", Tip: plugin.Tip("Cancel this backend's running query (pg_cancel_backend)", plugin.TipTopEnd)},
+			plugin.RowAction{Method: "terminate", Label: "Terminate", Icon: "trash", Danger: true, Tip: plugin.Tip("Drop the whole backend connection (pg_terminate_backend)", plugin.TipTopEnd)},
 		))
 
 	p.Action("cancel", "Cancel query", nil, backendOp("pg_cancel_backend", "cancelled"))
@@ -531,7 +539,7 @@ func registerMaintenance(p *plugin.Plugin) {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "message": "planner statistics refreshed"}, nil
-	}, plugin.ActionIcon("rotate"))
+	}, plugin.ActionIcon("rotate"), plugin.ActionTip("Refresh the planner's statistics — safe and quick", plugin.TipTop))
 	p.DangerAction("vacuum", "Vacuum database", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		pool, err := getPool(ctx)
 		if err != nil {
@@ -542,7 +550,7 @@ func registerMaintenance(p *plugin.Plugin) {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "message": "vacuum + analyze complete"}, nil
-	}, plugin.ActionIcon("trash"))
+	}, plugin.ActionIcon("trash"), plugin.ActionTip("Reclaim dead-tuple space + refresh stats — heavier, runs a while", plugin.TipTop))
 }
 
 // --- Layout ---------------------------------------------------------------------

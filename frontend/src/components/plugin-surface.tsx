@@ -25,10 +25,11 @@ interface Node {
   collapsed?: boolean;
   children?: Node[];
 }
-interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[] }
+interface Tip { text: string; pos?: string }
+interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
 interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
-interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean }
+interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
 export interface Surface { key: string; name: string; title?: string; subtitle?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any> }
@@ -536,7 +537,8 @@ export class HopePluginSurface extends LoomElement {
     const g = fill ? " grow" : "";
     if (this.actions[ref]) {
       const a = this.actions[ref];
-      return <div class="leaf"><hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{this.leafIcon(a.icon)}{a.label}</hope-button></div>;
+      const btn = <hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{this.leafIcon(a.icon)}{a.label}</hope-button>;
+      return <div class="leaf">{a.tip ? <hope-tip text={a.tip.text} pos={a.tip.pos || "top"}>{btn}</hope-tip> : btn}</div>;
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];
@@ -732,6 +734,9 @@ export class HopePluginSurface extends LoomElement {
     // Hidden columns stay in each row (so row-detail / row actions still see them, e.g.
     // an id) but are not rendered. Indices stay stable — we skip on render, not filter.
     const hidden: Set<string> = new Set(Array.isArray(data?.hidden) ? data.hidden : []);
+    // Optional per-column header tooltips (column name -> {text, pos}).
+    const colTips: Record<string, Tip> = data?.column_tips || {};
+    const colLabel = (c: string): any => (colTips[c] ? <hope-tip text={colTips[c].text} pos={colTips[c].pos || "top"}>{c}</hope-tip> : c);
     const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
     const onRow = detailMethod && !detailAsButton ? detailMethod : undefined; // whole-row click
@@ -816,14 +821,14 @@ export class HopePluginSurface extends LoomElement {
               {cols.map((c, ci) => {
                 if (hidden.has(c)) return null; // hidden column: not rendered, kept in the row
                 // no_sort -> a plain, non-interactive header (order is fixed by the plugin).
-                if (noSort) return <th>{c}</th>;
+                if (noSort) return <th>{colLabel(c)}</th>;
                 // No explicit user sort yet -> show the arrow on the view's default-sort
                 // column (matched by name), so a table lands pre-sorted, not blank.
                 const active = st.sort >= 0 ? st.sort === ci : v?.default_sort?.column === c;
                 const dir = st.sort >= 0 ? st.dir : (v?.default_sort?.dir === "desc" ? -1 : 1);
                 return (
                   <th class="srt" onClick={() => changeSort(ci)}>
-                    {c}<loom-icon class={"sarrow" + (active ? "" : " off")} name={dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon>
+                    {colLabel(c)}<loom-icon class={"sarrow" + (active ? "" : " off")} name={dir === 1 ? "arrow-up" : "arrow-down"} size={12}></loom-icon>
                   </th>
                 );
               })}
@@ -853,11 +858,14 @@ export class HopePluginSurface extends LoomElement {
                           <loom-icon name="search" size={11}></loom-icon>view
                         </button>
                       ) : null}
-                      {acts.map((a) => (
-                        <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
-                          {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
-                        </button>
-                      ))}
+                      {acts.map((a) => {
+                        const btn = (
+                          <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
+                            {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
+                          </button>
+                        );
+                        return a.tip ? <hope-tip text={a.tip.text} pos={a.tip.pos || "top-end"}>{btn}</hope-tip> : btn;
+                      })}
                     </td>
                   ) : null}
                 </tr>
@@ -1018,7 +1026,7 @@ export class HopePluginSurface extends LoomElement {
             ? series.map((s, si) => s.values.map((v, i) => {
                 const groupW = bandW * 0.7, bw = groupW / series.length;
                 const x = padL + i * bandW + bandW * 0.15 + si * bw;
-                return <rect x={x} y={y(v)} width={Math.max(1, bw - 1)} height={Math.max(0, y(lo) - y(v))} fill={colors[si % colors.length]}></rect>;
+                return <rect x={x} y={y(v)} width={Math.max(1, bw - 1)} height={Math.max(0, y(lo) - y(v))} fill={colors[si % colors.length]}><title>{labels[i] + ": " + v}</title></rect>;
               }))
             : series.map((s, si) => (
                 <polyline fill="none" stroke={colors[si % colors.length]} stroke-width={1.75}
@@ -1032,7 +1040,9 @@ export class HopePluginSurface extends LoomElement {
             return labels.map((l, i) => {
               if (i % step !== 0) return null;
               const t = l.length > maxCh ? l.slice(0, maxCh - 1) + "…" : l;
-              return <text x={padL + i * bandW + bandW / 2} y={H - padB + 14} class="cxl">{t}</text>;
+              // full label on hover when truncated (SVG-native <title>; HTML hope-tip
+              // can't wrap an SVG <text>).
+              return <text x={padL + i * bandW + bandW / 2} y={H - padB + 14} class="cxl">{t}{t !== l ? <title>{l}</title> : null}</text>;
             });
           })()}
         </svg>
@@ -1084,7 +1094,7 @@ export class HopePluginSurface extends LoomElement {
       <div class="stats2">
         {stats.map((st) => (
           <div class={"statb" + (this.toneClass(st.tone) ? " " + this.toneClass(st.tone) : "")}>
-            <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{this.cellStr(st.label)}</div>
+            <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{st.tip ? <hope-tip text={st.tip.text} pos={st.tip.pos || "top"}>{this.cellStr(st.label)}</hope-tip> : this.cellStr(st.label)}</div>
             <div class="stval">{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
             {st.sub ? <div class="stsub">{this.cellStr(st.sub)}</div> : null}
           </div>

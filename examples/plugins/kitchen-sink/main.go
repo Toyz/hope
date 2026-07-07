@@ -112,18 +112,19 @@ func main() {
 			}
 			rows = append(rows, []any{i, orDefault(pr.DB, "-"), tbl, name, i * 7 % 1000})
 		}
-		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows}, nil
+		return map[string]any{"columns": []string{"id", "db", "table", "name", "value"}, "rows": rows,
+			"column_tips": map[string]*plugin.Tooltip{"value": plugin.Tip("The row's value (demo data)")}}, nil
 	},
-		plugin.PageSize(50),                    // plugin-declared page size (the author knows the data)
-		plugin.Editable("editRow", "name"),     // the "name" column is inline-editable
-		plugin.RowDetailButton("rowDetail"),    // detail via a "view" button (rows are editable, so no whole-row click)
+		plugin.PageSize(50),                 // plugin-declared page size (the author knows the data)
+		plugin.Editable("editRow", "name"),  // the "name" column is inline-editable
+		plugin.RowDetailButton("rowDetail"), // detail via a "view" button (rows are editable, so no whole-row click)
 		plugin.RowActions(
 			// A row action with an input field: hope collects "name" before the call.
 			// Icon "beaker" is this plugin's own SVG (sanitized + namespaced by hope).
-			plugin.RowAction{Method: "renameRow", Label: "Rename", Icon: "beaker", Fields: []plugin.Field{
+			plugin.RowAction{Method: "renameRow", Label: "Rename", Icon: "beaker", Tip: plugin.Tip("Rename this row", plugin.TipTopEnd), Fields: []plugin.Field{
 				{Key: "name", Label: "New name", Placeholder: "row-name"},
 			}},
-			plugin.RowAction{Method: "delRow", Label: "Delete", Icon: "trash", Danger: true},
+			plugin.RowAction{Method: "delRow", Label: "Delete", Icon: "trash", Danger: true, Tip: plugin.Tip("Delete this row (demo)", plugin.TipTopEnd)},
 		),
 	)
 
@@ -236,7 +237,7 @@ func main() {
 		return plugin.StatData{Stats: []plugin.StatBlock{
 			{Label: "Users", Value: 100000, Tone: plugin.ToneInfo},
 			{Label: "Tables", Value: 60},
-			{Label: "Deleted rows", Value: del, Tone: plugin.ToneBad, Sub: "since start"},
+			{Label: "Deleted rows", Value: del, Tone: plugin.ToneBad, Sub: "since start", Tip: plugin.Tip("Rows deleted via the demo delete action this session", plugin.TipBottom)},
 		}}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(10)) // manual button + auto every 10s
 
@@ -421,10 +422,10 @@ func main() {
 			name = "world"
 		}
 		return map[string]any{"message": "hello, " + name}, nil
-	}, plugin.ActionIcon("beaker"))
+	}, plugin.ActionIcon("beaker"), plugin.ActionTip("Greets the name you enter"))
 	p.DangerAction("wipe", "Wipe (danger)", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		return map[string]any{"ok": true, "message": "pretend-wiped"}, nil
-	}, plugin.ActionIcon("trash"))
+	}, plugin.ActionIcon("trash"), plugin.ActionTip("Pretend-wipe everything (demo — does nothing real)", plugin.TipBottom))
 
 	// --- container panel: every layout primitive (section/row/grid/tabs/leaf) ---
 	p.ContainerPanel("Kitchen Sink", &plugin.Match{Always: true}, plugin.Section("",
@@ -471,8 +472,8 @@ func main() {
 		plugin.Section("Big Table", plugin.Leaf("big").Filled()),
 		plugin.Section("Rows", plugin.Leaf("rows")).Collapse(false), // collapsible, starts open
 	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it
-		Subtitle("100,000 users · 60 tables").
-		HeaderActions("greet", "wipe")
+				Subtitle("100,000 users · 60 tables").
+				HeaderActions("greet", "wipe")
 
 	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
 	//     passes the clicked id as param {id}; userView renders it. ---
