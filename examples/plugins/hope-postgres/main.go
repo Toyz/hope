@@ -135,11 +135,11 @@ func registerOverview(p *plugin.Plugin) {
 	// where disk goes.
 	p.ChartView("sizes", "Largest tables", func(ctx context.Context) (any, error) {
 		res, err := grid(ctx, `
-			select schemaname || '.' || relname as name,
+			select relname as name,
 			       pg_total_relation_size(relid) as bytes
 			from pg_stat_user_tables
 			order by bytes desc
-			limit 15`)
+			limit 12`)
 		if err != nil {
 			return nil, err
 		}
@@ -484,7 +484,7 @@ func registerActivity(p *plugin.Plugin) {
 			"columns": []string{"pid", "user", "db", "state", "wait", "age", "query"},
 			"rows":    rows,
 		}, nil
-	}, plugin.Refreshable(), plugin.RefreshEvery(3),
+	}, plugin.Refreshable(), plugin.RefreshEvery(5),
 		plugin.RowActions(
 			plugin.RowAction{Method: "cancel", Label: "Cancel query", Icon: "stop"},
 			plugin.RowAction{Method: "terminate", Label: "Terminate", Icon: "trash", Danger: true},

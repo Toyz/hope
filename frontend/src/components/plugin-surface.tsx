@@ -55,6 +55,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ptext { margin: 0; padding: 12px 16px; max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--ink); border: 1px solid var(--line); color: var(--mid); font: 12px/1.55 var(--mono); }
   .row { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 4px; }
   .row > * { flex: 1 1 240px; min-width: 0; }
+  /* a row of action buttons is a group, not columns — size to content, don't spread */
+  .row > .rcell.act { flex: 0 0 auto; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding: 0 4px; }
   /* Row/grid child wrapper: carries the per-child weight/span; its content fills it. */
   .rcell { display: flex; flex-direction: column; min-width: 0; }
@@ -238,6 +240,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor tableState: Record<string, TableState> = {}; // per-table filter/sort/page
   @reactive accessor facetSel: Record<string, string> = {}; // "method|facetKey" -> selected value ("" = all)
   private intervalTimers = new Map<string, any>(); // per-view auto-refresh timers
+  private fetched = new Set<string>(); // view refs already fetched this surface (lazy-tab)
   @reactive accessor streamData: Record<string, any> = {};
   @reactive accessor streamHist: Record<string, number[]> = {}; // numeric history for sparklines
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
@@ -319,21 +322,55 @@ export class HopePluginSurface extends LoomElement {
     for (const v of s.schema.views || []) this.views[v.method] = v;
     for (const a of s.schema.actions || []) this.actions[a.method] = a;
     for (const st of s.schema.streams || []) this.streams[st.method] = st;
-    // Fetch views eagerly; streams are OPT-IN (a live connection is precious —
-    // one held stream can starve the dev proxy / the browser's per-host limit).
-    // Server tables get their first page via the query protocol.
-    for (const ref of this.leafRefs(s.node)) {
+    // Fetch + poll only the CURRENTLY VISIBLE views (respecting tab selection), and
+    // again on each tab switch — a hidden tab's view neither loads nor auto-refreshes.
+    // A tab-heavy panel (many views behind tabs) otherwise fetches + polls them all at
+    // once, blowing the plugin's per-call rate limit. Streams stay OPT-IN.
+    this.fetched.clear();
+    this.syncVisible();
+  }
+
+  // syncVisible fetches any now-visible view not yet fetched, and starts/stops each
+  // view's auto-refresh timer to match visibility. Called from rebuild() and on every
+  // tab switch. leafRefs walks the whole tree; visibleRefs walks only the open tabs.
+  private syncVisible() {
+    const s = this.surface;
+    if (!s) return;
+    const vis = new Set(this.visibleRefs(s.node, "r"));
+    for (const ref of vis) {
+      if (this.fetched.has(ref)) continue;
       const v = this.views[ref];
-      if (!v) continue;
-      if (v.kind === "search") continue; // autocomplete is query-driven — no eager fetch
+      if (!v || v.kind === "search") continue; // autocomplete is query-driven — no eager fetch
+      this.fetched.add(ref);
       if (v.server) this.serverFetch(ref);
       else void this.fetch(ref);
-      // Auto-refresh timer for views that declare an interval (min 2s guard).
-      if (v.refresh_interval && v.refresh_interval > 0 && !this.intervalTimers.has(ref)) {
+    }
+    for (const [ref, v] of Object.entries(this.views)) {
+      if (!v.refresh_interval || v.refresh_interval <= 0) continue;
+      const has = this.intervalTimers.has(ref);
+      if (vis.has(ref) && !has) {
         const ms = Math.max(2, v.refresh_interval) * 1000;
         this.intervalTimers.set(ref, setInterval(() => this.refetchView(ref), ms));
+      } else if (!vis.has(ref) && has) {
+        clearInterval(this.intervalTimers.get(ref));
+        this.intervalTimers.delete(ref);
       }
     }
+  }
+
+  // visibleRefs is leafRefs restricted to the open tabs — for a "tabs" node only the
+  // selected child is walked (its idKey mirrors renderNode so tabSel lookups match).
+  private visibleRefs(n: Node | undefined, idKey: string, acc: string[] = []): string[] {
+    if (!n) return acc;
+    if (n.kind === "leaf") { if (n.ref) acc.push(n.ref); return acc; }
+    if (n.kind === "tabs") {
+      const kids = n.children || [];
+      const sel = this.tabSel[idKey] ?? 0;
+      if (kids[sel]) this.visibleRefs(kids[sel], idKey + "." + sel, acc);
+      return acc;
+    }
+    (n.children || []).forEach((c, i) => this.visibleRefs(c, idKey + "." + i, acc));
+    return acc;
   }
 
   // startStream opens a live subscription for one stream method (explicit user
@@ -446,7 +483,7 @@ export class HopePluginSurface extends LoomElement {
           <div class={"tabsw" + g}>
             <div class="tabs">
               {kids.map((c, i) => (
-                <div class={"tb" + (i === sel ? " on" : "")} onClick={() => (this.tabSel = { ...this.tabSel, [idKey]: i })}>
+                <div class={"tb" + (i === sel ? " on" : "")} onClick={() => { this.tabSel = { ...this.tabSel, [idKey]: i }; this.syncVisible(); }}>
                   {c.title || this.labelOf(c) || "tab"}
                 </div>
               ))}
@@ -463,10 +500,12 @@ export class HopePluginSurface extends LoomElement {
       }
       case "row":
         // Wrap each child so a per-child `size` sets its flex WEIGHT (width share);
-        // size 0 => the default equal 1 1 240px share from `.row > *`.
-        return <div class={"row" + g}>{(n.children || []).map((c, i) => (
-          <div class="rcell" style={c.size ? `flex-grow:${c.size};flex-basis:0;` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>
-        ))}</div>;
+        // size 0 => the default equal 1 1 240px share from `.row > *`. An action-button
+        // leaf sizes to content (`.act`) so a maintenance row groups, not spreads.
+        return <div class={"row" + g}>{(n.children || []).map((c, i) => {
+          const act = c.kind === "leaf" && !!this.actions[c.ref || ""];
+          return <div class={"rcell" + (act ? " act" : "")} style={c.size ? `flex-grow:${c.size};flex-basis:0;` : undefined}>{this.renderNode(c, idKey + "." + i)}</div>;
+        })}</div>;
       case "grid":
         // In a grid, `size` is a column SPAN (how many tracks the child occupies).
         return <div class={"grid" + g}>{(n.children || []).map((c, i) => (
@@ -983,7 +1022,17 @@ export class HopePluginSurface extends LoomElement {
                 <polyline fill="none" stroke={colors[si % colors.length]} stroke-width={1.75}
                   points={s.values.map((v, i) => `${(padL + i * bandW + bandW / 2).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}></polyline>
               ))}
-          {labels.map((l, i) => <text x={padL + i * bandW + bandW / 2} y={H - padB + 14} class="cxl">{l}</text>)}
+          {(() => {
+            // Show at most ~12 labels and truncate to the band width, so many long
+            // labels (e.g. schema.table names) don't overlap into an unreadable smear.
+            const step = Math.max(1, Math.ceil(n / 12));
+            const maxCh = Math.max(3, Math.floor((bandW * step) / 6)); // ~6px per char
+            return labels.map((l, i) => {
+              if (i % step !== 0) return null;
+              const t = l.length > maxCh ? l.slice(0, maxCh - 1) + "…" : l;
+              return <text x={padL + i * bandW + bandW / 2} y={H - padB + 14} class="cxl">{t}</text>;
+            });
+          })()}
         </svg>
         {series.length > 1 || series[0].name ? (
           <div class="clegend">{series.map((s, si) => (
