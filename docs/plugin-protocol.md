@@ -281,8 +281,8 @@ newer hope degrades gracefully on an older one, and vice-versa. Combined with
 `protocolVersion`, that is the forward-compatibility guarantee: unknown surfaces,
 node kinds, and view kinds are skipped, never fatal.
 
-**Surfaces** (only `container` is rendered in hope v1; the rest are reserved and
-will render in later versions with no protocol change):
+**Surfaces** (hope renders the ones marked below and silently ignores any it
+doesn't know, so a newer plugin degrades gracefully on older hope):
 
 | surface     | mount point                              | rendered |
 |-------------|------------------------------------------|----------|
@@ -291,7 +291,7 @@ will render in later versions with no protocol change):
 | `command`   | plugin pages + actions in the command palette | yes |
 | `rail`      | a rail/nav entry (plugin pages nest under their container) | yes |
 | `dashboard` | a fleet/host dashboard widget            | yes      |
-| `stack`     | a stack-view widget                      | later    |
+| `stack`     | a stack-view widget (matched to the stack's containers) | yes |
 
 **Dynamic pages** — a `page` contribution may carry `pages[]` (one level of
 nesting): each item shares the contribution's `node` but passes its own `param`,
