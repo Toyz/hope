@@ -73,12 +73,37 @@ type TableData struct {
 	// ColumnTips maps a column name to a hover tooltip on its header — for clarifying
 	// a terse or computed column (e.g. "health": Tip("seq-scan / bloat state")).
 	ColumnTips map[string]*Tooltip `json:"column_tips,omitempty"`
+	// RowMethod makes rows clickable, opening the row-detail modal via that method —
+	// the data-side equivalent of the RowDetail table option (for views without opts,
+	// like a QueryView).
+	RowMethod string `json:"row_method,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
 // plain scalar or a rich cell (Badge/Link/Image/…). It's a named alias so a KV handler
 // reads as returning KVData, while a map literal still satisfies it.
 type KVData = map[string]any
+
+// TreeData is what a Tree view returns: a hierarchy of nodes. Return it (or a bare
+// map literal) from a Tree handler.
+type TreeData struct {
+	Nodes []TreeNode `json:"nodes"`
+}
+
+// TreeNode is one node in a Tree view. Children make it a collapsible group (Collapsed
+// starts it closed). A non-empty To makes the label a plugin-relative link (like a
+// Link/DetailLink cell), so a tree can navigate — e.g. To: "table/public.users". Icon
+// and Tone add a leading icon and a status dot; Tip adds a hover tooltip. A node can
+// be both a group and a link: the caret toggles children, the label navigates.
+type TreeNode struct {
+	Label     string     `json:"label"`
+	Icon      string     `json:"icon,omitempty"` // built-in icon name or an Icons key
+	Tone      string     `json:"tone,omitempty"` // ok|warn|bad|info dot
+	To        string     `json:"to,omitempty"`   // plugin-relative nav target (like a Link cell)
+	Collapsed bool       `json:"collapsed,omitempty"`
+	Tip       *Tooltip   `json:"tip,omitempty"`
+	Children  []TreeNode `json:"children,omitempty"`
+}
 
 // TextData is what a Text view returns: a block of monospace text (logs, config,
 // command output). A Text handler may also return a raw string.

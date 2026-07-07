@@ -325,10 +325,19 @@ func main() {
 		)}, nil
 	})
 
+	// A rich Tree: collapsible schema groups, per-node icons + tone dots, and a
+	// clickable node (To) that links to the "user" detail page — a tree that navigates.
 	p.View("tree", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
-		return map[string]any{"nodes": []any{
-			node("app", node("users"), node("orders"), node("events")),
-			node("analytics", node("daily"), node("monthly")),
+		return plugin.TreeData{Nodes: []plugin.TreeNode{
+			{Label: "app", Icon: "database", Children: []plugin.TreeNode{
+				{Label: "users", Icon: "box", Tone: plugin.ToneOK, To: "user/1", Tip: plugin.Tip("Open user 1", plugin.TipTopEnd)},
+				{Label: "orders", Icon: "box"},
+				{Label: "events", Icon: "box", Tone: plugin.ToneWarn, Tip: plugin.Tip("Backfill lagging")},
+			}},
+			{Label: "analytics", Icon: "database", Collapsed: true, Children: []plugin.TreeNode{
+				{Label: "daily", Icon: "box"},
+				{Label: "monthly", Icon: "box"},
+			}},
 		}}, nil
 	})
 
@@ -508,14 +517,6 @@ func main() {
 	}
 	log.Printf("kitchen-sink plugin listening on %s", addr)
 	log.Fatal(p.ListenAndServe(addr))
-}
-
-func node(label string, children ...any) map[string]any {
-	m := map[string]any{"label": label}
-	if len(children) > 0 {
-		m["children"] = children
-	}
-	return m
 }
 
 // parseSelect pulls the column list out of a "select a, b from …" query so the

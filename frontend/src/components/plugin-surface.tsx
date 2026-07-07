@@ -183,7 +183,15 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.7 var(--mono); }
   ul.tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px solid var(--line); }
   ul.tree li { color: var(--mid); }
-  ul.tree li > .lb { color: var(--hi); }
+  .trow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .trow .tcaret { flex: none; color: var(--dim); cursor: pointer; }
+  .trow .tcgap { flex: none; width: 11px; } /* align leaves under grouped rows */
+  .trow .lb { color: var(--hi); display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .trow .lb.lk { color: var(--upd); cursor: pointer; }
+  .trow .lb.lk:hover { text-decoration: underline; }
+  .trow .tdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mid); }
+  .trow .tdot.ok { background: var(--ok); } .trow .tdot.warn { background: var(--warn); }
+  .trow .tdot.bad { background: var(--bad); } .trow .tdot.info { background: var(--upd); }
 
   .streams { display: flex; gap: 26px; flex-wrap: wrap; padding: 4px 0; }
   .stream { display: inline-flex; flex-direction: column; gap: 6px; padding: 8px 0; }
@@ -238,6 +246,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor cells: Record<string, Cell> = {};
   @reactive accessor tabSel: Record<string, number> = {};
   @reactive accessor secOpen: Record<string, boolean> = {}; // collapsible section open state
+  @reactive accessor treeOpen: Record<string, boolean> = {}; // tree node open state (keyed by node path)
   @reactive accessor queryText: Record<string, string> = {};
   @reactive accessor tableState: Record<string, TableState> = {}; // per-table filter/sort/page
   @reactive accessor facetSel: Record<string, string> = {}; // "method|facetKey" -> selected value ("" = all)
@@ -1105,14 +1114,38 @@ export class HopePluginSurface extends LoomElement {
 
   private renderTree(nodes: any[]): any {
     if (!nodes.length) return <div class="msg">empty</div>;
-    const walk = (ns: any[]): any => (
+    const walk = (ns: any[], path: string): any => (
       <ul class="tree">
-        {ns.map((n) => (
-          <li><span class="lb">{n.label}</span>{Array.isArray(n.children) && n.children.length ? walk(n.children) : null}</li>
-        ))}
+        {ns.map((n, i) => {
+          const id = path + "." + i;
+          const kids = Array.isArray(n.children) ? n.children : [];
+          const open = this.treeOpen[id] ?? !n.collapsed;
+          // The label: optional icon + tone dot + text; a `to` makes it a link. The
+          // caret (for a group) toggles children; the label click navigates.
+          const label = (
+            <span class={"lb" + (n.to ? " lk" : "")} onClick={n.to ? (e: any) => { e.stopPropagation(); this.navCell(n); } : undefined}>
+              {n.icon ? this.leafIcon(n.icon) : null}
+              {n.tone ? <i class={"tdot " + this.toneClass(n.tone)}></i> : null}
+              {n.label}
+            </span>
+          );
+          const labelled = n.tip ? <hope-tip text={n.tip.text} pos={n.tip.pos || "top"}>{label}</hope-tip> : label;
+          return (
+            <li>
+              {kids.length ? (
+                <div class="trow" onClick={() => (this.treeOpen = { ...this.treeOpen, [id]: !open })}>
+                  <loom-icon class="tcaret" name={open ? "chevron-down" : "chevron-right"} size={11}></loom-icon>{labelled}
+                </div>
+              ) : (
+                <div class="trow"><span class="tcgap"></span>{labelled}</div>
+              )}
+              {kids.length && open ? walk(kids, id) : null}
+            </li>
+          );
+        })}
       </ul>
     );
-    return walk(nodes);
+    return walk(nodes, "t");
   }
 
   // renderKV draws a key/value view. If any value is a typed cell (image/badge/link/…)

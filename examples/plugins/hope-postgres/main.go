@@ -110,7 +110,7 @@ func registerOverview(p *plugin.Plugin) {
 			return nil, err
 		}
 		items := []plugin.Card{}
-		for _, r := range res.(map[string]any)["rows"].([][]any) {
+		for _, r := range res.Rows {
 			name, _ := r[0].(string)
 			bytes := toInt(r[1])
 			conns := toInt(r[2])
@@ -145,7 +145,7 @@ func registerOverview(p *plugin.Plugin) {
 		}
 		labels := []string{}
 		mib := []float64{}
-		for _, r := range res.(map[string]any)["rows"].([][]any) {
+		for _, r := range res.Rows {
 			name, _ := r[0].(string)
 			labels = append(labels, name)
 			mib = append(mib, float64(toInt(r[1]))/(1024*1024))
@@ -198,7 +198,7 @@ func registerBrowser(p *plugin.Plugin) {
 		if err != nil {
 			return nil, err
 		}
-		src := res.(map[string]any)["rows"].([][]any)
+		src := res.Rows
 		var maxBytes int64 = 1
 		for _, r := range src {
 			if b := int64(toInt(r[6])); b > maxBytes {
@@ -229,10 +229,10 @@ func registerBrowser(p *plugin.Plugin) {
 				plugin.Badge(health, tone),
 			})
 		}
-		return map[string]any{
-			"columns": []string{"schema", "table", "rows", "size", "", "health"},
-			"rows":    rows,
-			"column_tips": map[string]*plugin.Tooltip{
+		return &plugin.TableData{
+			Columns: []string{"schema", "table", "rows", "size", "", "health"},
+			Rows:    rows,
+			ColumnTips: map[string]*plugin.Tooltip{
 				"rows":   plugin.Tip("Live row estimate from planner stats (n_live_tup)"),
 				"health": plugin.Tip("Scan/bloat state: seq-scan-heavy or a high dead-tuple ratio"),
 			},
@@ -294,9 +294,8 @@ func registerBrowser(p *plugin.Plugin) {
 		if err != nil {
 			return nil, plugin.NewError(-32602, err.Error())
 		}
-		m := res.(map[string]any)
-		m["total"] = int(total)
-		return m, nil
+		res.Total = int(total)
+		return res, nil
 	}, plugin.ServerSide(), plugin.PageSize(100), plugin.RowDetail("row_detail"))
 
 	// Columns of the current table: type, nullability, default, and a PK badge.
@@ -318,7 +317,7 @@ func registerBrowser(p *plugin.Plugin) {
 			return nil, err
 		}
 		rows := [][]any{}
-		for _, r := range res.(map[string]any)["rows"].([][]any) {
+		for _, r := range res.Rows {
 			name, _ := r[0].(string)
 			typ, _ := r[1].(string)
 			nullable, _ := r[2].(string)
@@ -333,7 +332,7 @@ func registerBrowser(p *plugin.Plugin) {
 			}
 			rows = append(rows, []any{plugin.Badge(key, plugin.ToneInfo), name, plugin.Code(typ), nullCell, plugin.Code(def)})
 		}
-		return map[string]any{"columns": []string{"key", "column", "type", "null", "default"}, "rows": rows}, nil
+		return &plugin.TableData{Columns: []string{"key", "column", "type", "null", "default"}, Rows: rows}, nil
 	})
 
 	// Indexes of the current table, with the full definition and a unique badge.
@@ -349,7 +348,7 @@ func registerBrowser(p *plugin.Plugin) {
 			return nil, err
 		}
 		rows := [][]any{}
-		for _, r := range res.(map[string]any)["rows"].([][]any) {
+		for _, r := range res.Rows {
 			name, _ := r[0].(string)
 			def, _ := r[1].(string)
 			sz, _ := r[2].(string)
@@ -359,7 +358,7 @@ func registerBrowser(p *plugin.Plugin) {
 			}
 			rows = append(rows, []any{name, uniq, sz, plugin.Code(def)})
 		}
-		return map[string]any{"columns": []string{"index", "", "size", "definition"}, "rows": rows}, nil
+		return &plugin.TableData{Columns: []string{"index", "", "size", "definition"}, Rows: rows}, nil
 	})
 
 	// Live stats for the current table: sizes, scan mix, bloat, last (auto)maintenance.
@@ -430,15 +429,14 @@ func registerQuery(p *plugin.Plugin) {
 	p.QueryView("query", "Query", "sql", "select * from {schema}.{table} limit 100", func(ctx context.Context) (any, error) {
 		sql := strings.TrimSpace(plugin.Input(ctx))
 		if sql == "" {
-			return map[string]any{"columns": []string{}, "rows": [][]any{}}, nil
+			return &plugin.TableData{Columns: []string{}, Rows: [][]any{}}, nil
 		}
 		res, err := grid(ctx, sql)
 		if err != nil {
 			return nil, plugin.NewError(-32602, err.Error())
 		}
-		m := res.(map[string]any)
-		m["row_method"] = "row_detail"
-		return m, nil
+		res.RowMethod = "row_detail"
+		return res, nil
 	})
 
 	// EXPLAIN pane: type a query, see its plan. Plain EXPLAIN (no ANALYZE) never runs
@@ -446,7 +444,7 @@ func registerQuery(p *plugin.Plugin) {
 	p.QueryView("explain", "Explain", "sql", "select * from {schema}.{table}", func(ctx context.Context) (any, error) {
 		sql := strings.TrimSpace(plugin.Input(ctx))
 		if sql == "" {
-			return map[string]any{"columns": []string{"QUERY PLAN"}, "rows": [][]any{}}, nil
+			return &plugin.TableData{Columns: []string{"QUERY PLAN"}, Rows: [][]any{}}, nil
 		}
 		res, err := grid(ctx, "explain (format text) "+sql)
 		if err != nil {
@@ -475,7 +473,7 @@ func registerActivity(p *plugin.Plugin) {
 			return nil, err
 		}
 		rows := [][]any{}
-		for _, r := range res.(map[string]any)["rows"].([][]any) {
+		for _, r := range res.Rows {
 			pid := toInt(r[0])
 			state, _ := r[3].(string)
 			query, _ := r[6].(string)
@@ -484,10 +482,10 @@ func registerActivity(p *plugin.Plugin) {
 				plugin.Number(toInt(r[5]), "s"), plugin.Code(truncate(query, 200)),
 			})
 		}
-		return map[string]any{
-			"columns": []string{"pid", "user", "db", "state", "wait", "age", "query"},
-			"rows":    rows,
-			"column_tips": map[string]*plugin.Tooltip{
+		return &plugin.TableData{
+			Columns: []string{"pid", "user", "db", "state", "wait", "age", "query"},
+			Rows:    rows,
+			ColumnTips: map[string]*plugin.Tooltip{
 				"wait": plugin.Tip("Wait-event type if the backend is blocked (Lock, IO, …)"),
 				"age":  plugin.Tip("Seconds since the current query started"),
 			},
@@ -666,7 +664,7 @@ func schemaPageItems(ctx context.Context) []plugin.PageItem {
 	}
 	order := []string{}
 	bySchema := map[string][]plugin.PageItem{}
-	for _, r := range res.(map[string]any)["rows"].([][]any) {
+	for _, r := range res.Rows {
 		schema, _ := r[0].(string)
 		table, _ := r[1].(string)
 		if _, ok := bySchema[schema]; !ok {
@@ -709,7 +707,9 @@ func getPool(ctx context.Context) (*pgxpool.Pool, error) {
 }
 
 // grid runs a query and returns a {columns, rows} table result.
-func grid(ctx context.Context, sql string, args ...any) (any, error) {
+// grid runs a query and returns it as a typed *plugin.TableData ({columns, rows}).
+// Views return it (optionally setting Total/RowMethod/ColumnTips); helpers read .Rows.
+func grid(ctx context.Context, sql string, args ...any) (*plugin.TableData, error) {
 	pool, err := getPool(ctx)
 	if err != nil {
 		return nil, err
@@ -736,7 +736,7 @@ func grid(ctx context.Context, sql string, args ...any) (any, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"columns": cols, "rows": out}, nil
+	return &plugin.TableData{Columns: cols, Rows: out}, nil
 }
 
 // tableParam reads the {table} page param ("schema.table") and splits it.
@@ -761,7 +761,7 @@ func tableColumns(ctx context.Context, schema, table string) ([]string, error) {
 		return nil, err
 	}
 	cols := []string{}
-	for _, r := range res.(map[string]any)["rows"].([][]any) {
+	for _, r := range res.Rows {
 		if s, ok := r[0].(string); ok {
 			cols = append(cols, s)
 		}
@@ -783,7 +783,7 @@ func primaryKey(ctx context.Context, schema, table string) (map[string]bool, err
 		return map[string]bool{}, nil // best-effort; a missing PK isn't fatal
 	}
 	pk := map[string]bool{}
-	for _, r := range res.(map[string]any)["rows"].([][]any) {
+	for _, r := range res.Rows {
 		if s, ok := r[0].(string); ok {
 			pk[s] = true
 		}
@@ -805,7 +805,7 @@ func tableDDL(ctx context.Context, schema, table string) (string, error) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE %s.%s (\n", quoteIdent(schema), quoteIdent(table))
-	colRows := cres.(map[string]any)["rows"].([][]any)
+	colRows := cres.Rows
 	pkOrder := []string{}
 	for i, r := range colRows {
 		name, _ := r[0].(string)
@@ -837,7 +837,7 @@ func tableDDL(ctx context.Context, schema, table string) (string, error) {
 		where schemaname = $1 and tablename = $2 and indexname not like '%_pkey'
 		order by indexname`, schema, table)
 	if err == nil {
-		for _, r := range ires.(map[string]any)["rows"].([][]any) {
+		for _, r := range ires.Rows {
 			if def, ok := r[0].(string); ok {
 				fmt.Fprintf(&b, "\n%s;", def)
 			}
@@ -846,26 +846,26 @@ func tableDDL(ctx context.Context, schema, table string) (string, error) {
 	return b.String(), nil
 }
 
-// schemaTree builds a schema -> table -> column tree from information_schema.
-func schemaTree(ctx context.Context) (any, error) {
+// schemaTree builds a rich schema -> table -> column tree: schemas collapse, tables
+// carry a "box" icon and link (To) to their detail page, columns show name : type.
+func schemaTree(ctx context.Context) (plugin.TreeData, error) {
 	res, err := grid(ctx, `
 		select table_schema, table_name, column_name, data_type
 		from information_schema.columns
 		where table_schema not in ('pg_catalog', 'information_schema')
 		order by table_schema, table_name, ordinal_position`)
 	if err != nil {
-		return nil, err
+		return plugin.TreeData{}, err
 	}
-	rows := res.(map[string]any)["rows"].([][]any)
 
 	type tbl struct {
 		name string
-		cols []any
+		cols []plugin.TreeNode
 	}
 	schemaOrder := []string{}
 	schemas := map[string][]*tbl{}
 	tblIndex := map[string]*tbl{}
-	for _, r := range rows {
+	for _, r := range res.Rows {
 		schema, _ := r[0].(string)
 		table, _ := r[1].(string)
 		col, _ := r[2].(string)
@@ -880,18 +880,25 @@ func schemaTree(ctx context.Context) (any, error) {
 			tblIndex[key] = t
 			schemas[schema] = append(schemas[schema], t)
 		}
-		t.cols = append(t.cols, map[string]any{"label": col + " : " + typ})
+		t.cols = append(t.cols, plugin.TreeNode{Label: col + " : " + typ})
 	}
 
-	nodes := []any{}
+	nodes := []plugin.TreeNode{}
 	for _, s := range schemaOrder {
-		tblNodes := []any{}
+		tables := []plugin.TreeNode{}
 		for _, t := range schemas[s] {
-			tblNodes = append(tblNodes, map[string]any{"label": t.name, "children": t.cols})
+			tables = append(tables, plugin.TreeNode{
+				Label:    t.name,
+				Icon:     "box",
+				To:       "table/" + s + "." + t.name, // -> the "table" detail page
+				Tip:      plugin.Tip("Open " + s + "." + t.name),
+				Children: t.cols,
+			})
 		}
-		nodes = append(nodes, map[string]any{"label": s, "children": tblNodes})
+		// Collapse all but the first schema so a big database isn't a wall of tables.
+		nodes = append(nodes, plugin.TreeNode{Label: s, Icon: "database", Collapsed: len(nodes) > 0, Children: tables})
 	}
-	return map[string]any{"nodes": nodes}, nil
+	return plugin.TreeData{Nodes: nodes}, nil
 }
 
 // --- small helpers --------------------------------------------------------------
