@@ -1454,7 +1454,7 @@ export class StackPage extends LoomElement {
               ) : null}
             </div>
           ) : null}
-          {s && !this.isUngrouped ? <hope-plugin-widgets stack={this.project}></hope-plugin-widgets> : null}
+          {s && !this.isUngrouped ? <hope-plugin-widgets stack={this.project} host={this.hostCtx.token}></hope-plugin-widgets> : null}
         </main>
         {this.rdOpen && s ? this.renderRedeploy(s) : null}
         {this.opPick && s ? this.renderOpPicker(s) : null}

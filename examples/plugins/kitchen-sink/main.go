@@ -449,6 +449,15 @@ func main() {
 		plugin.Leaf("counts"),
 	))
 
+	// --- a stack widget: renders on a STACK's page, matched against the stack's
+	//     containers (the whole-stack analog of a container panel). Match{Always:true}
+	//     shows it on every stack for the demo; a real plugin scopes it — e.g.
+	//     &plugin.Match{Images: []string{"postgres*"}} to appear only on stacks that
+	//     have a postgres container, or an empty match for the plugin's own stack. ---
+	p.StackWidget("Kitchen Sink", &plugin.Match{Always: true}, plugin.Section("",
+		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter")),
+	))
+
 	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),

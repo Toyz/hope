@@ -1,9 +1,11 @@
-// <hope-plugin-widgets> — renders enabled plugins' `dashboard`-surface
-// contributions as compact cards on the fleet/host dashboard. Self-contained so it
-// stays out of the dashboard page's internals: it fetches Plugins.dashboard on
-// mount (and on PluginsChanged), and renders nothing when there are none — so the
-// host can drop it in with a single line and no gating.
-import { LoomElement, component, styles, css, reactive, prop, mount, on } from "@toyz/loom";
+// <hope-plugin-widgets> — renders enabled plugins' surface contributions as compact
+// cards. Two modes, one component:
+//   - no props        -> `dashboard`-surface widgets (fleet/host dashboard).
+//   - stack + host set -> `stack`-surface widgets matched to that stack's containers
+//                         (the stack page), via Plugins.stackWidgets.
+// Self-contained: it fetches on mount / when the target changes / on PluginsChanged,
+// and renders nothing when there are none — drop it in with one line, no gating.
+import { LoomElement, component, styles, css, reactive, prop, mount, watch, on } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { PluginsChanged } from "../events";
@@ -11,7 +13,7 @@ import { theme } from "../styles";
 import "./plugin-surface"; // registers <hope-plugin-surface> + <hope-plugin-icon>
 import type { Surface } from "./plugin-surface";
 
-type Widget = Surface & { host: string; stack?: string; icon?: string };
+type Widget = Surface & { host?: string; stack?: string; icon?: string };
 
 @component("hope-plugin-widgets")
 @styles(theme, css`
@@ -30,16 +32,23 @@ type Widget = Surface & { host: string; stack?: string; icon?: string };
 export class HopePluginWidgets extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
   @reactive accessor widgets: Widget[] = [];
-  // When set, show only widgets whose plugin container belongs to this compose stack
-  // (used on the stack page). Unset = the fleet dashboard, which shows every widget.
+  // Set both to render this stack's `stack`-surface widgets (the stack page). Unset =
+  // the fleet dashboard's `dashboard`-surface widgets.
   @prop accessor stack = "";
+  @prop accessor host = "";
 
   @mount onMount() { void this.load(); }
+  @watch("stack") onStack() { void this.load(); }
+  @watch("host") onHost() { void this.load(); }
   @on(PluginsChanged) onChanged() { void this.load(); }
 
   private async load() {
     try {
-      const w = await this.rpc.call<Widget[]>("Plugins", "dashboard", []);
+      // Stack mode needs its host to match against the stack's containers; the backend
+      // already returns only the matched widgets, so there's nothing to filter here.
+      const w = this.stack
+        ? await this.rpc.call<Widget[]>("Plugins", "stackWidgets", [{ host: this.host, project: this.stack }])
+        : await this.rpc.call<Widget[]>("Plugins", "dashboard", []);
       this.widgets = Array.isArray(w) ? w : [];
     } catch {
       this.widgets = [];
@@ -47,7 +56,7 @@ export class HopePluginWidgets extends LoomElement {
   }
 
   update() {
-    const shown = this.stack ? this.widgets.filter((w) => w.stack === this.stack) : this.widgets;
+    const shown = this.widgets;
     if (!shown.length) return <></>;
     return (
       <div class="wsec">

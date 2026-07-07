@@ -250,6 +250,130 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 	return out, nil
 }
 
+// StackSurface is one enabled plugin's `stack`-surface contribution that applies to
+// a given stack (compose project): the plugin identity + the layout node to render +
+// the schema the renderer needs. The whole-stack analog of ContainerSurface.
+type StackSurface struct {
+	Key     string          `json:"key"`
+	Name    string          `json:"name"`
+	Icon    string          `json:"icon"`
+	Title   string          `json:"title"`
+	Node    json.RawMessage `json:"node"`
+	Schema  json.RawMessage `json:"schema"`
+	Actions []string        `json:"actions,omitempty"`
+}
+
+// StackParams identifies the stack (compose project on a host) being viewed.
+type StackParams struct {
+	Host    string `json:"host"`
+	Project string `json:"project"`
+}
+
+// StackWidgets returns the `stack`-surface contributions of every enabled plugin on
+// the stack's host whose match selects the stack — i.e. ANY of the stack's containers
+// matches (an empty match means the plugin's OWN stack). What the stack page renders
+// as plugin panels. Unreachable plugins are skipped, never fatal.
+func (r *PluginsRouter) StackWidgets(ctx *rpc.Context, p *StackParams) ([]StackSurface, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if p == nil || p.Host == "" || p.Project == "" {
+		return nil, rpc.BadRequest("host and project are required")
+	}
+	recs, _ := r.store.Plugins()
+	if len(recs) == 0 {
+		return []StackSurface{}, nil
+	}
+
+	// The match attributes (image + labels) of every container in the stack, read
+	// once — a stack contribution applies if any of them matches.
+	var members []stackMember
+	if hc, ok := r.hostClient(p.Host); ok && hc.Client != nil {
+		ids, _ := hc.Client.ProjectContainerIDs(ctx, p.Project)
+		for _, id := range ids {
+			image, labels, _ := hc.Client.ContainerMatchInfo(ctx, id)
+			members = append(members, stackMember{image: image, labels: labels})
+		}
+	}
+
+	r.scan(ctx, true) // fresh scan so a just-redeployed plugin resolves, not the stale container
+	out := []StackSurface{}
+	for _, rec := range recs {
+		if !rec.Enabled || rec.Host != p.Host {
+			continue
+		}
+		grp, host, ok := r.group(ctx, rec.Key)
+		if !ok {
+			continue
+		}
+		ep, err := r.dial(ctx, host, representative(grp), rec.Token, false)
+		if err != nil {
+			continue // unreachable plugin — skip, don't fail the whole stack page
+		}
+		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
+		if err != nil {
+			continue
+		}
+		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
+		if err != nil {
+			continue
+		}
+		var sd schemaDoc
+		_ = json.Unmarshal(schemaRaw, &sd)
+		var ld layoutDoc
+		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
+			continue
+		}
+		ownStack := len(grp) > 0 && grp[0].Project == p.Project
+		for _, c := range ld.Contributions {
+			if c.Surface != "stack" || len(c.Node) == 0 {
+				continue
+			}
+			if !stackSurfaceApplies(c.Match, ownStack, members) {
+				continue
+			}
+			title := c.Title
+			if title == "" {
+				title = sd.Name
+			}
+			icon := c.Icon
+			if icon == "" {
+				icon = sd.Icon
+			}
+			out = append(out, StackSurface{
+				Key: rec.Key, Name: sd.Name, Icon: icon, Title: title,
+				Node: c.Node, Schema: schemaRaw, Actions: c.Actions,
+			})
+		}
+	}
+	return out, nil
+}
+
+// stackMember is one container's match attributes within a stack.
+type stackMember struct {
+	image  string
+	labels map[string]string
+}
+
+// stackSurfaceApplies evaluates a stack contribution's match against the stack's set
+// of containers. Nil/empty match => the plugin's OWN stack. Otherwise the widget
+// shows if ANY container in the stack satisfies the (per-container) match — so
+// Images:["postgres*"] means "this stack has a postgres container".
+func stackSurfaceApplies(m *matchDoc, ownStack bool, members []stackMember) bool {
+	if m == nil || (!m.Always && len(m.Images) == 0 && len(m.Labels) == 0 && len(m.Services) == 0) {
+		return ownStack
+	}
+	if m.Always {
+		return true
+	}
+	for _, mem := range members {
+		if surfaceApplies(m, false, mem.image, mem.labels) {
+			return true
+		}
+	}
+	return false
+}
+
 // surfaceApplies evaluates a container contribution's match. Nil/empty match =>
 // the plugin's OWN container only. Otherwise set clauses are AND-ed and values
 // within a clause OR-ed (image globs, label equality, compose service).

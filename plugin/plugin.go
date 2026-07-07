@@ -437,6 +437,15 @@ func (p *Plugin) DashboardWidget(title string, node *Node) *Plugin {
 	return p.Contribute(Contribution{Surface: SurfaceDashboard, Title: title, Icon: p.icon, Node: node})
 }
 
+// StackWidget contributes a widget to the stack view (the `stack` surface): the
+// node renders as a panel on a stack's page, for stacks whose containers the Match
+// selects. It's the container panel's whole-stack analog — same Match semantics
+// (images/labels/services/always), but evaluated against the stack's set of
+// containers rather than one. Keep it focused: a stack-scoped overview or action.
+func (p *Plugin) StackWidget(title string, match *Match, node *Node) *Plugin {
+	return p.Contribute(Contribution{Surface: SurfaceStack, Title: title, Match: match, Node: node, Icon: p.icon})
+}
+
 // DynamicPage contributes MANY rail pages that share one layout node but each pass
 // a distinct Param (merged into every call the page makes). items may nest one
 // level (groups of pages) — e.g. databases -> tables. Read the param in a handler

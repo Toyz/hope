@@ -300,17 +300,17 @@ type StreamDesc struct {
 // --- UI contribution descriptor (hope.layout) ---------------------------------
 
 // Surface names a mount point in the hope UI. The schema defines them all so the
-// wire is forward-compatible; hope v1 renders only SurfaceContainer and silently
-// ignores the rest.
+// wire is forward-compatible; hope renders the surfaces it knows and silently
+// ignores any it doesn't, so a newer plugin degrades gracefully on older hope.
 type Surface string
 
 const (
-	SurfaceContainer Surface = "container" // panel/tab in the container inspector (v1)
-	SurfacePage      Surface = "page"      // full custom nav page (reserved)
-	SurfaceRail      Surface = "rail"      // rail/nav entry + actions (reserved)
-	SurfaceDashboard Surface = "dashboard" // dashboard widget (reserved)
-	SurfaceStack     Surface = "stack"     // stack-view widget (reserved)
-	SurfaceCommand   Surface = "command"   // command-palette entry (reserved)
+	SurfaceContainer Surface = "container" // panel/tab in the container inspector
+	SurfacePage      Surface = "page"      // full custom nav page (+ dynamic nested pages)
+	SurfaceRail      Surface = "rail"      // rail/nav entry + actions
+	SurfaceDashboard Surface = "dashboard" // fleet/host dashboard widget
+	SurfaceStack     Surface = "stack"     // stack-view widget (matched to the stack's containers)
+	SurfaceCommand   Surface = "command"   // command-palette entry
 )
 
 // Layout is the result of the fixed hope.layout method: the plugin's UI
