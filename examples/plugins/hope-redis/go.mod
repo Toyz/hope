@@ -8,7 +8,7 @@ go 1.25.0
 
 require (
 	github.com/redis/go-redis/v9 v9.7.0
-	github.com/toyz/hope/plugin v0.0.5
+	github.com/toyz/hope/plugin v0.0.6
 )
 
 require (

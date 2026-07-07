@@ -89,6 +89,47 @@ func registerOverview(p *plugin.Plugin) {
 		}}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(15))
 
+	// A COMPONENT view — the escape hatch. Composes a health tile hope has no built-in
+	// kind for: a tone-flagged hit-ratio heading over memory + ops/sec, from INFO.
+	// Caps(ctx) degrades to a KV on an older hope.
+	p.ComponentView("health", "Health", func(ctx context.Context) (any, error) {
+		c, err := getClient(ctx)
+		if err != nil {
+			return nil, err
+		}
+		info, err := infoMap(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		hits, misses := toF(info["keyspace_hits"]), toF(info["keyspace_misses"])
+		hitTone, hitVal := plugin.ToneInfo, "—"
+		if hits+misses > 0 {
+			r := hits / (hits + misses)
+			hitVal = strconv.FormatFloat(r*100, 'f', 1, 64) + "%"
+			switch {
+			case r >= 0.95:
+				hitTone = plugin.ToneOK
+			case r >= 0.8:
+				hitTone = plugin.ToneWarn
+			default:
+				hitTone = plugin.ToneBad
+			}
+		}
+		if !plugin.Caps(ctx).Supports("component") {
+			return plugin.KVData{"hit ratio": hitVal, "memory": orDash(info["used_memory_human"]), "ops/sec": orDash(info["instantaneous_ops_per_sec"])}, nil
+		}
+		return plugin.Box(
+			plugin.Heading("Hit ratio "+hitVal, 2).Toned(hitTone),
+			plugin.CText("share of key lookups served from cache"),
+			plugin.Divider(),
+			plugin.CRow(
+				plugin.KeyVal("memory", plugin.Code(orDash(info["used_memory_human"]))),
+				plugin.KeyVal("ops/sec", plugin.Number(toInt(info["instantaneous_ops_per_sec"]), "")),
+				plugin.KeyVal("keys", plugin.Number(totalKeys(info), "")),
+			).Gapped(20),
+		), nil
+	}, plugin.Refreshable(), plugin.RefreshEvery(15))
+
 	// Per-database key counts from INFO keyspace, as a table.
 	p.TableView("databases", "Databases", func(ctx context.Context) (any, error) {
 		c, err := getClient(ctx)
@@ -143,7 +184,8 @@ func registerKeyspace(p *plugin.Plugin) {
 	// each leaf carrying a type icon + a TTL dot and a link into its detail page.
 	p.View("keyspace", "Keyspace", plugin.Tree, func(ctx context.Context) (any, error) {
 		return keyspaceTree(ctx, settingInt(p, "scan_limit", 500))
-	})
+	}, plugin.Static(), // a full SCAN is expensive — fetch once, reuse on tab re-entry
+		plugin.EmptyView("Empty keyspace", plugin.EmptyIcon("box"), plugin.EmptyText("No keys matched the scan.")))
 
 	// Per-key metadata (type, TTL, encoding, size).
 	p.View("key_info", "Info", plugin.KV, func(ctx context.Context) (any, error) {
@@ -234,7 +276,8 @@ func registerMonitor(p *plugin.Plugin) {
 			Rows:       rows,
 			ColumnTips: map[string]*plugin.Tooltip{"duration": plugin.Tip("Server-side execution time (excludes network)")},
 		}, nil
-	}, plugin.Refreshable())
+	}, plugin.Refreshable(),
+		plugin.EmptyView("No slow commands 🎉", plugin.EmptyIcon("check"), plugin.EmptyText("Nothing has crossed slowlog-log-slower-than.")))
 
 	// Connected clients, with a per-row "kill" (danger) action.
 	p.TableView("clients", "Clients", func(ctx context.Context) (any, error) {
@@ -311,6 +354,7 @@ func registerLayout(p *plugin.Plugin) {
 	panel := plugin.Section("",
 		plugin.Tabs(
 			plugin.Leaf("overview").Titled("Overview"),
+			plugin.Leaf("health").Titled("Health"),
 			plugin.Leaf("keyspace").Titled("Keyspace"),
 			plugin.Leaf("databases").Titled("Databases"),
 			plugin.Leaf("command").Titled("Console"),
@@ -327,6 +371,7 @@ func registerLayout(p *plugin.Plugin) {
 	p.Page("Redis", plugin.Section("",
 		plugin.Leaf("overview"),
 		plugin.Row(
+			plugin.Section("Health", plugin.Leaf("health")),
 			plugin.Section("Keyspace", plugin.Leaf("keyspace")),
 			plugin.Section("Databases", plugin.Leaf("databases")),
 		),

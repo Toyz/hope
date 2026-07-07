@@ -339,7 +339,7 @@ func main() {
 				{Label: "monthly", Icon: "box"},
 			}},
 		}}, nil
-	})
+	}, plugin.Static()) // schema is fixed for the session — fetch once, don't re-fetch on tab re-entry
 
 	// userView reads the detail page's param {id} and shows that "user" — the
 	// master-detail target the Big Table's name column links to.
@@ -378,6 +378,42 @@ func main() {
 		}
 		return plugin.CardsData{Items: items}, nil
 	})
+
+	// A COMPONENT view — the escape hatch. Composes a custom tile from safe primitives
+	// hope has no dedicated kind for (heading + keyvals + sparkline + a link cell).
+	// Static() caches it (fetched once, reused on tab re-entry). The Caps(ctx) check
+	// degrades to a plain KV on an older hope that can't render components — the
+	// capability-negotiation pattern.
+	p.ComponentView("widget", "Fleet Widget", func(ctx context.Context) (any, error) {
+		stateMu.Lock()
+		del := len(deleted)
+		stateMu.Unlock()
+		if !plugin.Caps(ctx).Supports("component") {
+			return plugin.KVData{"users": 100000, "tables": 60, "deleted rows": del}, nil // baseline fallback
+		}
+		return plugin.Box(
+			plugin.Heading("Fleet", 3),
+			plugin.CRow(
+				plugin.KeyVal("users", plugin.Number(100000, "")),
+				plugin.KeyVal("tables", plugin.Number(60, "")),
+				plugin.KeyVal("deleted", plugin.Badge(strconv.Itoa(del), plugin.ToneBad)),
+			).Gapped(18),
+			plugin.Divider(),
+			plugin.CText("rows/sec (last minute)").Toned(plugin.ToneInfo),
+			plugin.Sparkline(4, 9, 6, 12, 8, 15, 11, 18),
+			plugin.Divider(),
+			plugin.CRow(
+				plugin.CIcon("beaker"),
+				plugin.CCell(plugin.Link("open dashboard", "dashboard")),
+			),
+		), nil
+	}, plugin.Static())
+
+	// A table that resolves EMPTY, to show an author-controlled empty state (icon +
+	// title + text) instead of the generic "empty".
+	p.TableView("alerts", "Alerts", func(ctx context.Context) (any, error) {
+		return plugin.TableData{Columns: []string{"time", "severity", "message"}, Rows: [][]any{}}, nil
+	}, plugin.EmptyView("No active alerts 🎉", plugin.EmptyIcon("check"), plugin.EmptyText("Everything is nominal.")))
 
 	// --- streams: every kind ---
 	p.Stream("counter", "Counter", plugin.Counter, func(ctx context.Context, emit plugin.EmitFunc) error {
@@ -449,13 +485,23 @@ func main() {
 		plugin.Tabs(
 			plugin.Leaf("sql").Titled("Query"),
 			plugin.Leaf("rows").Titled("Rows").Filled(),
+			plugin.Leaf("alerts").Titled("Alerts"), // demoes the author empty state
 			plugin.Leaf("log").Titled("Log"),
 		),
 		plugin.Section("Actions", plugin.Buttons("greet", "wipe")),
 	))
 
-	// --- a dashboard widget: keep it COMPACT (stat blocks), not a full panel ---
+	// --- a dashboard widget: keep it COMPACT. An INLINE component node renders a
+	//     custom tile straight from the layout — no per-view round-trip — above the
+	//     live counters leaf. ---
 	p.DashboardWidget("Kitchen Sink", plugin.Section("",
+		plugin.Component(plugin.Box(
+			plugin.Heading("Kitchen Sink", 4),
+			plugin.CRow(
+				plugin.KeyVal("status", plugin.Badge("healthy", plugin.ToneOK)),
+				plugin.KeyVal("build", plugin.Code("dev")),
+			).Gapped(16),
+		)),
 		plugin.Leaf("counts"),
 	))
 
@@ -471,6 +517,11 @@ func main() {
 	// --- a single full page, with page-level header actions (a toolbar) ---
 	p.Page("Dashboard", plugin.Section("",
 		plugin.Row(plugin.Leaf("overview"), plugin.Leaf("counter"), plugin.Leaf("series")),
+		// A custom component-view tile beside the empty-state Alerts table.
+		plugin.Row(
+			plugin.Section("Fleet Widget", plugin.Leaf("widget")),
+			plugin.Section("Alerts", plugin.Leaf("alerts")),
+		),
 		// Traffic chart on the left, the counters column on the right.
 		plugin.Row(
 			plugin.Section("Traffic", plugin.Leaf("chart")),

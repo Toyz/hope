@@ -95,6 +95,50 @@ func registerOverview(p *plugin.Plugin) {
 		}}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(15))
 
+	// A COMPONENT view — the escape hatch. Composes a custom health tile hope has no
+	// built-in kind for: a tone-flagged cache-hit heading over the live connection mix.
+	// Caps(ctx) degrades to a plain KV on an older hope; Static() would fight the live
+	// numbers, so it stays refreshable instead.
+	p.ComponentView("health", "Health", func(ctx context.Context) (any, error) {
+		pool, err := getPool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var total, active, idle int64
+		var hit *float64
+		_ = pool.QueryRow(ctx, `select count(*), count(*) filter (where state='active'), count(*) filter (where state='idle') from pg_stat_activity`).Scan(&total, &active, &idle)
+		_ = pool.QueryRow(ctx, `select sum(blks_hit)::float / nullif(sum(blks_hit)+sum(blks_read), 0) from pg_stat_database`).Scan(&hit)
+		hitPct, hitTone := "—", plugin.ToneInfo
+		if hit != nil {
+			hitPct = strconv.FormatFloat(*hit*100, 'f', 1, 64) + "%"
+			switch {
+			case *hit >= 0.99:
+				hitTone = plugin.ToneOK
+			case *hit >= 0.90:
+				hitTone = plugin.ToneWarn
+			default:
+				hitTone = plugin.ToneBad
+			}
+		}
+		if !plugin.Caps(ctx).Supports("component") {
+			return plugin.KVData{"cache hit": hitPct, "connections": total, "active": active, "idle": idle}, nil
+		}
+		activeTone := plugin.ToneOK
+		if active > 0 {
+			activeTone = plugin.ToneWarn
+		}
+		return plugin.Box(
+			plugin.Heading("Cache hit "+hitPct, 2).Toned(hitTone),
+			plugin.CText("blocks served from shared_buffers vs disk"),
+			plugin.Divider(),
+			plugin.CRow(
+				plugin.KeyVal("connections", plugin.Number(total, "")),
+				plugin.KeyVal("active", plugin.Badge(strconv.FormatInt(active, 10), activeTone)),
+				plugin.KeyVal("idle", plugin.Number(idle, "")),
+			).Gapped(20),
+		), nil
+	}, plugin.Refreshable(), plugin.RefreshEvery(15))
+
 	// A gallery of every database on the cluster, biggest first — the current one is
 	// accented. A quick "where's the weight" glance across the whole server.
 	p.CardsView("databases", "Databases", func(ctx context.Context) (any, error) {
@@ -153,10 +197,12 @@ func registerOverview(p *plugin.Plugin) {
 		return plugin.ChartData{Type: "bar", Labels: labels, Series: []plugin.ChartSeries{{Name: "MiB", Values: mib}}}, nil
 	})
 
-	// schema -> table -> column tree, for a compact structural overview.
+	// schema -> table -> column tree, for a compact structural overview. Static: the
+	// schema rarely changes mid-session and the introspection query is heavy, so hope
+	// fetches it once and reuses it on tab re-entry instead of re-running it.
 	p.View("schema", "Schema", plugin.Tree, func(ctx context.Context) (any, error) {
 		return schemaTree(ctx)
-	})
+	}, plugin.Static())
 
 	// Live active-connection count, every 2s — a ticking pulse of DB load.
 	p.Stream("live", "Active Connections", plugin.Counter, func(ctx context.Context, emit plugin.EmitFunc) error {
@@ -359,7 +405,7 @@ func registerBrowser(p *plugin.Plugin) {
 			rows = append(rows, []any{name, uniq, sz, plugin.Code(def)})
 		}
 		return &plugin.TableData{Columns: []string{"index", "", "size", "definition"}, Rows: rows}, nil
-	})
+	}, plugin.EmptyView("No indexes", plugin.EmptyIcon("key"), plugin.EmptyText("This table has no indexes — sequential scans only.")))
 
 	// Live stats for the current table: sizes, scan mix, bloat, last (auto)maintenance.
 	p.View("table_stats", "Stats", plugin.KV, func(ctx context.Context) (any, error) {
@@ -491,6 +537,7 @@ func registerActivity(p *plugin.Plugin) {
 			},
 		}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(5),
+		plugin.EmptyView("No active queries 🎉", plugin.EmptyIcon("check"), plugin.EmptyText("Every backend is idle right now.")),
 		plugin.RowActions(
 			plugin.RowAction{Method: "cancel", Label: "Cancel query", Icon: "stop", Tip: plugin.Tip("Cancel this backend's running query (pg_cancel_backend)", plugin.TipTopEnd)},
 			plugin.RowAction{Method: "terminate", Label: "Terminate", Icon: "trash", Danger: true, Tip: plugin.Tip("Drop the whole backend connection (pg_terminate_backend)", plugin.TipTopEnd)},
@@ -560,6 +607,7 @@ func registerLayout(p *plugin.Plugin) {
 		plugin.Section("",
 			plugin.Tabs(
 				plugin.Leaf("overview").Titled("Overview"),
+				plugin.Leaf("health").Titled("Health"),
 				plugin.Leaf("databases").Titled("Databases"),
 				plugin.Leaf("tables").Titled("Tables"),
 				plugin.Leaf("sizes").Titled("Sizes"),
@@ -579,6 +627,7 @@ func registerLayout(p *plugin.Plugin) {
 	p.Page("Postgres", plugin.Section("",
 		plugin.Leaf("overview"),
 		plugin.Row(
+			plugin.Section("Health", plugin.Leaf("health")),
 			plugin.Section("Largest tables", plugin.Leaf("sizes")),
 			plugin.Section("Databases", plugin.Leaf("databases")),
 		),

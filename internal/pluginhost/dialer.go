@@ -32,6 +32,17 @@ const (
 	// are skipped, not fatal). Mirrors the SDK's plugin.ProtocolVersion.
 	ProtocolVersion = 1
 	headerProtocol  = "X-Hope-Protocol-Version"
+
+	// Capability negotiation: alongside the protocol version, hope announces WHICH view
+	// kinds and features THIS build can render, so a plugin built against a newer SDK can
+	// degrade gracefully (emit a component only where supported, else a fallback) instead
+	// of hitting "unsupported view". The header names are a wire contract shared with the
+	// SDK's plugin.Caps (see plugin/caps.go); the values below must track the frontend
+	// renderView switch + the feature flags the renderer honors.
+	headerViewKinds = "X-Hope-View-Kinds"
+	headerFeatures  = "X-Hope-Features"
+	capViewKinds    = "kv,table,query,tree,chart,cards,stat,text,search,component"
+	capFeatures     = "static,empty"
 )
 
 // endpoint is a dialed plugin: the ordered JSON-RPC URLs to try (network IP first,
@@ -183,6 +194,8 @@ func (e *endpoint) callRPC(ctx context.Context, method string, params any) (json
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
+		req.Header.Set(headerViewKinds, capViewKinds)
+		req.Header.Set(headerFeatures, capFeatures)
 		if e.token != "" {
 			req.Header.Set("Authorization", "Bearer "+e.token)
 		}
@@ -241,6 +254,8 @@ func (e *endpoint) stream(ctx context.Context, method string, params any, onFram
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(headerProtocol, strconv.Itoa(ProtocolVersion))
+		req.Header.Set(headerViewKinds, capViewKinds)
+		req.Header.Set(headerFeatures, capFeatures)
 		if e.token != "" {
 			req.Header.Set("Authorization", "Bearer "+e.token)
 		}

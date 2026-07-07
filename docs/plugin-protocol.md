@@ -127,9 +127,34 @@ Identity + capabilities. Returned unauthenticated.
 | `cards` | `{ "items": [ { "title", "subtitle?", "icon?", "tone?", "to?", "fields?": [{label, value}] } ] }` | responsive card grid (a gallery) |
 | `stat`  | `{ "stats": [ { "label", "value", "unit?", "sub?", "tone?", "icon?" } ] }` | big-number stat blocks (counters) |
 | `text`  | `{ "text": "…" }` (or a raw string)                | monospace scrollable block (logs, config, output) |
+| `component` | a `Comp` primitive tree (the escape hatch — see below) | a custom widget composed from safe primitives |
 
 A `query` view receives the user's text in the request params as
 `{ "input": "<text>" }`.
+
+**Component views (the escape hatch)** — when the built-in kinds don't cover a
+widget you want, a `component` view returns a **tree of safe primitives** hope
+composes, instead of a fixed shape. Plugins never ship markup/JS (hope renders data,
+never plugin HTML), so this is a typed primitive tree, not raw rendering. A node is
+`{ "kind": ..., ... }`:
+
+| primitive   | fields                        | renders as                                  |
+|-------------|-------------------------------|---------------------------------------------|
+| `box`/`stack` | `children`, `gap?`, `tone?` | a vertical container (a tile/card body)     |
+| `row`/`grid`  | `children`, `gap?`          | a horizontal / responsive-grid container    |
+| `heading`   | `text`, `level?` (1..4), `tone?` | a heading                                |
+| `text`      | `text`, `tone?`               | a line of text                              |
+| `keyval`    | `label`, `value` (scalar or rich cell) | a label/value line                 |
+| `icon`      | `icon`                        | one icon (built-in name or an `icons` key)  |
+| `sparkline` | `values` (numbers)            | a tiny inline line chart                    |
+| `cell`      | `cell` (any rich cell)        | a Badge/Link/Number/… inline                |
+| `divider` / `spacer` | (`size?` px, spacer) | a rule / vertical gap                    |
+
+A container child's `size` is its weight (flex in a `row`, column span in a `grid`).
+Unknown primitives are skipped, never fatal. The same tree can also ride **inline in
+a layout** as a `component` node (below), which costs no per-view round-trip. SDK:
+`plugin.ComponentView(...)` returning `plugin.Box/Stack/CRow/CGrid/Heading/CText/
+KeyVal/CIcon/Sparkline/CCell/Divider/Spacer(...)`.
 
 **Interactive tables** — `table` and `query` view descriptors may declare
 interactivity; the columns are always dynamic (hope renders exactly the
@@ -145,6 +170,8 @@ interactivity; the columns are always dynamic (hope renders exactly the
 | `server`      | server-driven table: hope does NOT ship every row. It sends the query state and expects one page + a total back (see below). For tables too large to send whole |
 | `refresh`     | (any view) add a manual refresh button to the view header that re-fetches on click |
 | `refresh_interval` | (any view) auto-refetch every N seconds — a live-ish view without a stream |
+| `static`      | (any view) data is fixed for the life of the surface: hope fetches it once and reuses the cached result on tab re-entry / re-navigation instead of re-calling the plugin (fewer round-trips, less rate-limit pressure). A manual `refresh` still forces a re-fetch. SDK: `plugin.Static()` |
+| `empty`       | (any view) an author "no data" state shown when the view resolves empty, instead of the generic text: `{ "icon?", "title?", "text?", "comp?" }` (`comp` = a custom Component tree). SDK: `plugin.EmptyView("No slow queries 🎉", plugin.EmptyIcon("check"))` |
 | `facets`      | (server tables) dropdown filters: `[{ "key", "label", "options": [{label, value}] }]`. Selections arrive in the query as `_q.filters[key]`; apply them in your store |
 | `default_sort`| (server tables) `{ "column", "dir": "asc"\|"desc" }` — the sort hope applies on FIRST load, before the user clicks a header (e.g. newest-first). It arrives in `_q.sort` and the column shows the arrow. SDK: `plugin.DefaultSort(col, dir)` |
 
@@ -322,6 +349,9 @@ panel now and a full page later:
   in a `grid` it's a column span. Default (0) = equal share. SDK: `node.Weight(n)`.
 - `leaf` — a single `view`/`action`/`stream` referenced by `ref` (its method name).
   `Filled()` makes a leaf grow to fill remaining height (e.g. a table)
+- `component` — an inline `Comp` primitive tree (`comp`; see *Component views* above)
+  rendered straight from the layout, with **no** per-view round-trip — ideal for a
+  small static dashboard/stack tile. SDK: `plugin.Component(plugin.Box(...))`
 
 If a plugin returns no contributions, hope synthesizes a single `container`
 contribution (matching the plugin's own container) that lists its views/streams,
@@ -394,6 +424,41 @@ hope announces the protocol version it speaks on every call via the
 kinds it doesn't implement, and reports a compat verdict (`ok` / `plugin_newer` /
 `plugin_older`) on the manifest. Build to the version you target; degrade, don't
 break.
+
+### Capability negotiation
+
+The protocol version is coarse. Alongside it, hope announces exactly **which view
+kinds and features this build can render** via two headers on every call:
+
+- `X-Hope-View-Kinds` — e.g. `kv,table,query,tree,chart,cards,stat,text,search,component`
+- `X-Hope-Features` — e.g. `static,empty`
+
+So a plugin built against a newer SDK can adapt instead of emitting something an older
+hope can't draw. In the Go SDK, read it with `plugin.Caps(ctx)`:
+
+```go
+func widget(ctx context.Context) (any, error) {
+    if plugin.Caps(ctx).Supports("component") {
+        return plugin.Box(plugin.Heading("Fleet", 3), /* … */), nil // rich
+    }
+    return plugin.KVData{"nodes": 3}, nil                            // baseline fallback
+}
+```
+
+An older hope that predates negotiation sends no capability headers, so `Supports`
+returns false — always keep a baseline for anything you guard.
+
+### Stability policy
+
+- **Additive by default.** New view kinds, node kinds, surfaces, and struct fields are
+  added as optional (`omitempty`) fields — a minor SDK bump (`v0.x`). Existing plugins
+  keep working unchanged; an older hope skips what it doesn't know.
+- **`protocolVersion` bumps only on a breaking change** to an existing shape — none has
+  happened yet, and additive growth never forces one.
+- **Unknown is skipped, never fatal**, in both directions (see above). This is the
+  contract that lets hope and plugins version independently.
+- Prefer `Caps` over `protocolVersion` checks for feature gating: it degrades per
+  feature, not per whole version.
 
 ## Limits hope enforces
 

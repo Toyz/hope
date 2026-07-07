@@ -71,6 +71,6 @@ REDIS_URL=redis://... HOPE_PLUGIN_TOKEN=secret go run .
 
 ---
 
-Requires the hope plugin SDK **v0.0.5+**. See [`plugin/`](../../../plugin) for the SDK,
+Requires the hope plugin SDK **v0.0.6+**. See [`plugin/`](../../../plugin) for the SDK,
 [`hope-postgres`](../hope-postgres) for the Postgres analog, and
 [`kitchen-sink`](../kitchen-sink) for a tour of every view kind and surface.

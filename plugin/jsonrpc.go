@@ -175,6 +175,12 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.WithValue(r.Context(), paramsKey{}, req.Params)
+	// Carry hope's advertised capabilities into the handler context so Caps(ctx) can
+	// let the plugin adapt its output to what this hope build can render.
+	ctx = context.WithValue(ctx, capsKey{}, Capabilities{
+		ViewKinds: splitCaps(r.Header.Get(headerViewKinds)),
+		Features:  splitCaps(r.Header.Get(headerFeatures)),
+	})
 
 	if st, ok := p.streams[req.Method]; ok {
 		p.serveStream(w, req.ID, st, ctx)

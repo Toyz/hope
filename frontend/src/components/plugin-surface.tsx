@@ -24,11 +24,29 @@ interface Node {
   collapsible?: boolean;
   collapsed?: boolean;
   children?: Node[];
+  comp?: Comp; // kind "component": an inline primitive tree (see renderComponent)
 }
+// Comp mirrors the SDK's plugin.Comp — one node of the "escape hatch" primitive tree.
+interface Comp {
+  kind: string; // box|stack|row|grid|text|heading|divider|spacer|keyval|icon|sparkline|cell
+  children?: Comp[];
+  text?: string;
+  label?: string;
+  cell?: any;
+  value?: any;
+  level?: number;
+  tone?: string;
+  icon?: string;
+  values?: number[];
+  gap?: number;
+  size?: number;
+}
+// EmptyState mirrors the SDK's plugin.EmptyState — an author-set "no data" view.
+interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -76,6 +94,33 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sbtn.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line2)); }
   .msg { color: var(--dim); font: 12px/1.5 var(--mono); padding: 6px 0; }
   .msg.bad { color: var(--bad); }
+  /* ── component primitives (the plugin escape hatch — see renderComponent) ── */
+  /* Containers pad with GAP only; the root gets horizontal padding from .leaf (view)
+     or .cinline (inline layout node), so nesting never double-pads. */
+  .cinline { padding: 6px 16px 12px; min-width: 0; }
+  .cnode { min-width: 0; }
+  .cbox { display: flex; flex-direction: column; gap: 8px; }
+  .cstack { display: flex; flex-direction: column; gap: 3px; }
+  .crow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .crow > .ccell, .cgrid > .ccell { min-width: 0; }
+  .chead { color: var(--hi); font-weight: 600; }
+  .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
+  .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
+  .cdiv { height: 1px; background: var(--line); margin: 4px 0; }
+  .chead.ok, .ctext.ok, .pkvv.ok { color: var(--ok); }
+  .chead.warn, .ctext.warn, .pkvv.warn { color: var(--warn); }
+  .chead.bad, .ctext.bad, .pkvv.bad { color: var(--bad); }
+  .chead.upd, .ctext.upd, .pkvv.upd,
+  .chead.info, .ctext.info, .pkvv.info { color: var(--upd); }
+  .cbox.ok { border-left: 2px solid var(--ok); padding-left: 12px; }
+  .cbox.warn { border-left: 2px solid var(--warn); padding-left: 12px; }
+  .cbox.bad { border-left: 2px solid var(--bad); padding-left: 12px; }
+  /* author empty state (renderEmpty) */
+  .pempty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 16px; text-align: center; }
+  .pemptyt { color: var(--mid); font: 600 13px/1.4 var(--mono); }
+  .pemptys { color: var(--dim); font: 11px/1.5 var(--mono); }
 
   /* separate (not collapse): with border-collapse a sticky th's border doesn't move
      with it, so scrolled rows bleed through the header seam. Borders via box-shadow
@@ -294,8 +339,14 @@ export class HopePluginSurface extends LoomElement {
     const s = this.surface;
     if (!s) return;
     for (const ref of this.leafRefs(s.node)) {
-      if (!this.views[ref]) continue;
-      if (this.views[ref].server) this.serverFetch(ref);
+      const v = this.views[ref];
+      if (!v) continue;
+      // A Static view's data is fixed for the life of the surface — once it has loaded,
+      // don't re-fetch it on tab re-entry (that's the point: fewer round-trips, less
+      // rate-limit pressure). cells holds it until a real page change clears it in
+      // rebuild(); a manual Refresh() still forces it via refetchView.
+      if (v.static && this.cells[ref]?.data != null) continue;
+      if (v.server) this.serverFetch(ref);
       else void this.fetch(ref);
     }
   }
@@ -525,6 +576,10 @@ export class HopePluginSurface extends LoomElement {
         ))}</div>;
       case "leaf":
         return this.renderLeaf(n.ref || "", !!n.fill);
+      case "component":
+        // An inline primitive tree — no ref, no fetch. Wrap in .cinline so the root
+        // gets a leaf's horizontal padding (renderComponent containers pad with gap only).
+        return <div class={"cinline" + g}>{this.renderComponent(n.comp, idKey)}</div>;
       default:
         return null;
     }
@@ -643,6 +698,9 @@ export class HopePluginSurface extends LoomElement {
   }
 
   private renderView(v: ViewDesc, data: any) {
+    // Author-controlled empty state: when the view resolves to no data AND the plugin
+    // set an EmptyState, show it instead of the generic "no data"/"empty" text.
+    if (v.empty && this.isEmptyData(v.kind, data)) return this.renderEmpty(v.empty);
     if (data == null) return <div class="msg">no data</div>;
     switch (v.kind) {
       case "kv":
@@ -662,8 +720,93 @@ export class HopePluginSurface extends LoomElement {
         return this.renderStat(data);
       case "text":
         return <pre class="ptext">{typeof data === "string" ? data : this.cellStr(data?.text)}</pre>;
+      case "component":
+        return this.renderComponent(data?.comp ?? data, "c");
       default:
         return <div class="msg">unsupported view</div>;
+    }
+  }
+
+  // isEmptyData reports whether a view's payload has nothing to show, per kind — used
+  // to decide when to swap in an author's EmptyState. A component view is never empty
+  // (the author fully controls it); unknown kinds default to non-empty.
+  private isEmptyData(kind: string, data: any): boolean {
+    if (data == null) return true;
+    switch (kind) {
+      case "kv": return typeof data !== "object" || Object.keys(data).length === 0;
+      case "table":
+      case "query": return !((data?.rows || []).length);
+      case "tree": return !((data?.nodes || []).length);
+      case "cards": return !((data?.items || []).length);
+      case "chart": return !((data?.labels || []).length) || !((data?.series || []).length);
+      case "stat": return !(Array.isArray(data?.stats) ? data.stats.length : (data && typeof data === "object" && "value" in data));
+      case "text": return !(typeof data === "string" ? data : data?.text);
+      default: return false;
+    }
+  }
+
+  // renderEmpty draws an author's EmptyState — a custom Comp tree if given, else a
+  // centered icon + title + text. All text is JSX-escaped; the icon is the sanitized
+  // plugin-icon path. Falls back to nothing meaningful only if the author set nothing.
+  private renderEmpty(e: EmptyState): any {
+    if (e.comp) return this.renderComponent(e.comp, "empty");
+    return (
+      <div class="pempty">
+        {e.icon ? <hope-plugin-icon plugin={this.surface?.key} name={e.icon} size={22}></hope-plugin-icon> : null}
+        {e.title ? <div class="pemptyt">{e.title}</div> : null}
+        {e.text ? <div class="pemptys">{e.text}</div> : null}
+      </div>
+    );
+  }
+
+  // renderComponent walks a Comp tree — the plugin "escape hatch". It composes ONLY
+  // safe primitives (containers + heading/text/keyval/icon/sparkline/cell); every value
+  // is typed data, never markup, and inherits the same rails as cells: toneClass
+  // allowlists tones, cellNode/navCell reject non-http(s) URLs, icons are sanitized.
+  // Unknown kinds render nothing (forward-compatible); depth is bounded defensively.
+  private renderComponent(c: Comp | undefined, idKey: string, depth = 0): any {
+    if (!c || depth > 32) return null;
+    const tone = this.toneClass(c.tone);
+    switch (c.kind) {
+      case "box":
+      case "stack":
+      case "row":
+      case "grid": {
+        const cls = c.kind === "box" ? "cbox" : c.kind === "stack" ? "cstack" : c.kind === "row" ? "crow" : "cgrid";
+        const kids = (c.children || []).map((k, i) => {
+          const el = this.renderComponent(k, idKey + "." + i, depth + 1);
+          // A child's `size` is its weight inside a row/grid (mirrors a layout Node).
+          if ((c.kind === "row" || c.kind === "grid") && k && k.size) {
+            const st = c.kind === "row" ? `flex-grow:${Number(k.size)};flex-basis:0;` : `grid-column:span ${Number(k.size)};`;
+            return <div class="ccell" style={st}>{el}</div>;
+          }
+          return el;
+        });
+        const style = c.gap != null ? `gap:${Number(c.gap)}px;` : undefined;
+        return <div class={"cnode " + cls + (tone ? " " + tone : "")} style={style}>{kids}</div>;
+      }
+      case "heading": {
+        const lvl = Math.min(4, Math.max(1, Number(c.level) || 2));
+        return <div class={"chead h" + lvl + (tone ? " " + tone : "")}>{c.text}</div>;
+      }
+      case "text":
+        return <div class={"ctext" + (tone ? " " + tone : "")}>{c.text}</div>;
+      case "divider":
+        return <div class="cdiv"></div>;
+      case "spacer":
+        return <div class="cspacer" style={`height:${Math.max(0, Number(c.size) || 0)}px`}></div>;
+      case "keyval":
+        return <div class="pkvr"><span class="pkvk">{c.label}</span><span class={"pkvv" + (tone ? " " + tone : "")}>{this.cellNode(c.value ?? c.cell)}</span></div>;
+      case "icon":
+        return c.icon ? this.leafIcon(c.icon) : null;
+      case "sparkline": {
+        const vals = (c.values || []).map((v) => Number(v)).filter((v) => !isNaN(v));
+        return vals.length ? this.renderSparkline(vals, vals[vals.length - 1]) : null;
+      }
+      case "cell":
+        return this.cellNode(c.cell);
+      default:
+        return null;
     }
   }
 
@@ -754,7 +897,13 @@ export class HopePluginSurface extends LoomElement {
     const editCols: string[] | undefined = v?.edit_columns || data?.edit_columns;
     const canEdit = (ci: number) => !!editMethod && (!editCols || !editCols.length || editCols.includes(cols[ci]));
     const hasTrailing = acts.length > 0 || (!!detailMethod && detailAsButton);
-    if (!cols.length && !rows.length) return <div class="msg">empty</div>;
+    // No rows to show. An author EmptyState wins on zero rows (also covers the
+    // query→table path, which bypasses renderView's empty interception); otherwise
+    // keep the prior behavior — generic "empty" only when there are no columns either.
+    if (!rows.length) {
+      if (v?.empty) return this.renderEmpty(v.empty);
+      if (!cols.length) return <div class="msg">empty</div>;
+    }
 
     const key = v?.method || "_t";
     const st = this.tableSt(key);

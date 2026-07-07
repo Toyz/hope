@@ -26,6 +26,11 @@ const (
 	// user types (debounced) and renders the returned SearchItems as a live dropdown.
 	// Selecting one navigates to its To (a DetailPage/link target) — a "go to X" jump.
 	Search ViewKind = "search"
+	// CompView is the escape hatch: the handler returns a *Comp — a tree of safe
+	// primitives (box/row/heading/keyval/sparkline/cell/…) hope composes into a custom
+	// widget the built-in kinds don't cover. See component.go. Also usable inline in a
+	// layout via plugin.Component (no per-view round-trip).
+	CompView ViewKind = "component"
 )
 
 // SearchData is what a Search view returns for a query: the current suggestion list.
@@ -264,12 +269,25 @@ type ActionDesc struct {
 	Tip    *Tooltip `json:"tip,omitempty"` // hover tooltip on the action button (set with ActionTip)
 }
 
+// EmptyState is what hope shows when a view resolves to no data (an empty table, a
+// tree with no nodes, a stat with no blocks) instead of the generic "empty" text.
+// The plain Icon/Title/Text cover the common case; set Comp for a fully custom empty
+// state (an icon + heading + a "create one" Link). Build it with plugin.EmptyView.
+type EmptyState struct {
+	Icon  string `json:"icon,omitempty"`  // leading icon (a built-in name or an Icons key)
+	Title string `json:"title,omitempty"` // the headline, e.g. "No slow queries 🎉"
+	Text  string `json:"text,omitempty"`  // a dim secondary line
+	Comp  *Comp  `json:"comp,omitempty"`  // optional custom empty state (overrides Icon/Title/Text)
+}
+
 // ViewDesc describes a read-only data view and how to render it.
 type ViewDesc struct {
 	Method  string   `json:"method"`
 	Label   string   `json:"label"`
 	Kind    ViewKind `json:"kind"`
 	Icon    string   `json:"icon,omitempty"`
+	// Empty customizes the "no data" state (see EmptyState); unset => hope's generic text.
+	Empty *EmptyState `json:"empty,omitempty"`
 	Lang    string   `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
 	Default string   `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
 	// RowMethod (table/query views): a method hope calls to open a row-detail modal,
@@ -307,6 +325,12 @@ type ViewDesc struct {
 	// RefreshInterval auto-refetches the view every N seconds (0 = off) — a live-ish
 	// view without a stream. hope stops the timer when the view leaves the DOM.
 	RefreshInterval int `json:"refresh_interval,omitempty"`
+	// Static marks a view's data as fixed for the life of the surface: hope fetches it
+	// once and serves the cached result on tab re-entry / re-navigation instead of
+	// re-calling the plugin — cutting round-trips and easing the per-plugin rate limit.
+	// A manual Refresh() button still forces a re-fetch, so Static()+Refresh() = "load
+	// once, refresh on demand". Don't combine with RefreshInterval.
+	Static bool `json:"static,omitempty"`
 	// Facets (server tables) are dropdown filters hope renders in the toolbar; the
 	// selected values arrive in the query as filters[key] (see TableQuery.Filters),
 	// which you apply in your store. Distinct from the free-text search box.
@@ -456,6 +480,9 @@ const (
 	NodeButtons NodeKind = "buttons" // horizontal group of action buttons, sized to content
 	NodeGrid    NodeKind = "grid"    // grid arrangement
 	NodeLeaf    NodeKind = "leaf"    // a single view/action/stream
+	// NodeComponent carries an inline Comp tree (see component.go) rendered directly
+	// from the layout — no ref, no per-view round-trip. Build it with Component().
+	NodeComponent NodeKind = "component"
 )
 
 // Node is one node in the surface-agnostic layout tree. The same tree drives a
@@ -472,6 +499,8 @@ type Node struct {
 	Collapsible bool    `json:"collapsible,omitempty"`
 	Collapsed   bool    `json:"collapsed,omitempty"`
 	Children    []*Node `json:"children,omitempty"`
+	// Comp carries an inline Component tree when Kind is NodeComponent (see Component).
+	Comp *Comp `json:"comp,omitempty"`
 }
 
 // Section builds a titled section node from children.
@@ -505,6 +534,11 @@ func Grid(children ...*Node) *Node { return &Node{Kind: NodeGrid, Children: chil
 
 // Leaf references a registered view/action/stream by its method name.
 func Leaf(ref string) *Node { return &Node{Kind: NodeLeaf, Ref: ref} }
+
+// Component builds an inline component node: a Comp tree (see component.go) rendered
+// straight from the layout, with no per-view round-trip. Use it for a small static
+// tile — e.g. plugin.Component(plugin.Box(plugin.Heading("Fleet", 3), …)).
+func Component(c *Comp) *Node { return &Node{Kind: NodeComponent, Comp: c} }
 
 // Titled sets a node's title (useful for wrapping a Leaf inside Tabs).
 func (n *Node) Titled(t string) *Node { n.Title = t; return n }

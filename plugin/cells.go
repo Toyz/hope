@@ -12,6 +12,13 @@ package plugin
 //	    plugin.Time(user.CreatedUnix),
 //	}}
 
+// Cell is a rich table/field cell — a typed shape hope renders specially (a pill, a
+// link, a progress bar, …). It's a type *alias* for map[string]any, so it stays a plain
+// JSON object on the wire and every builder below (and any hand-built map) satisfies it
+// with no conversion; the name just documents intent where a cell is expected (e.g. a
+// Comp's Cell field, or CCell). Build one with Badge/Link/Number/Time/Progress/Code/Image.
+type Cell = map[string]any
+
 // Tone names a semantic color for a Badge (matches hope's ok/warn/bad/info).
 const (
 	ToneOK   = "ok"
@@ -22,39 +29,39 @@ const (
 
 // Badge renders value as a colored pill. tone is one of the Tone* constants ("" =
 // neutral).
-func Badge(value, tone string) map[string]any {
-	return map[string]any{"type": "badge", "value": value, "tone": tone}
+func Badge(value, tone string) Cell {
+	return Cell{"type": "badge", "value": value, "tone": tone}
 }
 
 // Link renders value as an in-app link that navigates to a hope route `to` (e.g. a
 // master-detail page). Use ExternalLink for an off-site URL.
-func Link(value, to string) map[string]any {
-	return map[string]any{"type": "link", "value": value, "to": to}
+func Link(value, to string) Cell {
+	return Cell{"type": "link", "value": value, "to": to}
 }
 
 // ExternalLink renders value as a link that opens href in a new tab.
-func ExternalLink(value, href string) map[string]any {
-	return map[string]any{"type": "link", "value": value, "href": href}
+func ExternalLink(value, href string) Cell {
+	return Cell{"type": "link", "value": value, "href": href}
 }
 
 // DetailLink renders value as a link to one of this plugin's DetailPage ids, passing
 // arg as the page's ParamKey — a master-detail link that needs no knowledge of the
 // plugin's hope key. e.g. DetailLink("alice", "user", "42") -> the "user" detail
 // page with param {<paramKey>: "42"}.
-func DetailLink(value, pageID, arg string) map[string]any {
-	return map[string]any{"type": "link", "value": value, "to": pageID + "/" + arg}
+func DetailLink(value, pageID, arg string) Cell {
+	return Cell{"type": "link", "value": value, "to": pageID + "/" + arg}
 }
 
 // Time renders a unix timestamp (seconds or millis) as relative time ("2h ago"),
 // with the absolute time on hover.
-func Time(unix int64) map[string]any {
-	return map[string]any{"type": "time", "value": unix}
+func Time(unix int64) Cell {
+	return Cell{"type": "time", "value": unix}
 }
 
 // Number renders n right-formatted with thousands separators; unit ("" = none) is
 // appended (e.g. "MB", "reqs").
-func Number(n any, unit string) map[string]any {
-	m := map[string]any{"type": "number", "value": n}
+func Number(n any, unit string) Cell {
+	m := Cell{"type": "number", "value": n}
 	if unit != "" {
 		m["unit"] = unit
 	}
@@ -62,13 +69,13 @@ func Number(n any, unit string) map[string]any {
 }
 
 // Progress renders frac (0..1) as a small progress bar.
-func Progress(frac float64) map[string]any {
-	return map[string]any{"type": "progress", "value": frac}
+func Progress(frac float64) Cell {
+	return Cell{"type": "progress", "value": frac}
 }
 
 // Code renders value as inline monospace (an id, hash, snippet).
-func Code(value string) map[string]any {
-	return map[string]any{"type": "code", "value": value}
+func Code(value string) Cell {
+	return Cell{"type": "code", "value": value}
 }
 
 // Image renders src as an image (click opens the full image in a new tab). alt is the
@@ -83,8 +90,8 @@ func Code(value string) map[string]any {
 //	Image(u, alt, ImgW(240))           // 240px wide, height auto (keeps aspect)
 //	Image(u, alt, ImgBox(110, 110))    // fixed 110×110 box, image centered, contained
 //	Image(u, alt, ImgBox(110,110), ImgFit("cover")) // fill the box, cropping overflow
-func Image(src, alt string, opts ...ImageOpt) map[string]any {
-	m := map[string]any{"type": "image", "value": src, "alt": alt}
+func Image(src, alt string, opts ...ImageOpt) Cell {
+	m := Cell{"type": "image", "value": src, "alt": alt}
 	for _, o := range opts {
 		o(m)
 	}

@@ -164,19 +164,28 @@ func (p *Plugin) claim(method string) {
 	p.order = append(p.order, method)
 }
 
-// View registers a read-only data view rendered per kind.
-func (p *Plugin) View(method, label string, kind ViewKind, fn ViewFunc) *Plugin {
+// View registers a read-only data view rendered per kind. opts (Static/EmptyView/
+// Refreshable/RefreshEvery) are optional and apply to any kind.
+func (p *Plugin) View(method, label string, kind ViewKind, fn ViewFunc, opts ...ViewOpt) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: kind}, fn}
+	d := ViewDesc{Method: method, Label: label, Kind: kind}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 
 // QueryView registers a Query view whose input editor syntax-highlights lang and
 // prepopulates with def (a template where {param} placeholders are filled from the
 // page's param, e.g. "select * from {table}"). Read the input with plugin.Input.
-func (p *Plugin) QueryView(method, label, lang, def string, fn ViewFunc) *Plugin {
+func (p *Plugin) QueryView(method, label, lang, def string, fn ViewFunc, opts ...ViewOpt) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Query, Lang: lang, Default: def}, fn}
+	d := ViewDesc{Method: method, Label: label, Kind: Query, Lang: lang, Default: def}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 
@@ -253,10 +262,15 @@ func (p *Plugin) TableView(method, label string, fn ViewFunc, opts ...TableOpt) 
 }
 
 // CardsView registers a Cards view; the handler returns CardsData (a grid of
-// cards / a gallery — e.g. badges, users). Cards with a To navigate on click.
-func (p *Plugin) CardsView(method, label string, fn ViewFunc) *Plugin {
+// cards / a gallery — e.g. badges, users). Cards with a To navigate on click. opts
+// (Static/EmptyView/…) are optional.
+func (p *Plugin) CardsView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Cards}, fn}
+	d := ViewDesc{Method: method, Label: label, Kind: Cards}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 
@@ -266,6 +280,42 @@ type ViewOpt = TableOpt
 
 // Refreshable adds a manual refresh button to the view header (re-fetches on click).
 func Refreshable() ViewOpt { return func(v *ViewDesc) { v.Refresh = true } }
+
+// Static marks a view's data fixed for the life of the surface: hope fetches it once
+// and reuses the cached result on tab re-entry / re-navigation instead of re-calling
+// the plugin — fewer round-trips, less rate-limit pressure. Pair with Refreshable()
+// for a "load once, refresh on demand" view. Don't combine with RefreshEvery.
+func Static() ViewOpt { return func(v *ViewDesc) { v.Static = true } }
+
+// EmptyOpt configures a view's EmptyState (its icon, secondary text, or a custom Comp).
+type EmptyOpt func(*EmptyState)
+
+// EmptyIcon sets the empty state's leading icon (a built-in name or an Icons key).
+func EmptyIcon(name string) EmptyOpt { return func(e *EmptyState) { e.Icon = name } }
+
+// EmptyText sets the empty state's dim secondary line under the title.
+func EmptyText(s string) EmptyOpt { return func(e *EmptyState) { e.Text = s } }
+
+// EmptyComp sets a fully custom empty state (a Comp tree — see component.go),
+// overriding the icon/title/text — e.g. an icon plus a "create one" Link.
+func EmptyComp(c *Comp) EmptyOpt { return func(e *EmptyState) { e.Comp = c } }
+
+// EmptyView customizes the "no data" state shown when a view resolves empty (an empty
+// table, a stat with no blocks) instead of hope's generic text — a title plus optional
+// icon/text (or a custom Comp). Attach it wherever view opts are accepted (TableView,
+// StatView, ComponentView), e.g.
+//
+//	p.TableView("slow", "Slow queries", fn,
+//	    plugin.EmptyView("No slow queries 🎉", plugin.EmptyIcon("check")))
+func EmptyView(title string, opts ...EmptyOpt) ViewOpt {
+	return func(v *ViewDesc) {
+		e := &EmptyState{Title: title}
+		for _, o := range opts {
+			o(e)
+		}
+		v.Empty = e
+	}
+}
 
 // StatView registers a Stat view: the handler returns StatData (one or more
 // big-number blocks — counts, totals, sizes). Add plugin.Refreshable() for a manual
@@ -282,9 +332,14 @@ func (p *Plugin) StatView(method, label string, fn ViewFunc, opts ...ViewOpt) *P
 
 // TextView registers a Text view: the handler returns {text: "…"} (or a raw
 // string) rendered as a monospace scrollable block — logs, config, command output.
-func (p *Plugin) TextView(method, label string, fn ViewFunc) *Plugin {
+// opts (Static/EmptyView/…) are optional.
+func (p *Plugin) TextView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Text}, fn}
+	d := ViewDesc{Method: method, Label: label, Kind: Text}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 
@@ -299,10 +354,31 @@ func (p *Plugin) SearchView(method, label string, fn ViewFunc) *Plugin {
 }
 
 // ChartView registers a Chart view; the handler returns ChartData (bar or line,
-// one or more named series over categorical labels). hope draws axes + legend.
-func (p *Plugin) ChartView(method, label string, fn ViewFunc) *Plugin {
+// one or more named series over categorical labels). hope draws axes + legend. opts
+// (Static/EmptyView/…) are optional.
+func (p *Plugin) ChartView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
 	p.claim(method)
-	p.views[method] = viewEntry{ViewDesc{Method: method, Label: label, Kind: Chart}, fn}
+	d := ViewDesc{Method: method, Label: label, Kind: Chart}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
+	return p
+}
+
+// ComponentView registers a Component view — the escape hatch. The handler returns a
+// *Comp: a tree of safe primitives (box/row/heading/keyval/sparkline/cell/…) hope
+// composes into a custom widget the built-in kinds don't cover (see component.go). Add
+// plugin.Static() to cache it or plugin.EmptyView(...) to customize its empty state. For
+// a small STATIC tile, prefer an inline plugin.Component node in the layout instead — it
+// needs no per-view round-trip.
+func (p *Plugin) ComponentView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
+	p.claim(method)
+	d := ViewDesc{Method: method, Label: label, Kind: CompView}
+	for _, o := range opts {
+		o(&d)
+	}
+	p.views[method] = viewEntry{d, fn}
 	return p
 }
 
