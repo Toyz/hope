@@ -92,6 +92,7 @@ const TABS: Tab[] = ["info", "logs", "processes", "mounts", "env", "networks", "
   .log .ln:hover { background: var(--raised); }
   .log .lts { flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
   .log .lmsg { color: var(--mid); white-space: pre-wrap; word-break: break-word; min-width: 0; }
+  .log .lmsg mark { background: color-mix(in srgb, var(--upd) 40%, transparent); color: var(--hi); border-radius: 2px; padding: 0 1px; }
   .cursor { display: inline-block; width: 7px; height: 12px; background: var(--upd); vertical-align: -2px; animation: blink 1.1s step-end infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
@@ -234,6 +235,7 @@ export class HopeInspector extends LoomElement {
   @reactive accessor pluginSurfaces: Surface[] = [];
   @reactive accessor pluginNonce = 0; // bumped on plugin-tab entry to force a surface refetch
   @reactive accessor lines: string[] = [];
+  @reactive accessor logQ = ""; // logs-tab search term (filter + highlight)
   @reactive accessor raw: any = null; // full docker inspect (never rendered un-redacted)
   @reactive accessor reveal = false; // operator armed secret reveal
   @reactive accessor rawQ = "";
@@ -290,7 +292,7 @@ export class HopeInspector extends LoomElement {
     this.pluginSurfaces = [];
     if (t) this.tab = t as Tab;
     else if (this.tab.startsWith("plugin:")) this.tab = "info"; // stale plugin tab from the previous container
-    this.raw = null; this.reveal = false; this.rawQ = ""; this.secOpen = { State: true, Config: true };
+    this.raw = null; this.reveal = false; this.rawQ = ""; this.logQ = ""; this.secOpen = { State: true, Config: true };
     this.cpu = "—"; this.mem = "—"; this.cpuBar = 0; this.memBar = 0;
     this.netRx = "—"; this.netTx = "—"; this.pids = "—";
     this.procs = null; this.procErr = "";
@@ -513,6 +515,23 @@ export class HopeInspector extends LoomElement {
     requestAnimationFrame(() => { const el = this.bodyEl; if (el) el.scrollTop = el.scrollHeight; });
   }
 
+  // Wrap each case-insensitive occurrence of `q` in <mark> so a search term stands
+  // out in place. Returns the plain string when there's nothing to highlight.
+  private highlight(text: string, q: string): any {
+    if (!q) return text;
+    const low = text.toLowerCase();
+    const ql = q.toLowerCase();
+    const out: any[] = [];
+    let i = 0;
+    for (let idx = low.indexOf(ql); idx !== -1; idx = low.indexOf(ql, i)) {
+      if (idx > i) out.push(text.slice(i, idx));
+      out.push(<mark>{text.slice(idx, idx + q.length)}</mark>);
+      i = idx + q.length;
+    }
+    if (i < text.length) out.push(text.slice(i));
+    return out;
+  }
+
   private op = async (o: string) => {
     if (this.busy) return;
     const label = o === "redeploy" ? "Redeploy" : o === "restart" ? "Restart" : o === "stop" ? "Stop" : o;
@@ -651,14 +670,29 @@ export class HopeInspector extends LoomElement {
       return s ? <hope-plugin-surface host={this.host} surface={s} reloadTick={this.pluginNonce}></hope-plugin-surface> : <div class="empty">plugin panel unavailable</div>;
     }
     if (t === "logs") {
+      const term = this.logQ.trim();
+      const q = term.toLowerCase();
+      const parsed = this.lines.map((l) => parseLogLine(l));
+      const shown = q ? parsed.filter((p) => p.msg.toLowerCase().includes(q) || (p.ts && p.ts.toLowerCase().includes(q))) : parsed;
       return (
-        <div class="log">
-          {this.lines.length === 0 ? <div class="empty">Waiting for output&hellip;</div> : this.lines.map((l) => {
-            const { ts, msg } = parseLogLine(l);
-            return <div class="ln">{ts ? <span class="lts">{ts}</span> : null}<span class="lmsg">{msg}</span></div>;
-          })}
-          {this.lines.length > 0 ? <span class="cursor"></span> : null}
-        </div>
+        <>
+          <div class="raw-search">
+            <loom-icon name="search" size={13}></loom-icon>
+            <input placeholder="search logs&hellip;" value={this.logQ} onInput={(e: any) => (this.logQ = e.target.value)} />
+            {q ? <button class="copy" title="clear" onClick={() => (this.logQ = "")}><loom-icon name="x" size={13}></loom-icon></button> : null}
+            <span class="rcount">{q ? `${shown.length} / ${parsed.length}` : `${parsed.length} line${parsed.length === 1 ? "" : "s"}`}</span>
+          </div>
+          <div class="log">
+            {parsed.length === 0 ? (
+              <div class="empty">Waiting for output&hellip;</div>
+            ) : shown.length === 0 ? (
+              <div class="empty">No lines match &ldquo;{term}&rdquo;.</div>
+            ) : shown.map((p) => (
+              <div class="ln">{p.ts ? <span class="lts">{p.ts}</span> : null}<span class="lmsg">{q ? this.highlight(p.msg, term) : p.msg}</span></div>
+            ))}
+            {shown.length > 0 && !q ? <span class="cursor"></span> : null}
+          </div>
+        </>
       );
     }
     const v = this.view();
