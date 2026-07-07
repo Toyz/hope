@@ -565,9 +565,62 @@ func registerLayout(p *plugin.Plugin) {
 			plugin.Section("Maintenance", plugin.Row(plugin.Leaf("analyze"), plugin.Leaf("vacuum"))),
 		))
 
+	// A standalone nav page — a first-class rail entry + a ⌘K command-palette entry,
+	// openable without drilling into the postgres container. A fuller layout than the
+	// container tabs (stat band, a size/database row, then the working tabs) with the
+	// maintenance ops as a header toolbar. PageID makes it a stable link/breadcrumb
+	// target (the table detail page points its crumb back here).
+	p.Page("Postgres", plugin.Section("",
+		plugin.Leaf("overview"),
+		plugin.Row(
+			plugin.Section("Largest tables", plugin.Leaf("sizes")),
+			plugin.Section("Databases", plugin.Leaf("databases")),
+		),
+		plugin.Tabs(
+			plugin.Leaf("tables").Titled("Tables").Filled(),
+			plugin.Leaf("query").Titled("Query"),
+			plugin.Leaf("explain").Titled("Explain"),
+			plugin.Leaf("activity").Titled("Activity"),
+			plugin.Leaf("schema").Titled("Schema"),
+		),
+	)).PageID("postgres").
+		Subtitle("browse, query, and operate this database").
+		HeaderActions("analyze", "vacuum")
+
+	// Compact fleet-dashboard widget: just the stat tiles, so a DB's health shows on
+	// the dashboard alongside hope's own cards (keep it small — no full panel).
+	p.DashboardWidget("Postgres", plugin.Section("",
+		plugin.Leaf("overview"),
+	))
+
+	// Stack-view widget: an empty match means "the plugin's OWN stack", so when this
+	// plugin is deployed alongside the database it monitors, its overview shows on
+	// that stack's page — the DB it targets, at stack scope.
+	p.StackWidget("Postgres", nil, plugin.Section("",
+		plugin.Leaf("overview"),
+	))
+
+	// LIVE schema tree in the rail: schema -> table, built from the database on every
+	// layout fetch (DynamicPageFunc), so it tracks the real schema instead of a set
+	// frozen at startup. Each table leaf passes {table:"schema.table"}; the shared
+	// node renders that table's tabs — the pgAdmin left-tree, as navigable rail pages.
+	p.DynamicPageFunc("Browse", tableTabs(), schemaPageItems)
+
 	// Hidden master-detail page for a single table, reached via the DetailLink in the
 	// tables list. Every leaf receives {table: "schema.table"} as the page param.
-	p.DetailPage("table", "Table", "table", plugin.Section("",
+	p.DetailPage("table", "Table", "table", tableTabs()).
+		Subtitle("{table}").
+		Breadcrumbs(
+			plugin.Crumb{Label: "Postgres", To: "postgres"}, // back to the standalone page
+			plugin.Crumb{Label: "{table}"},
+		)
+}
+
+// tableTabs is the per-table view tabs, shared by the "Browse" rail tree and the
+// table detail page. Returns a fresh node each call (a *Node can't be shared across
+// two contributions).
+func tableTabs() *plugin.Node {
+	return plugin.Section("",
 		plugin.Tabs(
 			plugin.Leaf("table_data").Titled("Data").Filled(),
 			plugin.Leaf("table_columns").Titled("Columns"),
@@ -576,11 +629,53 @@ func registerLayout(p *plugin.Plugin) {
 			plugin.Leaf("table_ddl").Titled("DDL"),
 			plugin.Leaf("query").Titled("Query"),
 		),
-	)).Subtitle("{table}").
-		Breadcrumbs(
-			plugin.Crumb{Label: "Tables", To: "tables"},
-			plugin.Crumb{Label: "{table}"},
-		)
+	)
+}
+
+// Schema-tree rail items are cached briefly: hope fetches the layout on several
+// surface calls, and the table list rarely changes second-to-second.
+var (
+	treeMu    sync.Mutex
+	treeAt    time.Time
+	treeItems []plugin.PageItem
+)
+
+// schemaPageItems builds the schema -> table rail tree from the live database, with
+// a short TTL cache. On error it serves the last good tree (nil before first fetch).
+func schemaPageItems(ctx context.Context) []plugin.PageItem {
+	treeMu.Lock()
+	defer treeMu.Unlock()
+	if treeItems != nil && time.Since(treeAt) < 15*time.Second {
+		return treeItems
+	}
+	res, err := grid(ctx, `
+		select table_schema, table_name
+		from information_schema.tables
+		where table_schema not in ('pg_catalog', 'information_schema') and table_type = 'BASE TABLE'
+		order by table_schema, table_name`)
+	if err != nil {
+		return treeItems
+	}
+	order := []string{}
+	bySchema := map[string][]plugin.PageItem{}
+	for _, r := range res.(map[string]any)["rows"].([][]any) {
+		schema, _ := r[0].(string)
+		table, _ := r[1].(string)
+		if _, ok := bySchema[schema]; !ok {
+			order = append(order, schema)
+		}
+		bySchema[schema] = append(bySchema[schema], plugin.PageItem{
+			Title: table,
+			Param: map[string]any{"table": schema + "." + table},
+		})
+	}
+	items := make([]plugin.PageItem, 0, len(order))
+	for _, s := range order {
+		items = append(items, plugin.PageItem{Title: s, Icon: "database", Children: bySchema[s]})
+	}
+	treeAt = time.Now()
+	treeItems = items
+	return items
 }
 
 // --- Postgres access ------------------------------------------------------------
