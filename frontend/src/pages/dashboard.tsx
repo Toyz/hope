@@ -2,7 +2,7 @@
 // synthesizes fleet state; a flat fleet ribbon shows every stack as a cell
 // (dark = nominal, lit = trouble); below, an Attention zone then a quiet Fleet
 // list of instrument rows. No glows, no per-row noise. Refreshes every 5s.
-import { LoomElement, component, styles, css, reactive, mount, interval, on, app } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, mount, interval, on, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, route } from "@toyz/loom/router";
 import { rpc, mutate } from "@toyz/loom-rpc";
@@ -12,7 +12,7 @@ import { HopeTransport } from "../transport";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
-import { HostChanged, withRefresh } from "../events";
+import { HostChanged, UpdatesApplied, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
 import { ConfirmService } from "../confirm";
@@ -793,7 +793,7 @@ export class DashboardPage extends LoomElement {
   // stack is selected (one image pull); otherwise redeploy the individually picked
   // containers. Everything streams into one proc dialog.
   private bulkUpdate = async () => {
-    const jobs: Array<{ host: string; label: string; method: "redeployStack" | "redeploy"; arg: string }> = [];
+    const jobs: Array<{ host: string; project: string; label: string; method: "redeployStack" | "redeploy"; arg: string }> = [];
     for (const h of this.updTree()) {
       for (const p of h.projects) {
         const ids = p.items.map((i) => i.id);
@@ -801,9 +801,9 @@ export class DashboardPage extends LoomElement {
         if (picked.length === 0) continue;
         const pfx = (h.host ? h.host + " / " : "") + p.project;
         if (picked.length === ids.length && p.project !== UNGROUPED) {
-          jobs.push({ host: h.host, label: pfx, method: "redeployStack", arg: p.project });
+          jobs.push({ host: h.host, project: p.project, label: pfx, method: "redeployStack", arg: p.project });
         } else {
-          for (const it of p.items) if (this.updSel.includes(it.id)) jobs.push({ host: h.host, label: pfx + " / " + it.service, method: "redeploy", arg: it.id });
+          for (const it of p.items) if (this.updSel.includes(it.id)) jobs.push({ host: h.host, project: p.project, label: pfx + " / " + it.service, method: "redeploy", arg: it.id });
         }
       }
     }
@@ -818,12 +818,19 @@ export class DashboardPage extends LoomElement {
           if (f.type === "log" && f.data) emit(f.data);
           else if (f.type === "done" && !f.ok) { jok = false; emit("failed: " + (f.error ?? "")); }
         }
-        if (!jok) ok = false;
+        if (!jok) { ok = false; continue; }
+        // The redeploy pulled latest, so these are current now — patch the rail's
+        // dots in place per host+stack (a whole-stack redeploy clears the project;
+        // a per-container one clears just that id) instead of a full fleet recrawl.
+        const ids = j.method === "redeploy" ? [j.arg] : undefined;
+        bus.emit(new UpdatesApplied(j.host || this.hostCtx.token, j.project, ids));
       }
       emit("done");
       return ok;
     });
-    this.fleetMode ? this.refreshFleet() : this.refreshUpdates();
+    // Refresh the dashboard's OWN updates view from the already-updated backend cache
+    // (no forced recrawl, no withRefresh — so the rail isn't yanked into a full reload).
+    (this.fleetMode ? this.fleetQ : this.updatesQ).refetch();
   };
 
   private renderUpdModal() {

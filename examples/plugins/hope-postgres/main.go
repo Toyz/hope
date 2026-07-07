@@ -520,7 +520,9 @@ func backendOp(fn, verb string) plugin.ActionFunc {
 // --- Maintenance ----------------------------------------------------------------
 
 func registerMaintenance(p *plugin.Plugin) {
-	p.DangerAction("analyze", "Analyze database", nil, func(ctx context.Context, in map[string]any) (any, error) {
+	// ANALYZE only refreshes the planner's statistics — it doesn't touch data or
+	// schema and takes no disruptive locks, so it's a plain (non-danger) action.
+	p.Action("analyze", "Analyze database", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		pool, err := getPool(ctx)
 		if err != nil {
 			return nil, err
