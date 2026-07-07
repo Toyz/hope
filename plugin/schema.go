@@ -70,6 +70,9 @@ type TableData struct {
 	Rows    [][]any  `json:"rows"`
 	Total   int      `json:"total"`
 	Hidden  []string `json:"hidden,omitempty"`
+	// ColumnTips maps a column name to a hover tooltip on its header — for clarifying
+	// a terse or computed column (e.g. "health": Tip("seq-scan / bloat state")).
+	ColumnTips map[string]*Tooltip `json:"column_tips,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
@@ -116,12 +119,41 @@ type StatData struct {
 // StatBlock is one stat: a big Value with a Label, optional Unit, a Sub line (e.g. a
 // delta or context), a semantic Tone, and an optional Icon.
 type StatBlock struct {
-	Label string `json:"label"`
-	Value any    `json:"value"`
-	Unit  string `json:"unit,omitempty"`
-	Sub   string `json:"sub,omitempty"`
-	Tone  string `json:"tone,omitempty"` // ok|warn|bad|info
-	Icon  string `json:"icon,omitempty"`
+	Label string   `json:"label"`
+	Value any      `json:"value"`
+	Unit  string   `json:"unit,omitempty"`
+	Sub   string   `json:"sub,omitempty"`
+	Tone  string   `json:"tone,omitempty"` // ok|warn|bad|info
+	Icon  string   `json:"icon,omitempty"`
+	Tip   *Tooltip `json:"tip,omitempty"` // hover tooltip explaining the metric (build with Tip)
+}
+
+// TipPos is where a tooltip points relative to its target.
+type TipPos string
+
+const (
+	TipTop       TipPos = "top" // default
+	TipBottom    TipPos = "bottom"
+	TipTopEnd    TipPos = "top-end"
+	TipBottomEnd TipPos = "bottom-end"
+)
+
+// Tooltip is hover help with an optional placement. Build one with Tip("text") or
+// Tip("text", plugin.TipBottom). Empty Pos renders at the top.
+type Tooltip struct {
+	Text string `json:"text"`
+	Pos  TipPos `json:"pos,omitempty"`
+}
+
+// Tip builds a Tooltip — hover help text with an optional placement (the author's
+// control over where it points): Tip("Reclaims space", plugin.TipBottom). Extra pos
+// args are ignored.
+func Tip(text string, pos ...TipPos) *Tooltip {
+	t := &Tooltip{Text: text}
+	if len(pos) > 0 {
+		t.Pos = pos[0]
+	}
+	return t
 }
 
 // StreamKind tells hope how to render a live NDJSON stream.
@@ -199,21 +231,22 @@ type Setting struct {
 // ActionDesc describes an invocable action (a mutation). Danger flags a
 // destructive action so hope confirms before running it.
 type ActionDesc struct {
-	Method string  `json:"method"`
-	Label  string  `json:"label"`
-	Icon   string  `json:"icon,omitempty"`
-	Danger bool    `json:"danger,omitempty"`
-	Fields []Field `json:"fields,omitempty"`
+	Method string   `json:"method"`
+	Label  string   `json:"label"`
+	Icon   string   `json:"icon,omitempty"`
+	Danger bool     `json:"danger,omitempty"`
+	Fields []Field  `json:"fields,omitempty"`
+	Tip    *Tooltip `json:"tip,omitempty"` // hover tooltip on the action button (set with ActionTip)
 }
 
 // ViewDesc describes a read-only data view and how to render it.
 type ViewDesc struct {
-	Method string   `json:"method"`
-	Label  string   `json:"label"`
-	Kind   ViewKind `json:"kind"`
-	Icon   string   `json:"icon,omitempty"`
-	Lang    string `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
-	Default string `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
+	Method  string   `json:"method"`
+	Label   string   `json:"label"`
+	Kind    ViewKind `json:"kind"`
+	Icon    string   `json:"icon,omitempty"`
+	Lang    string   `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
+	Default string   `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
 	// RowMethod (table/query views): a method hope calls to open a row-detail modal,
 	// with params {row: {column: value}}. The result (kv or table) is shown in a
 	// modal — a fully author-controlled row-detail RPC.
@@ -282,11 +315,12 @@ type Facet struct {
 // If Fields is set, hope collects them first and merges the values into the call
 // params alongside row — e.g. a "Rename" action with a new-name field.
 type RowAction struct {
-	Method string  `json:"method"`
-	Label  string  `json:"label"`
-	Icon   string  `json:"icon,omitempty"`
-	Danger bool    `json:"danger,omitempty"` // hope confirms before running and audit-logs it
-	Fields []Field `json:"fields,omitempty"` // optional input collected before the call
+	Method string   `json:"method"`
+	Label  string   `json:"label"`
+	Icon   string   `json:"icon,omitempty"`
+	Danger bool     `json:"danger,omitempty"` // hope confirms before running and audit-logs it
+	Fields []Field  `json:"fields,omitempty"` // optional input collected before the call
+	Tip    *Tooltip `json:"tip,omitempty"`    // hover tooltip on the row action button (build with Tip)
 }
 
 // StreamDesc describes a live stream and how to render it.
@@ -403,11 +437,11 @@ const (
 // container panel now and a full page later; hope's renderer walks it without
 // caring which surface hosts it.
 type Node struct {
-	Kind     NodeKind `json:"kind"`
-	Title    string   `json:"title,omitempty"`
-	Ref      string   `json:"ref,omitempty"`  // leaf: method name of a view/action/stream
-	Size     int      `json:"size,omitempty"` // optional row/grid weight
-	Fill     bool     `json:"fill,omitempty"` // grow to fill the remaining height (e.g. a table)
+	Kind  NodeKind `json:"kind"`
+	Title string   `json:"title,omitempty"`
+	Ref   string   `json:"ref,omitempty"`  // leaf: method name of a view/action/stream
+	Size  int      `json:"size,omitempty"` // optional row/grid weight
+	Fill  bool     `json:"fill,omitempty"` // grow to fill the remaining height (e.g. a table)
 	// Collapsible makes a titled section fold on a title click; Collapsed starts it
 	// closed. For dense pages where not everything needs to be open at once.
 	Collapsible bool    `json:"collapsible,omitempty"`

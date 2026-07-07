@@ -94,11 +94,11 @@ type Plugin struct {
 // sets HOPE_PLUGIN_TOKEN, calls must present it as a bearer token.
 func New(name, version string) *Plugin {
 	return &Plugin{
-		name:    name,
-		version: version,
-		path:    "/__hope",
-		maxBody: 4 << 20,
-		icons:   map[string]string{},
+		name:        name,
+		version:     version,
+		path:        "/__hope",
+		maxBody:     4 << 20,
+		icons:       map[string]string{},
 		views:       map[string]viewEntry{},
 		actions:     map[string]actionEntry{},
 		streams:     map[string]streamEntry{},
@@ -313,6 +313,12 @@ type ActionOpt func(*ActionDesc)
 // ActionIcon sets the action button's icon — a hope built-in icon name or one of
 // this plugin's Icons keys. e.g. plugin.ActionIcon("rotate").
 func ActionIcon(name string) ActionOpt { return func(a *ActionDesc) { a.Icon = name } }
+
+// ActionTip sets a hover tooltip on the action button explaining what it does, with
+// an optional placement (see Tip). e.g. plugin.ActionTip("Refresh stats", plugin.TipBottom).
+func ActionTip(text string, pos ...TipPos) ActionOpt {
+	return func(a *ActionDesc) { a.Tip = Tip(text, pos...) }
+}
 
 // Action registers an invocable action. The UI collects fields, then calls fn
 // with the values. Mark destructive actions with DangerAction.

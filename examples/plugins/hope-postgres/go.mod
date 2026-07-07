@@ -7,7 +7,7 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/toyz/hope/plugin v0.0.3
+	github.com/toyz/hope/plugin v0.0.4
 )
 
 require (

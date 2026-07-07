@@ -8,6 +8,6 @@ module github.com/toyz/hope/examples/plugins/hello-world
 
 go 1.25
 
-require github.com/toyz/hope/plugin v0.0.3
+require github.com/toyz/hope/plugin v0.0.4
 
 replace github.com/toyz/hope/plugin => ../../../plugin
