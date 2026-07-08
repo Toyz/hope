@@ -789,22 +789,21 @@ export class DashboardPage extends LoomElement {
     return n === 0 ? "" : n === ids.length ? "on" : "part";
   };
 
-  // Update exactly what's picked. Whole-stack redeploy when every container in a
-  // stack is selected (one image pull); otherwise redeploy the individually picked
-  // containers. Everything streams into one proc dialog.
+  // Update exactly what's picked — one redeploy per selected container, so each pulls
+  // only its own image and recreates only itself. We deliberately do NOT collapse a
+  // fully-picked stack into a redeployStack: updTree lists only the OUTDATED containers,
+  // so "all items picked" means "all the outdated ones", not "all containers in the
+  // stack". redeployStack pulls EVERY image in the project and re-evaluates EVERY
+  // container — so updating one outdated service dragged the whole stack (painfully so
+  // across a cluster tunnel). A genuine whole-stack redeploy lives on the stack page.
   private bulkUpdate = async () => {
     const jobs: Array<{ host: string; project: string; label: string; method: "redeployStack" | "redeploy"; arg: string }> = [];
     for (const h of this.updTree()) {
       for (const p of h.projects) {
-        const ids = p.items.map((i) => i.id);
-        const picked = ids.filter((id) => this.updSel.includes(id));
+        const picked = p.items.filter((it) => this.updSel.includes(it.id));
         if (picked.length === 0) continue;
         const pfx = (h.host ? h.host + " / " : "") + p.project;
-        if (picked.length === ids.length && p.project !== UNGROUPED) {
-          jobs.push({ host: h.host, project: p.project, label: pfx, method: "redeployStack", arg: p.project });
-        } else {
-          for (const it of p.items) if (this.updSel.includes(it.id)) jobs.push({ host: h.host, project: p.project, label: pfx + " / " + it.service, method: "redeploy", arg: it.id });
-        }
+        for (const it of picked) jobs.push({ host: h.host, project: p.project, label: pfx + " / " + it.service, method: "redeploy", arg: it.id });
       }
     }
     if (!jobs.length) return;
