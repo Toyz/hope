@@ -38,6 +38,10 @@ jobs:
             dockerfile: examples/plugins/hope-redis/Dockerfile
     steps:
       - uses: actions/checkout@v5
+        with:
+          # ghcr login uses the token via docker/login-action, not git config, so
+          # don't leave GITHUB_TOKEN in .git/config for a later step to read back.
+          persist-credentials: false
 
       # ghcr requires a lowercase image path; the owner "Toyz" must be folded.
       - name: Compute lowercase image name

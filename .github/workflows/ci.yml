@@ -1,0 +1,108 @@
+name: CI
+
+# Pre-merge gate for anything landing on main: run the unit tests AND scan for
+# leaked secrets. Runs on every PR (the path code takes to reach main) and on
+# direct pushes to main as a backstop. docker-publish.yml only builds images on
+# push to main/tags — this workflow is the pre-merge quality + secret gate.
+#
+# Deliberately triggered on `pull_request`, NOT `pull_request_target`: a fork PR's
+# code therefore runs WITHOUT access to repo secrets and with a read-only
+# GITHUB_TOKEN, which is what stops a malicious PR from exfiltrating credentials.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch/PR supersedes in-flight runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege by default: the whole workflow gets a read-only token. Any job
+# that needs more must opt in explicitly (none here do).
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go build, vet & test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Don't leave the GITHUB_TOKEN in .git/config after checkout — a later
+          # step (or a compromised dependency) could otherwise read it back out.
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod # single source of truth for the Go version
+          # Cache poisoning defense: the module/build cache is SHARED across runs
+          # and a PR could plant a malicious entry that a later trusted run
+          # restores and executes. Disable the cross-run cache so every run builds
+          # from a clean, ephemeral runner. Builds here are fast; the safety is
+          # worth the few seconds. (If speed ever matters, the safe pattern is
+          # restore-only on PRs + save only on push-to-main, never save from a PR.)
+          cache: false
+
+      # The repo is a multi-module workspace: the hope server (root), the published
+      # plugin SDK (plugin/), and the example plugins (each its own go.mod with a
+      # replace pointing at the in-repo SDK). Build+vet+test each so an SDK change
+      # that breaks an example is caught here, not at image-build time. `-race`
+      # surfaces data races; modules with no tests are a harmless no-op.
+      - name: Build, vet & test all modules
+        run: |
+          set -euo pipefail
+          for mod in $(find . -name go.mod -not -path './vendor/*' -exec dirname {} \; | sort); do
+            echo "::group::$mod"
+            (cd "$mod" && go build ./... && go vet ./... && go test -race ./...)
+            echo "::endgroup::"
+          done
+
+  frontend:
+    name: Frontend typecheck & build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # No setup-node cache, same cache-poisoning reasoning as the Go job. `npm
+          # ci` still verifies every package against the lockfile's integrity hash,
+          # so a tampered download fails regardless.
+      - name: Install (locked, integrity-checked)
+        working-directory: frontend
+        run: npm ci
+
+      # `npm run build` is `tsc && vite build` — the tsc pass is the typecheck gate,
+      # vite proves the bundle actually builds.
+      - name: Typecheck & build
+        working-directory: frontend
+        run: npm run build
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history so the scan covers the whole PR / pushed range
+          persist-credentials: false
+
+      # gitleaks blocks a merge that would commit an API key, token, private key,
+      # etc. It exits non-zero on any finding, failing the check. Config +
+      # placeholder allowlist live in .gitleaks.toml. Free for public repos; a
+      # private org repo additionally needs a GITLEAKS_LICENSE secret.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

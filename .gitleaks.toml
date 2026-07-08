@@ -1,0 +1,15 @@
+# gitleaks config for the CI secret scan (.github/workflows/ci.yml).
+#
+# Keep the full built-in ruleset (AWS keys, GitHub/Docker PATs, private keys,
+# high-entropy tokens, …) and only carve out the example config files, which by
+# design carry PLACEHOLDER secrets ("change-me", "dckr_pat_xxxx"). The real
+# secret-bearing files (config.toml, .env) are gitignored and never scanned.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Example configs hold documented placeholder values, not real secrets."
+paths = [
+  '''config\.example\.toml''',
+  '''config\.agent\.example\.toml''',
+]
