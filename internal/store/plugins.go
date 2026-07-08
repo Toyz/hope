@@ -40,6 +40,15 @@ type PluginRecord struct {
 	SchemaHash  string    `json:"schema_hash"` // hash of hope.schema at enable time (catches runtime schema changes)
 	Token       string    `json:"token"`       // per-plugin bearer secret hope presents
 	EnabledAt   time.Time `json:"enabled_at"`
+	// CatalogID is set when hope INSTALLED this plugin from the marketplace (the
+	// catalog entry's id). It lets the inspector resolve the entry's env schema + the
+	// stored deploy spec for the Configuration (env) editor. Empty = a hand-labeled
+	// plugin hope only discovered (no installer-managed env).
+	CatalogID string `json:"catalog_id,omitempty"`
+	// InitContainerID is the container id hope last ran the hope.init handshake
+	// against; when it next contacts a DIFFERENT (restarted) container it re-inits, so
+	// a restarted plugin re-receives its settings without waiting for a change.
+	InitContainerID string `json:"init_container_id,omitempty"`
 	// Settings holds the operator-managed setting VALUES for this plugin (the
 	// plugin declares the schema via hope.schema; hope stores the values here and
 	// pushes them to the plugin). Sealed with the rest of the record, so secret

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/hosts"
 )
 
 // pathPluginStream is the loom-rpc @stream route for a plugin's live stream. It
@@ -19,6 +20,14 @@ import (
 // RouteHandler before RPC dispatch (there is no streaming RPC router). Args:
 // [key, method].
 const pathPluginStream = "/rpc/Stream/pluginStream"
+
+// pathInstallPlugin deploys catalog plugins from the UI (args: [json InstallParams]);
+// pathReconfigurePlugin recreates an installed plugin with new env (args: [key, json env
+// map]). Both stream opFrame progress and require an X-Hope-Host target (a write).
+const (
+	pathInstallPlugin     = "/rpc/Stream/installPlugin"
+	pathReconfigurePlugin = "/rpc/Stream/reconfigurePlugin"
+)
 
 // keepAlivePlugin pings an idle stream so it doesn't time out at a proxy / the
 // agent tunnel / Cloudflare while the plugin is quiet.
@@ -47,7 +56,9 @@ func (h *StreamHandler) PluginName() string { return "pluginstream" }
 func (h *StreamHandler) Doc() string {
 	return "Streams a container plugin's NDJSON stream to the loom-rpc @stream transport."
 }
-func (h *StreamHandler) RoutePatterns() []string { return []string{pathPluginStream} }
+func (h *StreamHandler) RoutePatterns() []string {
+	return []string{pathPluginStream, pathInstallPlugin, pathReconfigurePlugin}
+}
 
 // streamFrame is one NDJSON line hope sends the UI: a plugin data frame, a
 // keepalive ping (ignored by the UI), or a terminal error.
@@ -69,6 +80,13 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 	if err := h.r.gate(); err != nil {
 		return errResp(http.StatusBadRequest, err.Error())
 	}
+	switch req.Path {
+	case pathInstallPlugin:
+		return h.serveInstall(ctx, req)
+	case pathReconfigurePlugin:
+		return h.serveReconfigure(ctx, req)
+	}
+
 	args, err := stringArgs(req.Body)
 	if err != nil || len(args) < 2 {
 		return errResp(http.StatusBadRequest, "key and method are required")
@@ -155,6 +173,95 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 				return err
 			case <-ticker.C:
 				if err := write(streamFrame{Type: "ping"}); err != nil {
+					return err
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}))
+}
+
+// serveInstall streams a plugin install. Args: [json InstallParams]. A write, so it
+// must name its host (X-Hope-Host) — never falls back to the active host.
+func (h *StreamHandler) serveInstall(ctx context.Context, req *gateway.Request) *gateway.Response {
+	if id := req.Header.Get(hosts.TargetHeader); id != "" {
+		ctx = hosts.WithTarget(ctx, id)
+	}
+	host, dock, err := h.r.hosts.RequireTarget(ctx)
+	if err != nil {
+		return errResp(http.StatusBadRequest, err.Error())
+	}
+	args, err := stringArgs(req.Body)
+	if err != nil || len(args) < 1 {
+		return errResp(http.StatusBadRequest, "install params required")
+	}
+	var p InstallParams
+	if err := json.Unmarshal([]byte(args[0]), &p); err != nil {
+		return errResp(http.StatusBadRequest, "bad install params: "+err.Error())
+	}
+	p.Host = host
+	return h.runOp(ctx, func(emit func(string)) error { return h.r.install(ctx, dock, host, p, emit) })
+}
+
+// serveReconfigure streams an env-reconfigure (recreate). Args: [key, json env map].
+func (h *StreamHandler) serveReconfigure(ctx context.Context, req *gateway.Request) *gateway.Response {
+	if id := req.Header.Get(hosts.TargetHeader); id != "" {
+		ctx = hosts.WithTarget(ctx, id)
+	}
+	if _, _, err := h.r.hosts.RequireTarget(ctx); err != nil {
+		return errResp(http.StatusBadRequest, err.Error())
+	}
+	args, err := stringArgs(req.Body)
+	if err != nil || len(args) < 2 {
+		return errResp(http.StatusBadRequest, "key and env are required")
+	}
+	key := args[0]
+	var env map[string]string
+	if err := json.Unmarshal([]byte(args[1]), &env); err != nil {
+		return errResp(http.StatusBadRequest, "bad env: "+err.Error())
+	}
+	return h.runOp(ctx, func(emit func(string)) error { return h.r.reconfigure(ctx, key, env, emit) })
+}
+
+// opFrame is one NDJSON line of a streamed operation: "log" progress lines, a "ping"
+// keepalive, then a terminal "done" carrying success/failure — the same shape the
+// deploy streams use, so the UI consumes install exactly like applyStack.
+type opFrame struct {
+	Type  string `json:"type"` // "log" | "ping" | "done"
+	Data  string `json:"data,omitempty"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// runOp runs a long operation, forwarding each progress line as an opFrame and
+// finishing with a terminal done frame. The op runs in a goroutine so keepalive pings
+// go out during a silent step; writes are serialized.
+func (h *StreamHandler) runOp(ctx context.Context, run func(emit func(string)) error) *gateway.Response {
+	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		var mu sync.Mutex
+		write := func(f opFrame) error {
+			mu.Lock()
+			defer mu.Unlock()
+			return enc.Encode(f)
+		}
+		emit := func(line string) { _ = write(opFrame{Type: "log", Data: line}) }
+
+		done := make(chan error, 1)
+		go func() { done <- run(emit) }()
+
+		ticker := time.NewTicker(keepAlivePlugin)
+		defer ticker.Stop()
+		for {
+			select {
+			case err := <-done:
+				if err != nil {
+					return write(opFrame{Type: "done", OK: false, Error: err.Error()})
+				}
+				return write(opFrame{Type: "done", OK: true})
+			case <-ticker.C:
+				if err := write(opFrame{Type: "ping"}); err != nil {
 					return err
 				}
 			case <-ctx.Done():

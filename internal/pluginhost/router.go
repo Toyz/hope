@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/catalog"
+	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/store"
@@ -17,12 +19,14 @@ import (
 // covers discovery + trust (list / enable / disable / forget); dialing, manifest
 // rendering, and streaming arrive in later phases.
 type PluginsRouter struct {
-	hosts   *hosts.Set
-	store   *store.Store
-	dialer        ContainerDialer // agent hub for remote container dialing; nil if no hub
-	enabled       bool            // [plugins] enabled capability gate
-	autoReapprove bool            // trust schema/image changes (dev): re-record fingerprint instead of disabling
-	limits        Limits          // operator-tuned per-plugin safety caps
+	hosts         *hosts.Set
+	store         *store.Store
+	dialer        ContainerDialer  // agent hub for remote container dialing; nil if no hub
+	deploy        *deploy.Engine   // write path for installing plugin containers; nil = install unavailable
+	catalog       *catalog.Service // installable-plugin catalog (built-ins + remote); nil = empty
+	enabled       bool             // [plugins] enabled capability gate
+	autoReapprove bool             // trust schema/image changes (dev): re-record fingerprint instead of disabling
+	limits        Limits           // operator-tuned per-plugin safety caps
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -54,8 +58,81 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 // (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
 // when false every method reports the feature is off. sov derives the wire name
 // "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, enabled, autoReapprove bool, limits Limits) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults()}
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults()}
+}
+
+// Catalog returns the installable first-party plugins (built-ins merged with any
+// remote manifest entries). Empty when no catalog is wired.
+func (r *PluginsRouter) Catalog(ctx *rpc.Context) ([]catalog.CatalogEntry, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if r.catalog == nil {
+		return []catalog.CatalogEntry{}, nil
+	}
+	return r.catalog.Entries(), nil
+}
+
+// RefreshCatalog forces a remote-manifest re-fetch and returns the merged result.
+func (r *PluginsRouter) RefreshCatalog(ctx *rpc.Context) ([]catalog.CatalogEntry, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if r.catalog == nil {
+		return []catalog.CatalogEntry{}, nil
+	}
+	if err := r.catalog.Refresh(ctx); err != nil {
+		return nil, rpc.Internal("refresh catalog: %v", err)
+	}
+	return r.catalog.Entries(), nil
+}
+
+// PluginConfig is the env (Configuration) editor's data for a hope-installed plugin:
+// the catalog entry's env schema plus the current values from the stored deploy spec
+// (secret values are blanked — never returned — so "blank keeps existing" holds).
+type PluginConfig struct {
+	Fields []catalog.EnvField `json:"fields"`
+	Values map[string]string  `json:"values"`
+}
+
+// Config returns the env-editor schema + current values for an installed plugin, or an
+// empty set for a hand-labeled plugin (no CatalogID / no stored spec) so the inspector
+// simply hides the Configuration section.
+func (r *PluginsRouter) Config(ctx *rpc.Context, p *TargetParams) (*PluginConfig, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key is required")
+	}
+	empty := &PluginConfig{Fields: []catalog.EnvField{}, Values: map[string]string{}}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read plugin: %v", err)
+	}
+	if rec == nil || rec.CatalogID == "" || r.catalog == nil {
+		return empty, nil
+	}
+	entry, ok := r.catalog.Entry(rec.CatalogID)
+	if !ok {
+		return empty, nil
+	}
+	values := map[string]string{}
+	if r.deploy != nil {
+		if spec, _ := r.deploy.Store().Load(rec.Host, rec.Project); spec != nil {
+			if svc, ok := spec.ServiceByName(rec.Service); ok {
+				for _, f := range entry.Env {
+					v := svc.Env[f.Key]
+					if f.Kind == "secret" {
+						v = "" // never return a secret; blank means "keep existing"
+					}
+					values[f.Key] = v
+				}
+			}
+		}
+	}
+	return &PluginConfig{Fields: entry.Env, Values: values}, nil
 }
 
 // gate blocks every method when the feature is disabled in config.
@@ -211,44 +288,8 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if !r.store.Enabled() {
 		return nil, rpc.BadRequest("enabling a plugin needs the state store mounted ([store] path) to persist the approval + token")
 	}
-	members, host, ok := r.group(ctx, p.Key)
-	if !ok {
-		return nil, rpc.BadRequest("plugin not found (no matching container on the fleet)")
-	}
-	rep := representative(members)
-	token := r.store.DeriveToken(p.Key)
-	// Capture the schema hash at approval so a later runtime schema change (new
-	// capabilities the operator never approved) is detected on inspect and forces
-	// re-approval — the image digest alone only catches image swaps. Require the
-	// plugin be reachable here: enabling an unreachable plugin would persist an empty
-	// hash, permanently disabling the re-approval gate (and you can't use it anyway).
-	ep, derr := r.dial(ctx, host, rep, token, false)
-	if derr != nil {
-		return nil, rpc.BadRequest("plugin unreachable — start it and try again (needed to pin its schema for change detection)")
-	}
-	raw, serr := ep.callRPC(ctx, "hope.schema", nil)
-	if serr != nil {
-		return nil, rpc.BadRequest("plugin did not answer hope.schema — start it and try again")
-	}
-	schemaHash := hashBytes(raw)
-	// Deterministic token derived from hope's secret + the plugin identity — stable
-	// across disable/enable/forget so the plugin's trust-on-first-use pin keeps
-	// matching (a fresh random token each time would break it once the plugin pins).
-	rec := store.PluginRecord{
-		Key:         p.Key,
-		Host:        host,
-		Project:     rep.Project,
-		Service:     rep.Service,
-		ContainerID: rep.ContainerID,
-		Name:        rep.Title,
-		Enabled:     true,
-		Fingerprint: fingerprint(rep),
-		SchemaHash:  schemaHash,
-		Token:       token,
-		EnabledAt:   time.Now(),
-	}
-	if err := r.store.PutPlugin(rec); err != nil {
-		return nil, rpc.Internal("persist approval: %v", err)
+	if _, _, _, err := r.enableRecord(ctx, p.Key, ""); err != nil {
+		return nil, err
 	}
 	return map[string]any{"ok": true}, nil
 }

@@ -8,15 +8,16 @@
 // Instances are deduplicated by STABLE identity (host + compose project/service),
 // so a redeploy keeps its trust, two of the same image in different stacks stay
 // distinct, and replicas collapse to one entry.
-import { LoomElement, component, styles, css, mount, reactive, prop, watch, app, bus } from "@toyz/loom";
+import { LoomElement, component, styles, css, mount, reactive, prop, watch, on, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
-import { PluginsChanged } from "../events";
+import { PluginsChanged, OpenInstaller, Refreshing, withRefresh } from "../events";
 import { PluginInspector } from "../plugin-inspector";
+import "../components/plugin-installer"; // registers <hope-plugin-installer>
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
 import type { PluginView } from "../contracts";
@@ -110,6 +111,20 @@ export class PluginsPage extends LoomElement {
   }
 
   @watch("routeKey") private onKeyParam() { this.syncInsp(); }
+
+  // A marketplace install just landed (or trust changed) — refresh the list.
+  @on(PluginsChanged) private onPluginsChanged() { void this.load(true); }
+
+  // Spin the refresh action off the shared Refreshing bus (ref-counted, min-beat),
+  // not the raw `busy` flag — the resource-page pattern, so it never looks stuck.
+  @reactive accessor refreshing = false;
+  private refreshRC = 0;
+  @on(Refreshing) private onRefreshing(e: Refreshing) {
+    this.refreshRC = Math.max(0, this.refreshRC + (e.active ? 1 : -1));
+    this.refreshing = this.refreshRC > 0;
+  }
+
+  private openInstaller = () => bus.emit(new OpenInstaller(this.host));
 
   // Drive the docked inspector from the :key route param (deep-linkable).
   private syncInsp() {
@@ -236,7 +251,8 @@ export class PluginsPage extends LoomElement {
           scope={this.scoped ? this.host : "fleet"}
           meta={this.scoped ? "plugin containers on this host" : "container-declared endpoints across the fleet"}
         >
-          <hope-button slot="actions" icon="rotate" spin={this.busy} onClick={() => this.load(true)}></hope-button>
+          <hope-button slot="actions" tone="primary" icon="download" disabled={!this.storeOn} onClick={this.openInstaller}>Install</hope-button>
+          <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={this.busy} onClick={() => void withRefresh(() => this.load(true))}></hope-button>
           <div class="vstats">
             <hope-stat label="discovered" value={String(discovered)}></hope-stat>
             <hope-stat label="enabled" value={String(enabled)} tone={enabled > 0 ? "ok" : undefined}></hope-stat>
@@ -268,6 +284,7 @@ export class PluginsPage extends LoomElement {
             {vis.map((p) => this.row(p))}
           </div>
         )}
+        <hope-plugin-installer></hope-plugin-installer>
       </div>
     );
   }

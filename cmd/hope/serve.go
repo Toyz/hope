@@ -19,6 +19,7 @@ import (
 	hope "github.com/toyz/hope"
 	"github.com/toyz/hope/internal/agent"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/cloudflare"
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/config"
@@ -28,12 +29,12 @@ import (
 	"github.com/toyz/hope/internal/hostguard"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
+	"github.com/toyz/hope/internal/pluginhost"
 	"github.com/toyz/hope/internal/plugins/accessauth"
 	"github.com/toyz/hope/internal/plugins/hosttarget"
 	"github.com/toyz/hope/internal/plugins/introspectfilter"
 	"github.com/toyz/hope/internal/plugins/logger"
 	"github.com/toyz/hope/internal/plugins/logstream"
-	"github.com/toyz/hope/internal/pluginhost"
 	"github.com/toyz/hope/internal/socketproxy"
 	"github.com/toyz/hope/internal/stacks"
 	"github.com/toyz/hope/internal/store"
@@ -80,6 +81,15 @@ type storeUpdCache struct{ st *store.Store }
 
 func (a storeUpdCache) Get(key string) []byte          { return a.st.Get(store.BucketUpdates, key) }
 func (a storeUpdCache) Put(key string, v []byte) error { return a.st.Put(store.BucketUpdates, key, v) }
+
+// storeCatalogCache adapts the state db to the catalog service's CacheStore, so a
+// fetched remote manifest survives a restart without a re-fetch.
+type storeCatalogCache struct{ st *store.Store }
+
+func (a storeCatalogCache) Get(key string) []byte { return a.st.Get(store.BucketCatalog, key) }
+func (a storeCatalogCache) Put(key string, v []byte) error {
+	return a.st.Put(store.BucketCatalog, key, v)
+}
 
 // agentRecord flattens a live agent host into the persisted roster record.
 func agentRecord(host *agent.Host, seen time.Time) store.AgentRecord {
@@ -261,10 +271,10 @@ func runServe(configPath string) error {
 	} else {
 		gw = sov.New(hostGuard)
 	}
-	gw.MustUse(lg)              // same instance → unified log sink, captures every dispatch
-	gw.MustUse(batch.New(batch.Config{})) // /rpc/_batch — coalesce a page's many calls into one round-trip
-	gw.RegisterAuth(authRouter)               // binds AuthService → bearer verification
-	gw.RegisterAuthz(auth.NewAuthzRouter())   // one authz gate → replaces per-handler RequireSubject
+	gw.MustUse(lg)                          // same instance → unified log sink, captures every dispatch
+	gw.MustUse(batch.New(batch.Config{}))   // /rpc/_batch — coalesce a page's many calls into one round-trip
+	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
+	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
@@ -274,7 +284,19 @@ func runServe(configPath string) error {
 	if hub != nil {
 		pluginDialer = hub // remote plugin dialing over the agent tunnel
 	}
-	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginhost.Limits{
+	// Installable-plugin catalog: built-ins always, plus every configured remote repo
+	// (cached in the state db). Started here so the gallery is warm.
+	var pluginCatalogCache catalog.CacheStore
+	if st.Enabled() {
+		pluginCatalogCache = storeCatalogCache{st}
+	}
+	catalogSources := make([]catalog.Source, 0, len(cfg.Plugins.Catalog.Repos))
+	for _, repo := range cfg.Plugins.Catalog.Repos {
+		catalogSources = append(catalogSources, catalog.Source{Name: repo.Name, URL: repo.URL, Trust: repo.Trust})
+	}
+	pluginCatalog := catalog.New(catalogSources, cfg.Plugins.Catalog.Refresh, pluginCatalogCache)
+	pluginCatalog.Start(ctx)
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginhost.Limits{
 		MaxConcurrentCalls:   cfg.Plugins.Limits.MaxConcurrentCalls,
 		MaxConcurrentStreams: cfg.Plugins.Limits.MaxConcurrentStreams,
 		CallRatePerSec:       cfg.Plugins.Limits.CallRatePerSec,
@@ -284,7 +306,7 @@ func runServe(configPath string) error {
 	})
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
-	gw.Register(&meme.MemeRouter{}) // public gag endpoint for the login strip
+	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
 	}

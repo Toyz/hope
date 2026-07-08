@@ -150,3 +150,21 @@ account_id = ""
 # are trusted is decided in the UI and persisted in the store ([store] must be
 # mounted to keep approvals across restarts). See docs/plugin-protocol.md.
 enabled = false
+
+# Plugin marketplace catalog. The built-in first-party plugins (hope-postgres,
+# hope-redis) are always installable from the UI. Add one or more remote repos —
+# each a JSON manifest (same schema) — to extend or override the catalog from
+# upstream, like package sources. Repos are fetched, cached in the store, and merged
+# over the built-ins in order (later repos win on a shared entry id).
+[plugins.catalog]
+# refresh = "12h"   # how often to re-fetch every repo (0 = at boot + on-demand only)
+
+# [[plugins.catalog.repo]]
+# name = "community"
+# url = "https://raw.githubusercontent.com/you/hope-plugins/main/catalog.json"
+# trust_images = false   # allow this repo's entries outside the ghcr.io/toyz/ prefix
+
+# [[plugins.catalog.repo]]
+# name = "internal"
+# url = "https://registry.corp.example/hope/catalog.json"
+# trust_images = true

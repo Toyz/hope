@@ -89,6 +89,16 @@ const (
 	defaultPluginPath = "/__hope"
 )
 
+// Exported plugin label keys — the installer stamps these on a deployed plugin
+// container so discovery picks it up (the same labels an author would set by hand).
+const (
+	LabelPlugin      = labelPlugin
+	LabelPluginPort  = labelPluginPort
+	LabelPluginPath  = labelPluginPath
+	LabelPluginTitle = labelPluginTitle
+	LabelPluginIcon  = labelPluginIcon
+)
+
 // PluginContainer is a container that declares a hope plugin endpoint. Identity
 // (name/version/icons/capabilities) comes from the plugin's own getSchema; these
 // fields are only what the labels + docker tell us — where to dial and enough to
@@ -171,6 +181,7 @@ func (c *Client) PluginContainers(ctx context.Context) ([]PluginContainer, error
 //     containerized deployment, after AttachNetwork);
 //  2. any PUBLISHED host port at 127.0.0.1 (works for NATIVE hope, including Docker
 //     Desktop, which forwards published ports to localhost) — the dev fast path.
+//
 // Errors only if the container exposes neither.
 // PluginDialCandidates resolves how hope can reach a plugin container. It returns
 // two kinds of address:
@@ -180,6 +191,7 @@ func (c *Client) PluginContainers(ctx context.Context) ([]PluginContainer, error
 //     127.0.0.1 for a local daemon, or the daemon's host IP when the daemon is a
 //     remote TCP endpoint (so a plugin published on the remote host is reachable at
 //     <daemon-host>:<published> without an agent on that host).
+//
 // attachNet is the user network name to attach the routing container to for the
 // container-IP path.
 func (c *Client) PluginDialCandidates(ctx context.Context, id string, port int) (netTargets, directTargets []string, attachNet string, err error) {

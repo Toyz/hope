@@ -358,6 +358,70 @@ export interface PluginView {
   stale: boolean; // enabled but the image changed since approval
 }
 
+// ---- plugin marketplace (catalog + installer) ----
+
+// CatalogEnvField is one machine-readable env/config input for the install wizard.
+export interface CatalogEnvField {
+  key: string;
+  label: string;
+  kind?: "" | "text" | "select" | "toggle" | "number" | "secret";
+  required?: boolean;
+  default?: string;
+  placeholder?: string;
+  hint?: string;
+  options?: { label: string; value: string }[];
+}
+
+// CatalogVolume declares storage a plugin needs (a named volume hope auto-creates,
+// or a bind mount to a host path).
+export interface CatalogVolume {
+  target: string;
+  name?: string;
+  type?: "" | "volume" | "bind";
+  read_only?: boolean;
+  hint?: string;
+}
+
+// CatalogEntry is one installable plugin (built-in or from a remote repo).
+export interface CatalogEntry {
+  id: string;
+  title: string;
+  icon?: string;
+  description?: string;
+  image: string;
+  port?: number;
+  path?: string;
+  env?: CatalogEnvField[];
+  volumes?: CatalogVolume[];
+  settings?: { key: string; value: string }[];
+  labels?: Record<string, string>;
+  source?: string; // "builtin" | repo name
+}
+
+// InstallParams / PluginInstance / Placement mirror the Go install orchestrator.
+export interface PluginInstance {
+  catalog_id: string;
+  name: string;
+  env: Record<string, string>;
+  settings: Record<string, string>;
+}
+export interface InstallPlacement {
+  mode: "stack_net" | "networks" | "new_stack";
+  networks: string[];
+}
+export interface InstallParams {
+  host: string;
+  project: string;
+  placement: InstallPlacement;
+  plugins: PluginInstance[];
+}
+
+// PluginConfig is the env (Configuration) editor's data for an installed plugin.
+export interface PluginConfig {
+  fields: CatalogEnvField[];
+  values: Record<string, string>;
+}
+
 // AgentEnroll is the info the "add agent" modal needs (token is a secret).
 export interface AgentEnroll {
   enabled: boolean;

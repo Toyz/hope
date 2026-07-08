@@ -11,11 +11,12 @@ import { HopeTransport } from "../transport";
 import { PluginInspector } from "../plugin-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
+import { ProcService } from "../proc";
 import { PromptService, type PromptField } from "../prompt";
 import { PluginInspectorTarget, PluginsChanged } from "../events";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
-import type { PluginView } from "../contracts";
+import type { PluginView, PluginConfig, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
 // A plugin's operator-managed setting descriptor (subset of hope.schema.settings).
@@ -84,6 +85,7 @@ export class HopePluginInspector extends LoomElement {
   @inject(ConfirmService) accessor confirm!: ConfirmService;
   @inject(ToastService) accessor toast!: ToastService;
   @inject(PromptService) accessor prompt!: PromptService;
+  @inject(ProcService) accessor proc!: ProcService;
 
   @reactive accessor host = "";
   @reactive accessor key = "";
@@ -97,6 +99,10 @@ export class HopePluginInspector extends LoomElement {
   @reactive accessor settingVals: Record<string, string> = {};
   @reactive accessor manifestErr = "";
   @reactive accessor manifestBusy = false;
+
+  // Configuration (env) — only for a hope-INSTALLED plugin (has a catalog id + stored
+  // spec). Editing env recreates the container; empty for hand-labeled plugins.
+  @reactive accessor config: PluginConfig | null = null;
 
   @mount
   onMount() {
@@ -120,18 +126,58 @@ export class HopePluginInspector extends LoomElement {
     if (!this.key) return;
     this.settings = [];
     this.settingVals = {};
+    this.config = null;
     this.manifestErr = "";
     try {
       const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host: this.host }])) || [];
       const v = all.find((p) => p.key === this.key) || null;
       this.view = v;
       this.error = v ? "" : "plugin not found on this host";
-      if (v?.enabled) void this.loadManifest();
+      if (v?.enabled) { void this.loadManifest(); void this.loadConfig(); }
     } catch (e: any) {
       this.error = e?.message ?? "failed to load plugin";
       this.view = null;
     }
   }
+
+  // Fetch the env schema + current values for a hope-installed plugin. Empty (fields
+  // = []) for a hand-labeled plugin, which hides the Configuration section.
+  private async loadConfig() {
+    try {
+      this.config = await this.rpc.call<PluginConfig>("Plugins", "config", [{ key: this.key }]);
+    } catch { this.config = null; }
+  }
+
+  // Edit env via the shared prompt form, then stream a recreate (Stream/reconfigurePlugin).
+  private editConfig = async () => {
+    const cfg = this.config;
+    if (!cfg?.fields?.length) return;
+    const fields: PromptField[] = cfg.fields.map((f) => ({
+      key: f.key,
+      label: f.label || f.key,
+      type: f.kind === "select" ? "select" : f.kind === "toggle" ? "toggle" : "text",
+      value: f.kind === "secret" ? "" : (cfg.values[f.key] ?? f.default ?? ""),
+      hint: f.kind === "secret" ? "leave blank to keep the current value" : f.hint,
+      options: f.options,
+      optional: true,
+    }));
+    const v = await this.prompt.ask({ title: "plugin configuration", icon: "edit", submitLabel: "Save + recreate", fields });
+    if (!v) return;
+    let ok = false;
+    await this.proc.run("reconfigure " + (this.view?.service || this.key), async (emit, signal) => {
+      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "reconfigurePlugin", [this.key, JSON.stringify(v)], signal, this.host)) {
+        if (f.type === "log" && f.data) emit(f.data);
+        else if (f.type === "done" && !f.ok) { emit("failed: " + (f.error ?? "")); return false; }
+      }
+      ok = true;
+      return true;
+    });
+    if (ok) {
+      this.toast.ok("reconfigured");
+      bus.emit(new PluginsChanged());
+      void this.load();
+    }
+  };
 
   // Dial the enabled plugin for its settings schema + current values. Reachability
   // failures are non-fatal — the identity/trust view still renders.
@@ -283,6 +329,21 @@ export class HopePluginInspector extends LoomElement {
                   ))}
                 </>
               )}
+
+              {v.enabled && this.config && this.config.fields.length ? (
+                <>
+                  <div class="ctitle sep">
+                    configuration
+                    <button class="edit" onClick={this.editConfig}><loom-icon name="edit" size={12}></loom-icon>edit</button>
+                  </div>
+                  {this.config.fields.map((f) => (
+                    <div class="row">
+                      <span class="k">{f.label || f.key}</span>
+                      <span class="v">{f.kind === "secret" ? "••••••" : (this.config!.values[f.key] || f.default || "—")}</span>
+                    </div>
+                  ))}
+                </>
+              ) : null}
             </div>
           </div>
         )}

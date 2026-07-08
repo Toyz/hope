@@ -93,6 +93,14 @@ export class PluginInspectorTarget extends LoomEvent {
 // so the rail (pages) and container inspector (surfaces) refetch immediately.
 export class PluginsChanged extends LoomEvent {}
 
+// Fired by the plugins page to open the marketplace installer for a target host.
+// preselect (optional) is a catalog id to jump straight into installing that plugin.
+export class OpenInstaller extends LoomEvent {
+  constructor(public host: string, public preselect = "") {
+    super();
+  }
+}
+
 // Fired by a plugin page to feed its author-declared breadcrumbs into the topbar's
 // existing scope trail (absolute `to`s already resolved). null clears them, so the
 // topbar falls back to deriving the trail from the path.

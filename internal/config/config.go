@@ -45,6 +45,31 @@ type PluginsConfig struct {
 	// the new fingerprint and keeps it enabled. For DEV loops where you iterate on your
 	// OWN plugin and re-approving on every redeploy is pure friction. Leave off in prod.
 	AutoReapprove bool `mapstructure:"auto_reapprove"`
+	// Catalog configures the plugin marketplace: the built-in first-party plugins are
+	// always installable; a remote manifest URL extends/overrides them.
+	Catalog PluginCatalogConfig `mapstructure:"catalog"`
+}
+
+// PluginCatalogConfig configures the installable-plugin catalog. The built-in
+// first-party entries need no config; each Repo points at a remote JSON manifest (same
+// schema) that is fetched, cached, and merged over the built-ins — so the catalog is
+// extensible from one or more upstream repos (like package sources) without shipping a
+// new hope build. Later repos override earlier ones (and the built-ins) by entry id.
+type PluginCatalogConfig struct {
+	Repos []CatalogRepo `mapstructure:"repo"`
+	// Refresh is how often to re-fetch every repo (0 = fetch once at boot + on-demand
+	// only). Shared across repos.
+	Refresh time.Duration `mapstructure:"refresh"`
+}
+
+// CatalogRepo is one remote catalog source.
+type CatalogRepo struct {
+	Name string `mapstructure:"name"` // display/source label (defaults to the URL)
+	URL  string `mapstructure:"url"`  // JSON manifest URL
+	// Trust allows THIS repo's entries to name images outside the first-party prefix.
+	// Off by default: an untrusted repo's entry whose image isn't a trusted prefix is
+	// dropped, so a compromised third-party manifest can't offer a hostile image.
+	Trust bool `mapstructure:"trust_images"`
 }
 
 // PluginLimitsConfig is the operator-tunable safety envelope applied per plugin.
@@ -210,6 +235,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.color", true)
 	v.SetDefault("updates.enabled", true)
 	v.SetDefault("updates.interval", "6h")
+	v.SetDefault("plugins.catalog.refresh", "12h")
 	v.SetDefault("socketproxy.enabled", false)
 	v.SetDefault("socketproxy.listen", ":2375")
 	v.SetDefault("socketproxy.allow_methods", []string{"GET", "HEAD"})

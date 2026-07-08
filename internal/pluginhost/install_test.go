@@ -1,0 +1,35 @@
+package pluginhost
+
+import (
+	"testing"
+
+	"github.com/toyz/hope/internal/docker"
+)
+
+// TestInstallKeyMatchesIdentity locks the token invariant: the installer computes the
+// identity key as host|project/service to derive HOPE_PLUGIN_TOKEN and inject it as
+// env; discovery must later compute the SAME key from the deployed container's compose
+// labels, or hope's token wouldn't match the plugin's pinned one.
+func TestInstallKeyMatchesIdentity(t *testing.T) {
+	host, project, service := "local", "tools", "redis-mon"
+	installKey := host + "|" + project + "/" + service
+	pc := docker.PluginContainer{Project: project, Service: service}
+	if got := pluginIdentity(host, pc); got != installKey {
+		t.Fatalf("install key %q != discovered identity %q — the injected token would not match", installKey, got)
+	}
+}
+
+func TestSanitizeName(t *testing.T) {
+	cases := map[string]string{
+		"Redis Mon":    "redis-mon",
+		"  My_App  ":   "my_app",
+		"a/b:c":        "a-b-c",
+		"--trim--":     "trim",
+		"Postgres 15!": "postgres-15",
+	}
+	for in, want := range cases {
+		if got := sanitizeName(in); got != want {
+			t.Errorf("sanitizeName(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
