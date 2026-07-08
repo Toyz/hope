@@ -375,6 +375,24 @@ func (c *Client) SetSelfID(id string) { c.selfHint = id }
 // hope to a plugin's network before dialing it.
 func (c *Client) SelfID() string { return c.selfID() }
 
+// selfImage returns the image reference of the hope/agent container this client
+// runs as — the image guaranteed to carry hope-boot on this daemon, used as the
+// detached-recreate helper for targets whose own image lacks it (e.g. a connector).
+func (c *Client) selfImage(ctx context.Context) (string, error) {
+	sid := c.selfID()
+	if sid == "" {
+		return "", fmt.Errorf("own container id unknown")
+	}
+	info, err := c.sdk().ContainerInspect(ctx, sid)
+	if err != nil {
+		return "", fmt.Errorf("inspect self %s: %w", sid, err)
+	}
+	if info.Config == nil || info.Config.Image == "" {
+		return "", fmt.Errorf("self %s has no image", sid)
+	}
+	return info.Config.Image, nil
+}
+
 // isSelf reports whether id refers to hope's own container.
 func (c *Client) isSelf(id string) bool {
 	s := c.selfID()
@@ -392,10 +410,29 @@ func (c *Client) isSelf(id string) bool {
 // Keyed on the image marker, not os.Hostname()-based self detection (which is
 // unreliable when the container runs with a custom --hostname or host network).
 func (c *Client) RecreateManaged(ctx context.Context, id string) error {
-	if c.isSelf(id) || c.isHopeManaged(ctx, id) {
+	// hope-self, a hope-agent, AND a tunnel connector all provide the very
+	// connection an update request rides on — recreating one inline would sever that
+	// connection and cancel the operation mid-Stop/Remove, leaving the container
+	// removed-but-not-recreated (e.g. updating the connector => the tunnel drops =>
+	// the request context cancels => the connector is gone => the site never comes
+	// back). Hand each to a detached helper that outlives both the request and hope.
+	if c.isSelf(id) || c.isHopeManaged(ctx, id) || c.isConnector(ctx, id) {
 		return c.recreateDetached(ctx, id)
 	}
 	return c.Recreate(ctx, id)
+}
+
+// isConnector reports whether id is a hope-managed cloudflared tunnel connector
+// (carries the tunnel label). Such a container provides hope's own public
+// connection but is NOT built from hope's image, so it needs the detached-helper
+// recreate with hope's image (see recreateDetached), not the inline path.
+func (c *Client) isConnector(ctx context.Context, id string) bool {
+	info, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil || info.Config == nil {
+		return false
+	}
+	_, ok := info.Config.Labels[labelTunnel]
+	return ok
 }
 
 // isHopeManaged reports whether a container was built from the hope image (it
@@ -409,16 +446,30 @@ func (c *Client) isHopeManaged(ctx context.Context, id string) bool {
 	return slices.Contains(info.Config.Env, "HOPE_MANAGED=1")
 }
 
-// recreateDetached launches a throwaway container from hope's (freshly pulled)
-// image that runs `hope self-recreate <id>` with the docker socket mounted. It
-// outlives the old hope, so it can stop/remove/recreate it cleanly.
+// recreateDetached launches a throwaway container that runs `hope-boot recreate
+// <id>` with the docker socket mounted. It outlives the caller (and hope itself),
+// so it can stop/remove/recreate the target cleanly even after the connection that
+// triggered it drops.
 func (c *Client) recreateDetached(ctx context.Context, id string) error {
 	info, err := c.sdk().ContainerInspect(ctx, id)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", id, err)
 	}
+	// The helper's entrypoint is hope-boot, so it must run from an image that
+	// CONTAINS hope-boot. A self/agent update target is itself a hope image, so use
+	// it (already freshly pulled). A connector's image (cloudflared) has no
+	// hope-boot — fall back to this host's own hope/agent image, which does and is
+	// guaranteed present on this daemon.
+	helperImage := info.Config.Image
+	if !slices.Contains(info.Config.Env, "HOPE_MANAGED=1") {
+		self, serr := c.selfImage(ctx)
+		if serr != nil {
+			return fmt.Errorf("resolve hope image for detached recreate of %s: %w", id, serr)
+		}
+		helperImage = self
+	}
 	helper := &container.Config{
-		Image:      info.Config.Image,
+		Image:      helperImage,
 		Entrypoint: []string{"hope-boot", "recreate", id},
 		Labels:     map[string]string{"ink.hope.self-updater": "1"},
 	}
