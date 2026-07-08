@@ -55,7 +55,31 @@ interface InstForm {
   .card .src { margin-left: auto; color: var(--dim); font: 9px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line2); padding: 1px 5px; flex: none; }
   .card .desc { color: var(--mid); font: 11.5px/1.55 var(--mono); flex: 1; }
   .card .img { color: var(--dim); font: 10.5px/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; }
-  .card .cta { display: flex; gap: 8px; }
+  .card .cta { display: flex; align-items: center; gap: 8px; }
+  .card .cta .grow { flex: 1; }
+
+  /* ── details ("more info") view ── */
+  .detail { max-width: 760px; }
+  .dhead { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .dhead loom-icon { color: var(--mid); flex: none; }
+  .dt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .dtitle { color: var(--hi); font: 700 15px/1.2 var(--mono); }
+  .dimg { color: var(--dim); font: 11px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; }
+  .dhead .src { margin-left: auto; color: var(--dim); font: 9px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line2); padding: 1px 5px; flex: none; }
+  .ddesc { color: var(--mid); font: 12.5px/1.7 var(--mono); margin: 0 0 18px; }
+  .dsec { margin-bottom: 16px; }
+  .dsec > .dlbl { display: block; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; margin-bottom: 9px; }
+  .dfield { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+  .dfield:last-child { border-bottom: none; }
+  .dfk { color: var(--hi); font: 12.5px/1.4 var(--mono); display: flex; align-items: center; gap: 8px; }
+  .dfk .req { color: var(--bad); font: 9px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .dfk .tag { color: var(--dim); font: 9px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line2); padding: 0 4px; }
+  .dfmeta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; color: var(--dim); font: 11px/1.5 var(--mono); }
+  .dfmeta code { color: var(--mid); }
+  .dfhint { color: var(--dim); font: 11px/1.5 var(--mono); margin-top: 4px; }
+  .dvol, .dset { display: flex; align-items: center; gap: 8px; color: var(--mid); font: 12px/1.7 var(--mono); }
+  .dvol loom-icon { color: var(--dim); flex: none; }
+  .dvol code, .dset code { color: var(--hi); }
 
   .sec { margin-bottom: 18px; }
   .sec > .lbl { color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; margin-bottom: 10px; display: block; }
@@ -102,6 +126,7 @@ export class HopePluginInstaller extends LoomElement {
 
   @reactive accessor step: "browse" | "config" = "browse";
   @reactive accessor selected: string[] = []; // catalog ids
+  @reactive accessor detailId = ""; // catalog id whose "more info" detail is open (optional view)
   @reactive accessor forms: Record<string, InstForm> = {};
   @reactive accessor project = "";
   @reactive accessor placeMode: "new_stack" | "stack_net" = "new_stack";
@@ -117,6 +142,7 @@ export class HopePluginInstaller extends LoomElement {
     this.host = e.host && e.host !== "all" ? e.host : "";
     this.open = true;
     this.step = "browse";
+    this.detailId = "";
     this.selected = [];
     this.forms = {};
     this.project = "";
@@ -189,6 +215,7 @@ export class HopePluginInstaller extends LoomElement {
 
   private goConfig = () => {
     if (!this.selected.length) return;
+    this.detailId = "";
     const forms: Record<string, InstForm> = {};
     for (const id of this.selected) {
       const e = this.entry(id);
@@ -337,11 +364,78 @@ export class HopePluginInstaller extends LoomElement {
               <div class="desc">{c.description || "—"}</div>
               <div class="img" title={c.image}>{c.image}</div>
               <div class="cta">
+                {this.hasDetail(c) ? <hope-button size="sm" icon="info" onClick={(e: any) => { e.stopPropagation(); this.detailId = c.id; }}>Details</hope-button> : null}
+                <span class="grow"></span>
                 <hope-button size="sm" tone="primary" icon="download" onClick={(e: any) => { e.stopPropagation(); this.installOne(c.id); }}>Install</hope-button>
               </div>
             </div>
           );
         })}
+      </div>
+    );
+  }
+
+  // hasDetail reports whether an entry carries enough beyond title+image to be worth a
+  // "more info" view — so the Details affordance stays optional (bare entries omit it).
+  private hasDetail(c: CatalogEntry): boolean {
+    return !!(c.description || (c.env || []).length || (c.volumes || []).length || (c.settings || []).length);
+  }
+
+  // detailView renders one entry's full info: description + what it needs (env, storage,
+  // default settings, endpoint). Opened from a card's Details button, closed via Back.
+  private detailView() {
+    const c = this.entry(this.detailId);
+    if (!c) { this.detailId = ""; return this.catalogGrid(); }
+    const vols = (c.volumes || []).filter((v) => v.type !== "bind");
+    return (
+      <div class="detail">
+        <div class="dhead">
+          <loom-icon name={c.icon || "plugin"} size={22}></loom-icon>
+          <div class="dt">
+            <span class="dtitle">{c.title}</span>
+            <span class="dimg" title={c.image}>{c.image}</span>
+          </div>
+          {c.source && c.source !== "builtin" ? <span class="src">{c.source}</span> : null}
+        </div>
+        {c.description ? <p class="ddesc">{c.description}</p> : null}
+
+        {(c.env || []).length ? (
+          <div class="dsec">
+            <span class="dlbl">Configuration</span>
+            {(c.env || []).map((f) => (
+              <div class="dfield">
+                <div class="dfk">{f.label || f.key}
+                  {f.required ? <span class="req">required</span> : null}
+                  {f.kind === "secret" ? <span class="tag">secret</span> : f.kind === "select" ? <span class="tag">select</span> : null}
+                </div>
+                <div class="dfmeta"><code>{f.key}</code>
+                  {f.default ? <span>default: {f.default}</span> : null}
+                  {f.kind === "select" && (f.options || []).length ? <span>one of: {(f.options || []).map((o) => o.value).join(", ")}</span> : null}
+                </div>
+                {f.hint ? <div class="dfhint">{f.hint}</div> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {vols.length ? (
+          <div class="dsec">
+            <span class="dlbl">Storage</span>
+            {vols.map((v) => <div class="dvol"><loom-icon name="hard-drive" size={13}></loom-icon><span>a volume at <code>{v.target}</code>{v.hint ? ` — ${v.hint}` : ""}</span></div>)}
+          </div>
+        ) : null}
+
+        {(c.settings || []).length ? (
+          <div class="dsec">
+            <span class="dlbl">Default settings</span>
+            {(c.settings || []).map((s) => <div class="dset"><code>{s.key}</code> = {s.value}</div>)}
+          </div>
+        ) : null}
+
+        <div class="dsec">
+          <span class="dlbl">Endpoint</span>
+          <div class="dset">:{c.port || 8080}{c.path || "/__hope"}</div>
+        </div>
       </div>
     );
   }
@@ -444,7 +538,7 @@ export class HopePluginInstaller extends LoomElement {
             <button class="x" onClick={this.close}><loom-icon name="x" size={16}></loom-icon></button>
           </div>
 
-          {this.step === "browse" ? (
+          {this.step === "browse" && !this.detailId ? (
             <div class="tools">
               <hope-search placeholder="Search the catalog…" text={this.query} onSearch={(e: any) => (this.query = e.detail)}></hope-search>
               <span class="grow"></span>
@@ -455,20 +549,25 @@ export class HopePluginInstaller extends LoomElement {
           <div class="body">
             {!this.loaded ? <div class="empty">loading catalog…</div>
               : this.error ? <div class="empty">{this.error}</div>
-              : this.step === "browse" ? this.catalogGrid()
-              : this.configView()}
+              : this.step !== "browse" ? this.configView()
+              : this.detailId ? this.detailView()
+              : this.catalogGrid()}
           </div>
 
           <div class="foot">
-            {this.step === "config" ? <hope-button size="sm" icon="chevron-left" onClick={() => (this.step = "browse")}>Back</hope-button> : null}
+            {this.step === "config" ? <hope-button size="sm" icon="chevron-left" onClick={() => (this.step = "browse")}>Back</hope-button>
+              : this.detailId ? <hope-button size="sm" icon="chevron-left" onClick={() => (this.detailId = "")}>Back</hope-button>
+              : null}
             <span class="grow"></span>
-            {this.step === "browse" ? (
+            {this.step === "config" ? (
+              <hope-button size="sm" tone="primary" icon="download" onClick={this.doInstall}>Install {this.selected.length > 1 ? this.selected.length + " plugins" : ""}</hope-button>
+            ) : this.detailId ? (
+              <hope-button size="sm" tone="primary" icon="download" onClick={() => this.installOne(this.detailId)}>Install</hope-button>
+            ) : (
               <>
                 <span class="note">{this.selected.length ? `${this.selected.length} selected` : "Select plugins, or Install one directly"}</span>
                 <hope-button size="sm" tone="primary" icon="chevron-right" disabled={!this.selected.length} onClick={this.goConfig}>Configure {this.selected.length || ""}</hope-button>
               </>
-            ) : (
-              <hope-button size="sm" tone="primary" icon="download" onClick={this.doInstall}>Install {this.selected.length > 1 ? this.selected.length + " plugins" : ""}</hope-button>
             )}
           </div>
         </div>
