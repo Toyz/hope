@@ -106,3 +106,33 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  binaries:
+    name: No committed binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Content-based guard — the scalable answer to "gitignore is name-based".
+      # .gitignore can only block artifacts by exact name; this fails the build if
+      # ANY tracked file is a compiled executable/object, regardless of name or
+      # extension (Go binaries have none). Tracked doc/image assets (PNG, fonts,
+      # …) are not executables, so they pass — only ELF/Mach-O/PE are rejected.
+      - name: Reject compiled binaries
+        run: |
+          set -euo pipefail
+          offenders=$(git ls-files | while IFS= read -r f; do
+            case "$(file -b -- "$f" 2>/dev/null)" in
+              ELF\ *|Mach-O*|PE32*executable*|PE32+*executable*) echo "$f" ;;
+            esac
+          done)
+          if [ -n "$offenders" ]; then
+            echo "::error::compiled binaries must not be committed (add to .gitignore / build in CI):"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "clean — no committed executables"

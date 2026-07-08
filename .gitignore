@@ -22,9 +22,13 @@
 /hope-boot
 /cmd/hope/hope
 
-# example plugin binaries (go build output; name == module dir)
+# example plugin binaries (go build output; name == module dir). gitignore is
+# name-based and can't glob "file named like its parent dir", so each is listed —
+# keep in sync when adding an example plugin (or rely on the CI binary guard).
 /examples/plugins/hello-world/hello-world
 /examples/plugins/hope-postgres/hope-postgres
+/examples/plugins/hope-redis/hope-redis
+/examples/plugins/kitchen-sink/kitchen-sink
 
 # go workspace / vendor (sov is a normal module, fetched on build)
 /vendor/
