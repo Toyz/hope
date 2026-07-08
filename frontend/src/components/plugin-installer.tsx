@@ -420,8 +420,8 @@ export class HopePluginInstaller extends LoomElement {
                   ))}
                 </>
               ) : null}
-              {(e.volumes || []).length ? (
-                <div class="vol">{(e.volumes || []).map((v) => <div>hope will {v.type === "bind" ? "bind" : "create a volume"} at <code>{v.target}</code>{v.hint ? ` — ${v.hint}` : ""}</div>)}</div>
+              {(e.volumes || []).filter((v) => v.type !== "bind").length ? (
+                <div class="vol">{(e.volumes || []).filter((v) => v.type !== "bind").map((v) => <div>hope creates a volume at <code>{v.target}</code>{v.hint ? ` — ${v.hint}` : ""}</div>)}</div>
               ) : null}
             </div>
           );
