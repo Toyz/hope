@@ -5,7 +5,17 @@ The SDK is a nested Go module, tagged `plugin/vX.Y.Z`. It follows the
 minor bumps and never break existing plugins; `ProtocolVersion` bumps only on a
 breaking change to an existing wire shape (still `1`).
 
-## v0.0.6 — unreleased
+## v0.0.7 — unreleased
+
+- **Init handshake (`hope.init`).** hope now calls a reserved `hope.init` method once a
+  plugin is reachable (at enable/install, and again after a restart), delivering the
+  operator's settings plus hope's protocol/capabilities — so a plugin can initialize
+  *with* its config. New `p.OnInit(func(ctx, plugin.InitContext) error)` hook; settings
+  are still applied even without it. Additive: a plugin that doesn't implement `hope.init`
+  falls back to the existing `hope.settings` push. Pairs with hope's plugin marketplace,
+  which installs + configures plugins from the UI.
+
+## v0.0.6
 
 The "escape hatch" + chattiness + stabilization release. All additive; plugins built
 on v0.0.1–v0.0.5 render unchanged.

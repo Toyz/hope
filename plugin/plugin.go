@@ -80,6 +80,9 @@ type Plugin struct {
 	// pushes via hope.settings (read in a handler with SettingValue).
 	settings    []Setting
 	settingVals map[string]string
+	// onInit, if set, runs when hope calls hope.init — the plugin's initialization
+	// handshake, carrying its settings so it can set up WITH them (see OnInit).
+	onInit func(ctx context.Context, in InitContext) error
 
 	// auth: token is the configured shared secret (HOPE_PLUGIN_TOKEN or Token()).
 	// When empty, the plugin trusts-on-first-use — it pins the first bearer hope
@@ -460,6 +463,40 @@ func (p *Plugin) applySettings(vals map[string]string) {
 	p.mu.Lock()
 	p.settingVals = next
 	p.mu.Unlock()
+}
+
+// effectiveSettings returns each declared setting's current value (the pushed value,
+// else its declared Default) — echoed back from hope.init.
+func (p *Plugin) effectiveSettings() map[string]string {
+	out := make(map[string]string, len(p.settings))
+	for _, s := range p.settings {
+		out[s.Key] = s.Default
+	}
+	p.mu.Lock()
+	maps.Copy(out, p.settingVals)
+	p.mu.Unlock()
+	return out
+}
+
+// InitContext is what hope hands a plugin at initialization (hope.init): the settings
+// the operator configured (so the plugin can set up WITH them), plus the hope build's
+// protocol version and capabilities.
+type InitContext struct {
+	Settings map[string]string
+	Protocol int
+	Caps     Capabilities
+}
+
+// OnInit registers a handler hope calls once the plugin is reachable and being
+// initialized (hope.init) — and again if the plugin restarts. It receives the current
+// settings, so a plugin that needs its config at startup (a pool sized by a setting, a
+// mode flag) can initialize with them instead of booting on defaults and waiting for a
+// later hope.settings push. Optional: without it, settings are still applied so
+// SettingValue works immediately. Errors are returned to hope (the install surfaces
+// them). Register before ListenAndServe.
+func (p *Plugin) OnInit(fn func(ctx context.Context, in InitContext) error) *Plugin {
+	p.onInit = fn
+	return p
 }
 
 // Contribute adds an explicit UI contribution. Without any, the plugin

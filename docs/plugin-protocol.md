@@ -274,6 +274,25 @@ A `secret` setting is masked in the UI and never rendered back. In the Go SDK,
 declare a setting with `p.Setting(...)` and read the current value in any handler
 with `p.SettingValue("page_size")`.
 
+**Initialization (`hope.init`)** — the reserved lifecycle handshake. Once a plugin is
+reachable (at enable/install, and again after a restart), hope calls `hope.init` with
+the operator's settings plus hope's own protocol/capabilities — so a plugin can set
+itself up *with* its config instead of booting on defaults and waiting for a later
+`hope.settings` push:
+
+```json
+{"jsonrpc":"2.0","id":N,"method":"hope.init","params":{
+  "settings":{"page_size":"250"},
+  "protocolVersion":1,
+  "capabilities":{"view_kinds":["kv","table","component"],"features":["static","empty"]}}}
+```
+
+hope applies the settings (so `SettingValue` works immediately) and the plugin may run
+setup logic via the SDK's `p.OnInit(func(ctx, plugin.InitContext) error)` hook. It's
+optional and additive: a plugin that doesn't implement `hope.init` returns
+method-not-found and hope falls back to the `hope.settings` push — so older plugins keep
+working. `hope.settings` remains the path for live setting changes after init.
+
 ### `hope.layout` -> Layout
 
 A UI contribution descriptor. Requires auth.

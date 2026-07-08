@@ -157,6 +157,35 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// hope.init is the initialization handshake: hope calls it once the plugin is
+	// reachable (and again after a restart), delivering the operator's settings plus
+	// hope's protocol/capabilities so the plugin can set up WITH its config. Applies
+	// the settings (so SettingValue works immediately) and runs the OnInit hook if set.
+	// params: {"settings": {...}, "protocolVersion": N, "capabilities": {view_kinds, features}}.
+	if req.Method == "hope.init" {
+		var in struct {
+			Settings     map[string]string `json:"settings"`
+			Protocol     int               `json:"protocolVersion"`
+			Capabilities Capabilities      `json:"capabilities"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &in); err != nil {
+				writeError(w, req.ID, codeInvalidArgs, "invalid params")
+				return
+			}
+		}
+		p.applySettings(in.Settings)
+		if p.onInit != nil {
+			ctx := context.WithValue(r.Context(), capsKey{}, in.Capabilities)
+			if err := p.onInit(ctx, InitContext{Settings: in.Settings, Protocol: in.Protocol, Caps: in.Capabilities}); err != nil {
+				writeError(w, req.ID, codeInternal, err.Error())
+				return
+			}
+		}
+		writeResult(w, req.ID, map[string]any{"ok": true, "values": p.effectiveSettings()})
+		return
+	}
+
 	// hope pushes operator-managed setting values here; the plugin reads them via
 	// SettingValue. params: {"values": {"<key>": "<value>"}}.
 	if req.Method == "hope.settings" {
