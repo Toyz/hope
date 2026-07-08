@@ -398,12 +398,20 @@ export interface CatalogEntry {
   source?: string; // "builtin" | repo name
 }
 
+// VolumeChoice is the per-target volume decision: reuse an existing named volume
+// (existing:true) or have hope create a fresh one. Keyed by mount target.
+export interface VolumeChoice {
+  existing: boolean;
+  name: string;
+}
+
 // InstallParams / PluginInstance / Placement mirror the Go install orchestrator.
 export interface PluginInstance {
   catalog_id: string;
   name: string;
   env: Record<string, string>;
   settings: Record<string, string>;
+  volumes?: Record<string, VolumeChoice>;
 }
 export interface InstallPlacement {
   mode: "stack_net" | "networks" | "new_stack";

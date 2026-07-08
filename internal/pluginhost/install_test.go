@@ -42,6 +42,25 @@ func TestReservedLabel(t *testing.T) {
 	}
 }
 
+// TestValidVolumeName locks the volume-picker escape defense: a client's chosen volume
+// name (existing or new) must be a real docker named-volume ref, never a host path — so
+// the "reuse an existing volume" option can't be turned into a bind mount of /, /etc, or
+// the docker socket.
+func TestValidVolumeName(t *testing.T) {
+	ok := []string{"data", "redis-mon-data", "my.vol", "a1_b-2", "pgdata"}
+	for _, s := range ok {
+		if !validVolumeName(s) {
+			t.Errorf("validVolumeName(%q) = false; want true (a normal volume name)", s)
+		}
+	}
+	bad := []string{"", "/etc", "../data", "a/b", "/var/run/docker.sock", ".hidden", "-lead", "has space", "a\\b"}
+	for _, s := range bad {
+		if validVolumeName(s) {
+			t.Errorf("validVolumeName(%q) = true; want false (path-like / unsafe — could escape to the host)", s)
+		}
+	}
+}
+
 func TestSanitizeName(t *testing.T) {
 	cases := map[string]string{
 		"Redis Mon":    "redis-mon",

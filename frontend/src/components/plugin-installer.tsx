@@ -10,7 +10,7 @@ import { HopeTransport } from "../transport";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { OpenInstaller, PluginsChanged, Refreshing, withRefresh } from "../events";
-import type { CatalogEntry, CatalogEnvField, InstallParams, NetworkInfo, StackSummary, HostView, OpFrame } from "../contracts";
+import type { CatalogEntry, CatalogEnvField, CatalogVolume, VolumeChoice, InstallParams, NetworkInfo, VolumeInfo, StackSummary, HostView, OpFrame } from "../contracts";
 import { theme } from "../styles";
 import "./select"; // <hope-select>
 
@@ -21,6 +21,7 @@ interface InstForm {
   name: string;
   env: Record<string, string>;
   settings: Record<string, string>;
+  vols: Record<string, VolumeChoice>; // keyed by mount target
 }
 
 @component("hope-plugin-installer")
@@ -62,14 +63,16 @@ interface InstForm {
   .card .cta .grow { flex: 1; }
 
   /* ── details ("more info") view ── */
-  .detail { max-width: 720px; }
-  .dhead { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
-  .dicon { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid var(--line2); background: var(--ink); }
+  .dhead { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .dicon { display: grid; place-items: center; width: 46px; height: 46px; flex: none; border: 1px solid var(--line2); background: var(--ink); }
   .dicon loom-icon { color: var(--mid); }
-  .dt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  .dimg { color: var(--hi); font: 12.5px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; }
-  .dsrc { color: var(--dim); font: 10px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
-  .ddesc { color: var(--mid); font: 13px/1.75 var(--mono); margin: 0 0 20px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .dt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .dtrow { display: flex; align-items: center; gap: 10px; }
+  .dtitle { color: var(--hi); font: 700 16px/1.2 var(--mono); }
+  .dimg { color: var(--dim); font: 11px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; }
+  .dbadge { color: var(--dim); font: 8.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line2); padding: 2px 7px; flex: none; }
+  .dbadge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line2)); background: color-mix(in srgb, var(--ok) 9%, transparent); }
+  .ddesc { color: var(--mid); font: 13px/1.85 var(--mono); margin: 0; }
   .dsec { margin-bottom: 16px; }
   .dsec > .dlbl { display: block; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; margin-bottom: 9px; }
   .dfield { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
@@ -138,6 +141,7 @@ export class HopePluginInstaller extends LoomElement {
 
   @reactive accessor networks: NetworkInfo[] = [];
   @reactive accessor stacks: StackSummary[] = [];
+  @reactive accessor volumes: VolumeInfo[] = [];
   @reactive accessor hosts: HostView[] = [];
 
   @on(OpenInstaller)
@@ -186,6 +190,9 @@ export class HopePluginInstaller extends LoomElement {
     try {
       this.stacks = (await this.rpc.call<StackSummary[]>("Stacks", "list", [], undefined, false, h)) || [];
     } catch { this.stacks = []; }
+    try {
+      this.volumes = (await this.rpc.call<VolumeInfo[]>("System", "volumes", [], undefined, false, h)) || [];
+    } catch { this.volumes = []; }
   }
 
   private setHost = (id: string) => { this.host = id; this.pickNets = []; this.pickStack = ""; void this.reloadHostResources(); };
@@ -241,7 +248,9 @@ export class HopePluginInstaller extends LoomElement {
       for (const f of e.env || []) env[f.key] = f.default ?? "";
       const settings: Record<string, string> = {};
       for (const s of e.settings || []) settings[s.key] = s.value;
-      forms[id] = { name: this.forms[id]?.name || e.id, env, settings };
+      const vols: Record<string, VolumeChoice> = {};
+      for (const v of e.volumes || []) if (v.type !== "bind") vols[v.target] = { existing: false, name: "" };
+      forms[id] = { name: this.forms[id]?.name || e.id, env, settings, vols };
     }
     this.forms = forms;
     // Multiple plugins => a shared new stack; a single plugin defaults its own name.
@@ -257,6 +266,23 @@ export class HopePluginInstaller extends LoomElement {
   private setSetting = (id: string, key: string, v: string) => {
     this.forms = { ...this.forms, [id]: { ...this.forms[id], settings: { ...this.forms[id].settings, [key]: v } } };
   };
+  private setVol = (id: string, target: string, choice: VolumeChoice) => {
+    this.forms = { ...this.forms, [id]: { ...this.forms[id], vols: { ...this.forms[id].vols, [target]: choice } } };
+  };
+  // The select's "" option = create a new volume; any other value = reuse that existing one.
+  private pickVol = (id: string, target: string, val: string) => {
+    this.setVol(id, target, val ? { existing: true, name: val } : { existing: false, name: "" });
+  };
+  private volOpts(): { value: string; label: string }[] {
+    return [{ value: "", label: "Create a new volume" }, ...this.volumes.map((v) => ({ value: v.name, label: v.name }))];
+  }
+  // The generated default name hope will create for a fresh volume: <instance>-<target slug>
+  // (mirrors the backend's sanitizeName + slugPath so the placeholder previews the real name).
+  private defVolName(id: string, target: string): string {
+    const svc = (this.forms[id]?.name || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "plugin";
+    const slug = target.replace(/^\/+|\/+$/g, "").replace(/\//g, "-").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "data";
+    return `${svc}-${slug}`;
+  }
   private toggleNet = (name: string) => {
     this.pickNets = this.pickNets.includes(name) ? this.pickNets.filter((n) => n !== name) : [...this.pickNets, name];
   };
@@ -331,6 +357,7 @@ export class HopePluginInstaller extends LoomElement {
         name: this.forms[id].name.trim(),
         env: this.forms[id].env,
         settings: this.forms[id].settings,
+        volumes: this.forms[id].vols,
       })),
     };
     let ok = false;
@@ -360,6 +387,22 @@ export class HopePluginInstaller extends LoomElement {
     }
     const type = f.kind === "secret" ? "password" : f.kind === "number" ? "number" : "text";
     return <input type={type} value={val} placeholder={f.placeholder || ""} onInput={(e: any) => this.setEnv(id, f.key, e.target.value)} />;
+  }
+
+  // One declared volume: pick "create new" (default, gets a generated name) or reuse an
+  // existing named volume on the host.
+  private volField(id: string, v: CatalogVolume) {
+    const choice = this.forms[id].vols[v.target] || { existing: false, name: "" };
+    return (
+      <div class="field">
+        <label>Storage at <code>{v.target}</code>{v.read_only ? <span class="hint"> (read-only)</span> : null}</label>
+        <hope-select options={this.volOpts()} value={choice.existing ? choice.name : ""} placeholder="Create a new volume" onSelect={(ev: any) => this.pickVol(id, v.target, ev.detail)}></hope-select>
+        {choice.existing
+          ? <span class="hint">reuses the existing volume <code>{choice.name}</code></span>
+          : <input type="text" value={choice.name} placeholder={this.defVolName(id, v.target)} onInput={(ev: any) => this.setVol(id, v.target, { existing: false, name: ev.target.value })} />}
+        {v.hint ? <span class="hint">{v.hint}</span> : null}
+      </div>
+    );
   }
 
   private catalogGrid() {
@@ -407,13 +450,21 @@ export class HopePluginInstaller extends LoomElement {
     return (
       <div class="detail">
         <div class="dhead">
-          <div class="dicon"><loom-icon name={c.icon || "plugin"} size={22}></loom-icon></div>
+          <div class="dicon"><loom-icon name={c.icon || "plugin"} size={24}></loom-icon></div>
           <div class="dt">
+            <div class="dtrow">
+              <span class="dtitle">{c.title}</span>
+              <span class={"dbadge" + (c.source && c.source !== "builtin" ? "" : " ok")}>{c.source && c.source !== "builtin" ? c.source : "first-party"}</span>
+            </div>
             <span class="dimg" title={c.image}>{c.image}</span>
-            <span class="dsrc">{c.source && c.source !== "builtin" ? "from " + c.source : "first-party"}</span>
           </div>
         </div>
-        {c.description ? <p class="ddesc">{c.description}</p> : null}
+        {c.description ? (
+          <div class="dsec">
+            <span class="dlbl">Overview</span>
+            <p class="ddesc">{c.description}</p>
+          </div>
+        ) : null}
 
         {(c.env || []).length ? (
           <div class="dsec">
@@ -522,9 +573,7 @@ export class HopePluginInstaller extends LoomElement {
                   ))}
                 </>
               ) : null}
-              {(e.volumes || []).filter((v) => v.type !== "bind").length ? (
-                <div class="vol">{(e.volumes || []).filter((v) => v.type !== "bind").map((v) => <div>hope creates a volume at <code>{v.target}</code>{v.hint ? ` — ${v.hint}` : ""}</div>)}</div>
-              ) : null}
+              {(e.volumes || []).filter((v) => v.type !== "bind").map((v) => this.volField(id, v))}
             </div>
           );
         })}
@@ -564,15 +613,16 @@ export class HopePluginInstaller extends LoomElement {
           </div>
 
           <div class="foot">
+            <span class="note">{!this.host ? "Choose a fleet to install on" : ""}</span>
             <span class="grow"></span>
             {this.step === "config" ? (
-              <hope-button size="sm" tone="primary" icon="download" onClick={this.doInstall}>Install {this.selected.length > 1 ? this.selected.length + " plugins" : ""}</hope-button>
+              <hope-button size="sm" tone="primary" icon="download" disabled={!this.host} onClick={this.doInstall}>Install {this.selected.length > 1 ? this.selected.length + " plugins" : ""}</hope-button>
             ) : this.detailId ? (
-              <hope-button size="sm" tone="primary" icon="download" onClick={() => this.installOne(this.detailId)}>Install</hope-button>
+              <hope-button size="sm" tone="primary" icon="download" disabled={!this.host} onClick={() => this.installOne(this.detailId)}>Install</hope-button>
             ) : (
               <>
-                <span class="note">{this.selected.length ? `${this.selected.length} selected` : "Select plugins, or Install one directly"}</span>
-                <hope-button size="sm" tone="primary" icon="chevron-right" disabled={!this.selected.length} onClick={this.goConfig}>Configure {this.selected.length || ""}</hope-button>
+                {this.host ? <span class="note">{this.selected.length ? `${this.selected.length} selected` : "Select plugins, or Install one directly"}</span> : null}
+                <hope-button size="sm" tone="primary" icon="chevron-right" disabled={!this.selected.length || !this.host} onClick={this.goConfig}>Configure {this.selected.length || ""}</hope-button>
               </>
             )}
           </div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -84,12 +85,21 @@ type InstallParams struct {
 }
 
 // PluginInstance is one plugin to install: which catalog entry, its instance name, the
-// env-field values, and any initial setting overrides.
+// env-field values, any initial setting overrides, and the per-target volume decisions.
 type PluginInstance struct {
-	CatalogID string            `json:"catalog_id"`
-	Name      string            `json:"name"`
-	Env       map[string]string `json:"env"`
-	Settings  map[string]string `json:"settings"`
+	CatalogID string                  `json:"catalog_id"`
+	Name      string                  `json:"name"`
+	Env       map[string]string       `json:"env"`
+	Settings  map[string]string       `json:"settings"`
+	Volumes   map[string]VolumeChoice `json:"volumes"` // keyed by mount target (e.g. "/data")
+}
+
+// VolumeChoice is the user's per-target decision for a volume the plugin declares:
+// reuse an existing named volume as-is, or have hope create a fresh one. Absent =
+// create a new volume with the derived default name.
+type VolumeChoice struct {
+	Existing bool   `json:"existing"` // true: mount the pre-existing volume Name (external, used as-is, never created)
+	Name     string `json:"name"`     // the existing volume to reuse, or the new volume's name (blank = derived default)
 }
 
 // Placement decides the plugin's networks. Networks are REAL docker network names the
@@ -198,25 +208,38 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			nets = append(nets, sharedBridge)
 		}
 
-		// Volumes: ONLY auto-created named volumes. A bind mount would let a catalog
+		// Volumes: ONLY named volumes — never binds. A bind mount would let a catalog
 		// entry (which may come from a remote/untrusted manifest) mount an arbitrary
 		// HOST path — e.g. /var/run/docker.sock, /, /etc — into the plugin, i.e. host
-		// escape. Reject binds and any "name" that looks like a path.
+		// escape. The user's per-target choice decides between reusing an existing
+		// volume (external, mounted as-is) and creating a fresh one; either way the name
+		// is validated so it can't smuggle a path (validVolumeName rejects slashes and a
+		// leading dot/dash, so no `../` traversal or absolute path can slip through).
 		var mounts []stackspec.MountSpec
 		for _, vm := range entry.Volumes {
 			if vm.Type == "bind" {
 				emit("note: skipped bind mount at " + vm.Target + " — catalog plugins may only use named volumes")
 				continue
 			}
-			name := vm.Name
+			choice := inst.Volumes[vm.Target]
+			name := choice.Name
+			if name == "" {
+				name = vm.Name
+			}
 			if name == "" {
 				name = service + "-" + slugPath(vm.Target)
 			}
-			if strings.ContainsAny(name, "/\\.") {
+			if !validVolumeName(name) {
 				emit("note: skipped volume at " + vm.Target + " — invalid volume name " + name)
 				continue
 			}
-			spec.Volumes = append(spec.Volumes, stackspec.VolumeSpec{Name: name})
+			// Existing => reference the volume as-is (External: no <project>_ prefix, not
+			// created — docker errors clearly if it's since gone). New => hope creates
+			// <project>_<name> (persists across recreate/reconfigure).
+			if choice.Existing {
+				emit("volume at " + vm.Target + " — reusing existing " + name)
+			}
+			spec.Volumes = append(spec.Volumes, stackspec.VolumeSpec{Name: name, External: choice.Existing})
 			mounts = append(mounts, stackspec.MountSpec{Type: "volume", Source: name, Target: vm.Target, ReadOnly: vm.ReadOnly})
 		}
 
@@ -534,3 +557,12 @@ func slugPath(p string) string {
 	}
 	return s
 }
+
+// volNameRe is docker's own volume-name grammar, anchored: an alphanumeric first
+// character then [a-zA-Z0-9_.-]. The leading-alphanumeric anchor + no slash means a
+// client can never smuggle a host path (`/etc`, `../x`) as a "volume" name — which is
+// what keeps the existing-volume picker from becoming a bind-mount escape hatch.
+var volNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
+
+// validVolumeName reports whether s is a safe docker named-volume reference.
+func validVolumeName(s string) bool { return volNameRe.MatchString(s) }
