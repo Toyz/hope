@@ -33,8 +33,15 @@ func (c *Client) History(ctx context.Context, id string) ([]ImageLayer, error) {
 	}
 	out := make([]ImageLayer, 0, len(hist))
 	for _, h := range hist {
+		// Docker reports "<missing>" as the id for every layer that doesn't carry its
+		// own image id (all layers of a pulled image, plus intermediate build layers).
+		// Blank it so the UI shows an id only when there's a real one to show.
+		id := h.ID
+		if id == "<missing>" {
+			id = ""
+		}
 		out = append(out, ImageLayer{
-			ID:        h.ID,
+			ID:        id,
 			Created:   h.Created,
 			CreatedBy: h.CreatedBy,
 			Size:      h.Size,
