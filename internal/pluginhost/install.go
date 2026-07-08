@@ -505,9 +505,12 @@ func sanitizeName(s string) string {
 // identity + the derived bearer token depend on them.
 func reservedLabel(k string) bool {
 	// "hope.plugin" (no dot) too — the opt-in key itself, so a manifest can't set it
-	// false and un-register the plugin.
+	// false and un-register the plugin. io.podman.compose.* because discovery's
+	// projectLabel/serviceLabel fall back to podman's namespace, so identity could be
+	// spoofed there on a podman host just as via com.docker.compose.*.
 	return strings.HasPrefix(k, "hope.plugin") ||
 		strings.HasPrefix(k, "com.docker.compose.") ||
+		strings.HasPrefix(k, "io.podman.") ||
 		strings.HasPrefix(k, "ink.hope.")
 }
 

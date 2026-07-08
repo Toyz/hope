@@ -26,6 +26,7 @@ func TestReservedLabel(t *testing.T) {
 	reserved := []string{
 		"hope.plugin", "hope.plugin.port", "hope.plugin.title", "hope.plugin.icon",
 		"com.docker.compose.project", "com.docker.compose.service", "com.docker.compose.container-number",
+		"io.podman.compose.project", "io.podman.compose.service", // podman identity fallback
 		"ink.hope.managed", "ink.hope.tunnel",
 	}
 	for _, k := range reserved {
