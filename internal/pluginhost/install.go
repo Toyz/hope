@@ -11,6 +11,7 @@ import (
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
 	"github.com/toyz/hope/internal/store"
 )
@@ -197,21 +198,26 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			nets = append(nets, sharedBridge)
 		}
 
-		// Volumes: named volumes are auto-created (declared non-external); binds use the host path as-is.
+		// Volumes: ONLY auto-created named volumes. A bind mount would let a catalog
+		// entry (which may come from a remote/untrusted manifest) mount an arbitrary
+		// HOST path — e.g. /var/run/docker.sock, /, /etc — into the plugin, i.e. host
+		// escape. Reject binds and any "name" that looks like a path.
 		var mounts []stackspec.MountSpec
 		for _, vm := range entry.Volumes {
-			typ := vm.Type
-			if typ == "" {
-				typ = "volume"
+			if vm.Type == "bind" {
+				emit("note: skipped bind mount at " + vm.Target + " — catalog plugins may only use named volumes")
+				continue
 			}
-			src := vm.Name
-			if typ == "volume" {
-				if src == "" {
-					src = service + "-" + slugPath(vm.Target)
-				}
-				spec.Volumes = append(spec.Volumes, stackspec.VolumeSpec{Name: src})
+			name := vm.Name
+			if name == "" {
+				name = service + "-" + slugPath(vm.Target)
 			}
-			mounts = append(mounts, stackspec.MountSpec{Type: typ, Source: src, Target: vm.Target, ReadOnly: vm.ReadOnly})
+			if strings.ContainsAny(name, "/\\.") {
+				emit("note: skipped volume at " + vm.Target + " — invalid volume name " + name)
+				continue
+			}
+			spec.Volumes = append(spec.Volumes, stackspec.VolumeSpec{Name: name})
+			mounts = append(mounts, stackspec.MountSpec{Type: "volume", Source: name, Target: vm.Target, ReadOnly: vm.ReadOnly})
 		}
 
 		labels := map[string]string{
@@ -222,6 +228,12 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			docker.LabelPluginIcon:  entry.Icon,
 		}
 		for k, v := range entry.Labels {
+			// A catalog entry must not override hope's plugin/compose/management labels:
+			// the container identity + its bearer token are derived from those, so a
+			// spoofed com.docker.compose.project could hijack another plugin's trust.
+			if reservedLabel(k) {
+				continue
+			}
 			labels[k] = v
 		}
 
@@ -284,6 +296,10 @@ func (r *PluginsRouter) reconfigure(ctx context.Context, key string, env map[str
 	if rec.CatalogID == "" {
 		return fmt.Errorf("this plugin wasn't installed by hope — edit its env via the deploy editor")
 	}
+	// Pin the deploy to the host the plugin actually lives on, NOT wherever the
+	// request's X-Hope-Host points — else we'd load plugin A's secret-bearing spec and
+	// recreate it on host B (cross-host secret spray + orphaned container).
+	ctx = hosts.WithTarget(ctx, rec.Host)
 	spec, err := r.deploy.Store().Load(rec.Host, rec.Project)
 	if err != nil {
 		return err
@@ -482,6 +498,17 @@ func sanitizeName(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// reservedLabel reports whether a label key belongs to hope's plugin/compose/
+// management namespace — which a catalog entry must never set, since container
+// identity + the derived bearer token depend on them.
+func reservedLabel(k string) bool {
+	// "hope.plugin" (no dot) too — the opt-in key itself, so a manifest can't set it
+	// false and un-register the plugin.
+	return strings.HasPrefix(k, "hope.plugin") ||
+		strings.HasPrefix(k, "com.docker.compose.") ||
+		strings.HasPrefix(k, "ink.hope.")
 }
 
 // splitCSV splits a comma list into trimmed, non-empty tokens.

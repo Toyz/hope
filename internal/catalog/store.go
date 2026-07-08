@@ -50,9 +50,22 @@ func New(sources []Source, refresh time.Duration, cache CacheStore) *Service {
 	return &Service{
 		sources: sources,
 		refresh: refresh,
-		client:  &http.Client{Timeout: 15 * time.Second},
-		cache:   cache,
-		remote:  map[string][]CatalogEntry{},
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+			// Pin redirects to the original host so a compromised repo can't 302 hope
+			// at an internal address (cloud metadata, localhost services).
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("catalog: too many redirects")
+				}
+				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+					return fmt.Errorf("catalog: refusing cross-host redirect to %s", req.URL.Host)
+				}
+				return nil
+			},
+		},
+		cache:  cache,
+		remote: map[string][]CatalogEntry{},
 	}
 }
 

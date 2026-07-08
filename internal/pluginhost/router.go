@@ -118,21 +118,12 @@ func (r *PluginsRouter) Config(ctx *rpc.Context, p *TargetParams) (*PluginConfig
 	if !ok {
 		return empty, nil
 	}
-	values := map[string]string{}
-	if r.deploy != nil {
-		if spec, _ := r.deploy.Store().Load(rec.Host, rec.Project); spec != nil {
-			if svc, ok := spec.ServiceByName(rec.Service); ok {
-				for _, f := range entry.Env {
-					v := svc.Env[f.Key]
-					if f.Kind == "secret" {
-						v = "" // never return a secret; blank means "keep existing"
-					}
-					values[f.Key] = v
-				}
-			}
-		}
-	}
-	return &PluginConfig{Fields: entry.Env, Values: values}, nil
+	// Return the field SCHEMA but NOT the stored values. The stored env holds secrets
+	// (DSNs, the bearer token), and the field's secret/non-secret Kind comes from the
+	// catalog — a hostile manifest could relabel a secret field as plain to exfiltrate
+	// its stored value. The editor pre-fills from field defaults; a blank submission
+	// keeps the existing value on reconfigure, so returning nothing is non-destructive.
+	return &PluginConfig{Fields: entry.Env, Values: map[string]string{}}, nil
 }
 
 // gate blocks every method when the feature is disabled in config.

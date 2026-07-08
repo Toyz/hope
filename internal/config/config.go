@@ -66,9 +66,15 @@ type PluginCatalogConfig struct {
 type CatalogRepo struct {
 	Name string `mapstructure:"name"` // display/source label (defaults to the URL)
 	URL  string `mapstructure:"url"`  // JSON manifest URL
-	// Trust allows THIS repo's entries to name images outside the first-party prefix.
-	// Off by default: an untrusted repo's entry whose image isn't a trusted prefix is
+	// Trust admits THIS repo's entries even when their image is outside the first-party
+	// prefix. Off by default: an untrusted repo's entry with a non-first-party image is
 	// dropped, so a compromised third-party manifest can't offer a hostile image.
+	//
+	// SECURITY: this vouches for the WHOLE entry, not just image provenance — a trusted
+	// repo can name any image plus arbitrary container env and (non-reserved) labels.
+	// hope still hard-blocks the dangerous bits regardless of trust: catalog plugins may
+	// only use named volumes (never host bind mounts), and can't set hope/compose
+	// reserved labels. Only mark a repo trusted if you'd run its images by hand.
 	Trust bool `mapstructure:"trust_images"`
 }
 

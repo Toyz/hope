@@ -70,8 +70,8 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	// Only a containerized hope can lose the db on a recreate; a natively-run binary's
-	// file is persistent, so never flag it (gate the rootfs check on being in Docker).
-	return &Store{db: db, ephemeral: inDocker() && onRootFS(path)}, nil
+	// file is persistent, so never flag it (gate the rootfs check on being containerized).
+	return &Store{db: db, ephemeral: inContainer() && onRootFS(path)}, nil
 }
 
 // Enabled reports whether the store is backed by a real file.

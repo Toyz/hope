@@ -19,6 +19,28 @@ func TestInstallKeyMatchesIdentity(t *testing.T) {
 	}
 }
 
+// TestReservedLabel locks the identity-spoofing defense: a catalog entry must never be
+// able to set hope's plugin/compose/management labels (which the container identity +
+// its bearer token derive from).
+func TestReservedLabel(t *testing.T) {
+	reserved := []string{
+		"hope.plugin", "hope.plugin.port", "hope.plugin.title", "hope.plugin.icon",
+		"com.docker.compose.project", "com.docker.compose.service", "com.docker.compose.container-number",
+		"ink.hope.managed", "ink.hope.tunnel",
+	}
+	for _, k := range reserved {
+		if !reservedLabel(k) {
+			t.Errorf("reservedLabel(%q) = false; want true (must be blocked from catalog entries)", k)
+		}
+	}
+	allowed := []string{"app", "maintainer", "org.opencontainers.image.source", "team", "tier"}
+	for _, k := range allowed {
+		if reservedLabel(k) {
+			t.Errorf("reservedLabel(%q) = true; want false (a normal user label)", k)
+		}
+	}
+}
+
 func TestSanitizeName(t *testing.T) {
 	cases := map[string]string{
 		"Redis Mon":    "redis-mon",
