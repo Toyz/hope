@@ -33,6 +33,9 @@ interface InstForm {
   .head { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); flex: none; }
   .head .t { color: var(--hi); font: 700 14px/1 var(--mono); }
   .head .sub { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font: 11px/1 var(--mono); }
+  .head .back { display: inline-grid; place-items: center; width: 30px; height: 30px; margin-left: -6px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
+  .head .back:hover { color: var(--hi); }
+  .head .hostsel { width: 220px; }
   .head .grow { flex: 1; }
   .x { display: inline-grid; place-items: center; width: 32px; height: 32px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
   .x:hover { color: var(--hi); }
@@ -59,14 +62,14 @@ interface InstForm {
   .card .cta .grow { flex: 1; }
 
   /* ── details ("more info") view ── */
-  .detail { max-width: 760px; }
-  .dhead { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  .dhead loom-icon { color: var(--mid); flex: none; }
-  .dt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .dtitle { color: var(--hi); font: 700 15px/1.2 var(--mono); }
-  .dimg { color: var(--dim); font: 11px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; }
-  .dhead .src { margin-left: auto; color: var(--dim); font: 9px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--line2); padding: 1px 5px; flex: none; }
-  .ddesc { color: var(--mid); font: 12.5px/1.7 var(--mono); margin: 0 0 18px; }
+  .detail { max-width: 720px; }
+  .dhead { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
+  .dicon { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid var(--line2); background: var(--ink); }
+  .dicon loom-icon { color: var(--mid); }
+  .dt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .dimg { color: var(--hi); font: 12.5px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; }
+  .dsrc { color: var(--dim); font: 10px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .ddesc { color: var(--mid); font: 13px/1.75 var(--mono); margin: 0 0 20px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .dsec { margin-bottom: 16px; }
   .dsec > .dlbl { display: block; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; margin-bottom: 9px; }
   .dfield { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
@@ -169,11 +172,9 @@ export class HopePluginInstaller extends LoomElement {
     try {
       this.hosts = (await this.rpc.call<HostView[]>("System", "hosts", [])) || [];
     } catch { this.hosts = []; }
-    // Install must name a host; default to the opened host, else the active/first connected.
-    if (!this.host) {
-      const connected = this.hosts.filter((h) => h.connected);
-      this.host = (connected.find((h) => h.active) || connected[0])?.id || "";
-    }
+    // Opened host-scoped (from /plugins/:host) => that host is pre-selected in onOpen.
+    // Opened from the fleet "all" view => host stays empty so the picker forces a
+    // "choose a fleet" selection rather than silently guessing one.
     await this.reloadHostResources();
   }
 
@@ -187,7 +188,23 @@ export class HopePluginInstaller extends LoomElement {
     } catch { this.stacks = []; }
   }
 
-  private setHost = (id: string) => { this.host = id; this.pickNets = []; void this.reloadHostResources(); };
+  private setHost = (id: string) => { this.host = id; this.pickNets = []; this.pickStack = ""; void this.reloadHostResources(); };
+
+  private connectedHosts(): HostView[] { return this.hosts.filter((h) => h.connected); }
+  private hostOpts(): { value: string; label: string }[] {
+    return this.connectedHosts().map((h) => ({ value: h.id, label: h.id + (h.kind === "local" ? " (local)" : "") }));
+  }
+  // Top-of-dialog back: config → gallery, detail → gallery.
+  private goBack = () => {
+    if (this.step === "config") this.step = "browse";
+    else if (this.detailId) this.detailId = "";
+  };
+  private canBack(): boolean { return this.step === "config" || !!this.detailId; }
+  private headTitle(): string {
+    if (this.step === "config") return this.selected.length > 1 ? "Configure plugins" : "Configure";
+    if (this.detailId) return this.entry(this.detailId)?.title || "Plugin";
+    return "Install plugin";
+  }
 
   private refresh = async () => {
     this.busy = true;
@@ -278,7 +295,7 @@ export class HopePluginInstaller extends LoomElement {
 
   // Validate required + select env before install.
   private validate(): string {
-    if (!this.host) return "pick a target host";
+    if (!this.host) return "choose a fleet to install on";
     if (this.placeMode === "new_stack" && !this.project.trim()) return "a stack name is required";
     if (this.placeMode === "stack_net" && !this.pickStack) return "pick a stack to join";
     for (const id of this.selected) {
@@ -390,12 +407,11 @@ export class HopePluginInstaller extends LoomElement {
     return (
       <div class="detail">
         <div class="dhead">
-          <loom-icon name={c.icon || "plugin"} size={22}></loom-icon>
+          <div class="dicon"><loom-icon name={c.icon || "plugin"} size={22}></loom-icon></div>
           <div class="dt">
-            <span class="dtitle">{c.title}</span>
             <span class="dimg" title={c.image}>{c.image}</span>
+            <span class="dsrc">{c.source && c.source !== "builtin" ? "from " + c.source : "first-party"}</span>
           </div>
-          {c.source && c.source !== "builtin" ? <span class="src">{c.source}</span> : null}
         </div>
         {c.description ? <p class="ddesc">{c.description}</p> : null}
 
@@ -441,16 +457,8 @@ export class HopePluginInstaller extends LoomElement {
   }
 
   private configView() {
-    const hostOpts = this.hosts.filter((h) => h.connected).map((h) => ({ value: h.id, label: h.id + (h.kind === "local" ? " (local)" : "") }));
     return (
       <>
-        <div class="sec">
-          <span class="lbl">target host</span>
-          <div class="field">
-            <hope-select options={hostOpts} value={this.host} placeholder="pick a host…" onSelect={(e: any) => this.setHost(e.detail)}></hope-select>
-            <span class="hint">Where the plugin container is deployed. A remote host needs a hope agent (or a published port) so hope can reach the plugin.</span>
-          </div>
-        </div>
         <div class="sec">
           <span class="lbl">stack</span>
           <div class="radio">
@@ -532,9 +540,10 @@ export class HopePluginInstaller extends LoomElement {
         <div class="scrim" onClick={this.close}></div>
         <div class="modal">
           <div class="head">
-            <span class="t">Install plugin</span>
-            <span class="sub">{this.host ? <><loom-icon name="server" size={11}></loom-icon>{this.host}</> : "fleet"}</span>
+            {this.canBack() ? <button class="back" title="back to catalog" onClick={this.goBack}><loom-icon name="chevron-left" size={17}></loom-icon></button> : null}
+            <span class="t">{this.headTitle()}</span>
             <span class="grow"></span>
+            <hope-select class="hostsel" options={this.hostOpts()} value={this.host} placeholder="choose a fleet…" onSelect={(e: any) => this.setHost(e.detail)}></hope-select>
             <button class="x" onClick={this.close}><loom-icon name="x" size={16}></loom-icon></button>
           </div>
 
@@ -555,9 +564,6 @@ export class HopePluginInstaller extends LoomElement {
           </div>
 
           <div class="foot">
-            {this.step === "config" ? <hope-button size="sm" icon="chevron-left" onClick={() => (this.step = "browse")}>Back</hope-button>
-              : this.detailId ? <hope-button size="sm" icon="chevron-left" onClick={() => (this.detailId = "")}>Back</hope-button>
-              : null}
             <span class="grow"></span>
             {this.step === "config" ? (
               <hope-button size="sm" tone="primary" icon="download" onClick={this.doInstall}>Install {this.selected.length > 1 ? this.selected.length + " plugins" : ""}</hope-button>
