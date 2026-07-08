@@ -1,9 +1,16 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"syscall"
 )
+
+// inDocker reports whether hope is running inside a container. hope's own images
+// bake HOPE_MANAGED=1, so its presence is the signal — the rootfs-vs-volume
+// distinction (and its "will be lost on recreate" warning) only makes sense in a
+// container. Run the binary natively and the db is just a normal file: never flagged.
+func inDocker() bool { return os.Getenv("HOPE_MANAGED") != "" }
 
 // onRootFS reports whether the db path lives on the same filesystem device as
 // "/" — i.e. the container's rootfs (overlay) rather than a mounted volume. A

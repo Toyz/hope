@@ -28,6 +28,7 @@ const (
 	BucketRegistries = "registries"
 	BucketPlugins    = "plugins"
 	BucketAudit      = "plugin_audit"
+	BucketCatalog    = "plugin_catalog"
 )
 
 var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistries, BucketPlugins, BucketAudit}
@@ -68,7 +69,9 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db, ephemeral: onRootFS(path)}, nil
+	// Only a containerized hope can lose the db on a recreate; a natively-run binary's
+	// file is persistent, so never flag it (gate the rootfs check on being in Docker).
+	return &Store{db: db, ephemeral: inDocker() && onRootFS(path)}, nil
 }
 
 // Enabled reports whether the store is backed by a real file.
