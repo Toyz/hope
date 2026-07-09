@@ -168,6 +168,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .cprog { display: inline-block; width: 90px; height: 8px; background: var(--line2); border-radius: 999px; overflow: hidden; vertical-align: middle; }
   .cprog i { display: block; height: 100%; background: var(--upd); }
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
+  /* Flush/embedded (TableData.Flush): no height cap or inner scroll — the panel/flyout scrolls. */
+  .gwrap.embed { max-height: none; overflow: visible; border: 0; }
   .tblwrap { display: flex; flex-direction: column; min-height: 0; }
   /* A filled table gets a tall internal scroll (not flex-grow) so it stays usable
      without collapsing siblings; the page scrolls between sections. */
@@ -922,6 +924,10 @@ export class HopePluginSurface extends LoomElement {
   // row_method the rows are clickable (detail modal); row_actions add a trailing
   // action cell. Columns are fully dynamic — whatever the plugin returns.
   private renderTable(data: any, v?: ViewDesc) {
+    // Flush is a PLUGIN choice (TableData.Flush): render the table full-height with no toolbar,
+    // so it flows inside a panel/flyout and the CONTAINER scrolls — instead of a capped, nested
+    // scroll box. Used for embedded CTable lists (e.g. the badges on a canvas).
+    const embedded = !!data?.flush;
     const cols: string[] = Array.isArray(data?.columns) ? data.columns : [];
     // `data` is untrusted plugin output. Normalize rows to a real array-of-arrays up
     // front (a non-array `rows`, or null/non-array row elements, would otherwise throw
@@ -956,7 +962,7 @@ export class HopePluginSurface extends LoomElement {
     const st = this.tableSt(key);
     const server = !!v?.server;
     const noFilter = !!v?.no_filter, noSort = !!v?.no_sort; // plain paged list: no search box / no sortable headers
-    const pageSize = v?.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE; // plugin-declared, else default
+    const pageSize = embedded ? 100000 : (v?.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE); // embedded shows all; else plugin-declared/default
 
     // Server tables: the plugin already returned exactly this page + a total, so we
     // don't filter/sort/slice here — the controls re-call the plugin. Client tables:
@@ -976,7 +982,7 @@ export class HopePluginSurface extends LoomElement {
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(st.page, pages - 1);
     const shown = server ? idx : idx.slice(page * pageSize, page * pageSize + pageSize);
-    const toolbar = (!noFilter && (server || rows.length > pageSize || st.filter)) || total > pageSize;
+    const toolbar = !embedded && ((!noFilter && (server || rows.length > pageSize || st.filter)) || total > pageSize);
     // Control handlers route to the plugin (server) or re-render locally (client).
     const changePage = (p: number) => { this.setTable(key, { page: p }); if (server) this.serverFetch(key); };
     // 3-phase sort: unsorted -> ascending -> descending -> unsorted.
@@ -997,7 +1003,7 @@ export class HopePluginSurface extends LoomElement {
     const filterVal = server ? (this.filterDraft[key] ?? st.filter) : st.filter;
 
     return (
-      <div class="tblwrap">
+      <div class={"tblwrap" + (embedded ? " embed" : "")}>
         {toolbar ? (
           <div class="tbar">
             {noFilter ? null : <input class="tfilter" placeholder={server ? "search…" : "filter…"} value={filterVal}
@@ -1020,7 +1026,7 @@ export class HopePluginSurface extends LoomElement {
             ) : null}
           </div>
         ) : null}
-        <div class="gwrap">
+        <div class={"gwrap" + (embedded ? " embed" : "")}>
           <table class="g">
             <thead><tr>
               {cols.map((c, ci) => {

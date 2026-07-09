@@ -5,6 +5,12 @@ The SDK is a nested Go module, tagged `plugin/vX.Y.Z`. It follows the
 minor bumps and never break existing plugins; `ProtocolVersion` bumps only on a
 breaking change to an existing wire shape (still `1`).
 
+## v0.0.11
+
+- **`TableData.Flush`.** Render a table full-height with no toolbar and no inner scroll box — it
+  flows and the containing panel/flyout scrolls instead. Pairs with `CTable` for an embedded,
+  bounded list (e.g. the badges on a canvas) that shouldn't be a tiny nested scroll area.
+
 ## v0.0.10
 
 - **Embedded tables in components (`plugin.CTable`).** A new component primitive that renders a

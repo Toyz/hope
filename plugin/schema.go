@@ -87,6 +87,10 @@ type TableData struct {
 	// renders in the flyout. Data-side equivalent of the RowFlyout table option. When both
 	// RowFlyout and RowMethod are set, the flyout wins.
 	RowFlyout string `json:"row_flyout,omitempty"`
+	// Flush renders the table full-height with no toolbar (filter/pager) and no inner scroll
+	// box — it flows and the containing panel/flyout scrolls instead. Meant for an embedded
+	// CTable showing a bounded list (e.g. the badges on a canvas), not a big paged view.
+	Flush bool `json:"flush,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
