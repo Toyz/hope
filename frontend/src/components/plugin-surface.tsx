@@ -193,11 +193,11 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .sarrow.off { visibility: hidden; } /* reserve the space so sorting doesn't shift column widths */
 
   .stats2 { display: flex; flex-wrap: wrap; gap: 26px; padding: 4px 0; }
-  .statb { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 4px 0; border-left: 2px solid transparent; padding-left: 0; }
+  .statb { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 4px 0; border-left: 2px solid transparent; padding-left: 0; min-width: 0; max-width: 100%; }
   .statb.ok { border-left-color: var(--ok); padding-left: 12px; } .statb.warn { border-left-color: var(--warn); padding-left: 12px; }
   .statb.bad { border-left-color: var(--bad); padding-left: 12px; } .statb.info { border-left-color: var(--upd); padding-left: 12px; }
   .stlabel { display: flex; align-items: center; gap: 6px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
-  .stval { color: var(--hi); font: 600 26px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .stval { color: var(--hi); font: 600 26px/1 var(--mono); font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stunit { color: var(--dim); font-size: 13px; }
   .stsub { color: var(--dim); font: 11px/1.3 var(--mono); }
 
@@ -1331,7 +1331,7 @@ export class HopePluginSurface extends LoomElement {
         {stats.map((st) => (
           <div class={"statb" + (this.toneClass(st.tone) ? " " + this.toneClass(st.tone) : "")}>
             <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{st.tip ? <hope-tip text={st.tip.text} pos={st.tip.pos || "top"}>{this.cellStr(st.label)}</hope-tip> : this.cellStr(st.label)}</div>
-            <div class="stval">{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
+            <div class="stval" title={this.cellStr(st.value)}>{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
             {st.sub ? <div class="stsub">{this.cellStr(st.sub)}</div> : null}
           </div>
         ))}
