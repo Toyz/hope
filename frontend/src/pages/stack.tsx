@@ -158,6 +158,8 @@ function aggMark(items: ContainerSummary[]): string {
   .upd { font: 600 9.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; background: transparent;
     color: var(--upd); border: 1px solid color-mix(in srgb, var(--upd) 45%, var(--line)); white-space: nowrap; flex-shrink: 0; cursor: pointer; }
   .upd:hover { background: color-mix(in srgb, var(--upd) 18%, transparent); border-color: var(--upd); }
+  .upd:disabled { opacity: .4; cursor: default; }
+  .upd:disabled:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
   .upd.static { cursor: default; }
   .upd.static:hover { background: transparent; border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
   .tchip { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; font: 600 10.5px/1 var(--mono); cursor: pointer;
@@ -723,6 +725,7 @@ export class StackPage extends LoomElement {
     return (
       <button
         class="upd"
+        disabled={!!this.busy}
         title={this.updates[c.id]?.detail || "update available — redeploy to the latest image"}
         onClick={(e: Event) => { e.stopPropagation(); this.containerOp(c.id, "redeploy", c.service || c.name); }}
       >
@@ -846,6 +849,11 @@ export class StackPage extends LoomElement {
   };
 
   private containerOp = async (id: string, op: ContainerOp, label: string) => {
+    // Re-entrancy guard: an op already runs (buttons are disabled on it, but the update
+    // chip isn't, and confirm dialogs leave a click window). A second redeploy shares
+    // this.busy and resets the shared processing dialog, and re-redeploys an already-
+    // recreating (now-gone) container id — which wedges the redeploy UI. One at a time.
+    if (this.busy) return;
     if (op === "stop" || op === "kill" || op === "redeploy") {
       const ok = await this.confirm.ask({
         title: op,
