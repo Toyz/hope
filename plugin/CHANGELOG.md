@@ -5,6 +5,14 @@ The SDK is a nested Go module, tagged `plugin/vX.Y.Z`. It follows the
 minor bumps and never break existing plugins; `ProtocolVersion` bumps only on a
 breaking change to an existing wire shape (still `1`).
 
+## v0.0.10
+
+- **Embedded tables in components (`plugin.CTable`).** A new component primitive that renders a
+  full `TableData` (column headers, aligned cells, ellipsis, DetailLink/Image cells) inside a
+  Component tree — so a `ComponentView`/flyout can show a compact list-with-structure (e.g. the
+  badges on a canvas) using the real table renderer instead of hand-stacked rows. Additive; an
+  older hope skips the unknown node.
+
 ## v0.0.9
 
 - **Durable image byte cache (`plugin.ImgCache()`).** Opt an image into the browser's Cache

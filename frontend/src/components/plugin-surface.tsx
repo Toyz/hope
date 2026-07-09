@@ -29,8 +29,9 @@ interface Node {
   comp?: Comp; // kind "component": an inline primitive tree (see renderComponent)
 }
 // Comp mirrors the SDK's plugin.Comp — one node of the "escape hatch" primitive tree.
+type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table";
 interface Comp {
-  kind: string; // box|stack|row|grid|text|heading|divider|spacer|keyval|icon|sparkline|cell
+  kind: CompKind; // a newer hope may send an unknown kind; renderComponent's default skips it
   children?: Comp[];
   text?: string;
   label?: string;
@@ -42,6 +43,7 @@ interface Comp {
   values?: number[];
   gap?: number;
   size?: number;
+  table?: any; // embedded TableData (kind "table")
 }
 // EmptyState mirrors the SDK's plugin.EmptyState — an author-set "no data" view.
 interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
@@ -841,6 +843,9 @@ export class HopePluginSurface extends LoomElement {
       }
       case "cell":
         return this.cellNode(c.cell);
+      case "table":
+        // An embedded table — full renderer (headers, aligned cells, ellipsis, row detail).
+        return c.table ? this.renderTable(c.table) : null;
       default:
         return null;
     }

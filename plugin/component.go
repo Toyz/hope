@@ -47,6 +47,7 @@ const (
 	CompIcon      CompKind = "icon"      // a single icon (built-in name or an Icons key)
 	CompSparkline CompKind = "sparkline" // a tiny inline line chart from Values
 	CompCell      CompKind = "cell"      // any rich Cell (Badge/Link/Number/Time/Progress/Code/Image)
+	CompTable     CompKind = "table"     // an embedded table (rich cells, alignment, ellipsis)
 )
 
 // Comp is one node in a Component tree. Build nodes with the constructors below
@@ -64,8 +65,9 @@ type Comp struct {
 	Tone     string    `json:"tone,omitempty"`     // ok|warn|bad|info accent (text/heading/keyval/box)
 	Icon     string    `json:"icon,omitempty"`     // icon primitive
 	Values   []float64 `json:"values,omitempty"`   // sparkline points
-	Gap      int       `json:"gap,omitempty"`      // container child gap, px
-	Size     int       `json:"size,omitempty"`     // row/grid child weight | spacer height px
+	Gap      int        `json:"gap,omitempty"`   // container child gap, px
+	Size     int        `json:"size,omitempty"`  // row/grid child weight | spacer height px
+	Table    *TableData `json:"table,omitempty"` // embedded table (CompTable)
 }
 
 // Box builds a vertical container (a tile/card body) from children.
@@ -109,6 +111,12 @@ func Sparkline(vals ...float64) *Comp { return &Comp{Kind: CompSparkline, Values
 // CCell wraps any rich Cell (Badge/Link/Number/Time/Progress/Code/Image) as a
 // standalone primitive, so the whole cell vocabulary works inside a Component tree.
 func CCell(cell Cell) *Comp { return &Comp{Kind: CompCell, Cell: cell} }
+
+// CTable embeds a full table inside a Component tree — column headers, aligned cells,
+// ellipsis, DetailLink/Image cells, all rendered by hope's table renderer. Build the data
+// with plugin.Table(...). Ideal for a compact list-with-structure inside a flyout/panel
+// (e.g. the badges on a canvas) instead of hand-stacking rows.
+func CTable(data *TableData) *Comp { return &Comp{Kind: CompTable, Table: data} }
 
 // Toned sets a semantic accent (ToneOK/Warn/Bad/Info) on a node — a colored heading,
 // a tinted box border, a status-colored keyval.
