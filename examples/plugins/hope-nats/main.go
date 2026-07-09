@@ -193,76 +193,53 @@ func registerStreams(p *plugin.Plugin) {
 		return pageResult(cols, rows, len(rows), "id"), nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(10), plugin.NoSort(), plugin.Static(),
 		plugin.EmptyView("No streams", plugin.EmptyIcon("layers"), plugin.EmptyText("This server has no JetStream streams (or JetStream is disabled).")),
-		plugin.RowFlyout("streamHead"))
+		plugin.RowFlyout("streamFlyout"))
 
-	// Stream detail hero — config + state. Reused as the flyout body (RowFlyout above) AND on
-	// the stream detail page. Reads the name from the {stream} page param or the clicked row.
+	// Stream detail hero — config + state only. The DETAIL PAGE hero (the consumers table
+	// renders separately below it there). Reads the name from the {stream} page param.
 	p.ComponentView("streamHead", "Stream", func(ctx context.Context) (any, error) {
-		name := streamName(ctx)
-		_, js, err := conn(ctx)
-		if err != nil || name == "" {
-			return plugin.Box(plugin.CText("stream not found")), nil
-		}
-		s, err := js.Stream(ctx, name)
-		if err != nil {
-			return plugin.Box(plugin.CText("stream not found: " + name)), nil
-		}
-		si, err := s.Info(ctx)
+		si, err := infoOf(ctx, streamName(ctx))
 		if err != nil {
 			return plugin.Box(plugin.CText(err.Error())), nil
 		}
-		kids := []*plugin.Comp{
-			plugin.Heading(si.Config.Name, 2),
+		return plugin.Box(streamHeroKids(si)...), nil
+	})
+
+	// streamFlyout — the row-flyout body: the hero PLUS the stream's consumers as an embedded
+	// (flush) table, so a row click is a self-contained quick view — no dead "open" link back
+	// to a page that just re-shows the hero.
+	p.ComponentView("streamFlyout", "Stream", func(ctx context.Context) (any, error) {
+		name := streamName(ctx)
+		si, err := infoOf(ctx, name)
+		if err != nil {
+			return plugin.Box(plugin.CText(err.Error())), nil
 		}
-		if si.Config.Description != "" {
-			kids = append(kids, plugin.CText(si.Config.Description))
+		kids := streamHeroKids(si)
+		_, js, _ := conn(ctx)
+		if s, serr := js.Stream(ctx, name); serr == nil {
+			if rows := consumerRows(ctx, s); len(rows) > 0 {
+				kids = append(kids,
+					plugin.Divider(),
+					plugin.CText("consumers"),
+					plugin.CTable(&plugin.TableData{Columns: consumerCols, Rows: rows, Flush: true}),
+				)
+			}
 		}
-		kids = append(kids,
-			plugin.KeyVal("subjects", plugin.Code(strings.Join(si.Config.Subjects, " "))),
-			plugin.KeyVal("storage", plugin.Badge(si.Config.Storage.String(), storageTone(si.Config.Storage.String()))),
-			plugin.Divider(),
-			plugin.CRow(
-				plugin.KeyVal("messages", plugin.Number(int64(si.State.Msgs), "")),
-				plugin.KeyVal("bytes", humanBytes(int64(si.State.Bytes))),
-				plugin.KeyVal("consumers", plugin.Number(si.State.Consumers, "")),
-			).Gapped(20),
-			plugin.CRow(
-				plugin.KeyVal("first seq", plugin.Number(int64(si.State.FirstSeq), "")),
-				plugin.KeyVal("last seq", plugin.Number(int64(si.State.LastSeq), "")),
-			).Gapped(20),
-			plugin.KeyVal("Detail", plugin.DetailLink("open stream", "stream", si.Config.Name)),
-		)
 		return plugin.Box(kids...), nil
 	})
 
-	// Consumers of the current stream ({stream} param).
+	// Consumers of the current stream ({stream} param) — the detail-page table.
 	p.TableView("streamConsumers", "Consumers", func(ctx context.Context) (any, error) {
-		ccols := []string{"consumer", "durable", "ack pending", "pending", "redelivered"}
 		name := streamName(ctx)
 		_, js, err := conn(ctx)
 		if err != nil || name == "" {
-			return &plugin.TableData{Columns: ccols}, nil
+			return &plugin.TableData{Columns: consumerCols}, nil
 		}
 		s, err := js.Stream(ctx, name)
 		if err != nil {
-			return &plugin.TableData{Columns: ccols}, nil
+			return &plugin.TableData{Columns: consumerCols}, nil
 		}
-		rows := [][]any{}
-		cl := s.ListConsumers(ctx)
-		for ci := range cl.Info() {
-			durable := ci.Config.Durable
-			if durable == "" {
-				durable = "—"
-			}
-			rows = append(rows, []any{
-				plugin.Code(ci.Name),
-				durable,
-				plugin.Number(int64(ci.NumAckPending), ""),
-				plugin.Number(int64(ci.NumPending), ""),
-				plugin.Number(int64(ci.NumRedelivered), ""),
-			})
-		}
-		return &plugin.TableData{Columns: ccols, Rows: rows}, nil
+		return &plugin.TableData{Columns: consumerCols, Rows: consumerRows(ctx, s)}, nil
 	}, plugin.EmptyView("No consumers", plugin.EmptyIcon("check"), plugin.EmptyText("No consumers are bound to this stream.")))
 
 	// Purge (drop all messages, keep the stream) + delete (remove the stream). Both danger.
@@ -463,6 +440,64 @@ func registerLayout(p *plugin.Plugin) {
 }
 
 // --- Params + helpers -----------------------------------------------------------
+
+var consumerCols = []string{"consumer", "durable", "ack pending", "pending", "redelivered"}
+
+// infoOf fetches a stream's info by name (empty name / missing stream -> error).
+func infoOf(ctx context.Context, name string) (*jetstream.StreamInfo, error) {
+	_, js, err := conn(ctx)
+	if err != nil || name == "" {
+		return nil, fmt.Errorf("stream not found")
+	}
+	s, err := js.Stream(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("stream not found: %s", name)
+	}
+	return s.Info(ctx)
+}
+
+// streamHeroKids builds the shared config/state component rows for a stream (hero), used by
+// both the detail-page head and the flyout.
+func streamHeroKids(si *jetstream.StreamInfo) []*plugin.Comp {
+	kids := []*plugin.Comp{plugin.Heading(si.Config.Name, 2)}
+	if si.Config.Description != "" {
+		kids = append(kids, plugin.CText(si.Config.Description))
+	}
+	return append(kids,
+		plugin.KeyVal("subjects", plugin.Code(strings.Join(si.Config.Subjects, " "))),
+		plugin.KeyVal("storage", plugin.Badge(si.Config.Storage.String(), storageTone(si.Config.Storage.String()))),
+		plugin.Divider(),
+		plugin.CRow(
+			plugin.KeyVal("messages", plugin.Number(int64(si.State.Msgs), "")),
+			plugin.KeyVal("bytes", humanBytes(int64(si.State.Bytes))),
+			plugin.KeyVal("consumers", plugin.Number(si.State.Consumers, "")),
+		).Gapped(20),
+		plugin.CRow(
+			plugin.KeyVal("first seq", plugin.Number(int64(si.State.FirstSeq), "")),
+			plugin.KeyVal("last seq", plugin.Number(int64(si.State.LastSeq), "")),
+		).Gapped(20),
+	)
+}
+
+// consumerRows returns a stream's consumer table rows, shared by the detail table + the flyout.
+func consumerRows(ctx context.Context, s jetstream.Stream) [][]any {
+	rows := [][]any{}
+	cl := s.ListConsumers(ctx)
+	for ci := range cl.Info() {
+		durable := ci.Config.Durable
+		if durable == "" {
+			durable = "—"
+		}
+		rows = append(rows, []any{
+			plugin.Code(ci.Name),
+			durable,
+			plugin.Number(int64(ci.NumAckPending), ""),
+			plugin.Number(int64(ci.NumPending), ""),
+			plugin.Number(int64(ci.NumRedelivered), ""),
+		})
+	}
+	return rows
+}
 
 // streamName resolves the target stream from the {stream} page param OR a clicked row's id.
 func streamName(ctx context.Context) string { return rowOrParam(ctx, "stream") }
