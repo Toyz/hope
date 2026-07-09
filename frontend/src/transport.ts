@@ -44,6 +44,9 @@ export class HopeTransport extends RpcTransport {
   private batchQ: Array<{ alias: string; service: string; method: string; args: any[]; host: string; resolve: (v: any) => void; reject: (e: any) => void }> = [];
   private batchScheduled = false;
   private aliasSeq = 0;
+  // Set once a gateway 404s /rpc/_batchstream (an older build without the streaming
+  // route) so we stop probing it and use the buffered /rpc/_batch for the session.
+  private batchStreamOff = false;
 
   // Calls that never coalesce into a batch. Entries are "Service.method" for a
   // single method, or "Service.*" for a whole router. A batch resolves
@@ -84,7 +87,8 @@ export class HopeTransport extends RpcTransport {
   private async flushBatch() {
     const q = this.batchQ;
     this.batchQ = [];
-    // Group by host — one /rpc/_batch per host (the header targets the daemon).
+    // Group by host — one batch per host (the header targets the daemon). Hosts flush
+    // concurrently; each group settles its own calls.
     const byHost = new Map<string, typeof q>();
     for (const c of q) {
       const g = byHost.get(c.host);
@@ -98,26 +102,86 @@ export class HopeTransport extends RpcTransport {
         this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
         continue;
       }
-      const body = { calls: Object.fromEntries(calls.map((c) => [c.alias, { service: c.service, method: c.method, args: c.args }])) };
-      try {
-        const res = await fetch(`${this.baseUrl}/_batch`, { method: "POST", headers: this.headers(hostArg), body: JSON.stringify(body) });
-        if (res.status === 401) { // whole-batch auth failure — fall back to direct (which drives the SSO/login path)
-          for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
-          continue;
-        }
-        const json: any = await res.json();
-        // The batch body is {results}; tolerate a {data:{results}} envelope too.
-        const results: Record<string, { data?: any; error?: { message?: string; code?: string } }> = json.results || json.data?.results || {};
-        for (const c of calls) {
-          const r = results[c.alias];
-          if (!r) { c.reject(new RpcError(`RPC ${c.service}.${c.method}: missing batch result`, res.status, c.service, c.method)); continue; }
-          if (r.error) c.reject(new RpcError(r.error.message ?? `RPC ${c.service}.${c.method}`, res.status, c.service, c.method, r.error.code));
-          else c.resolve(r.data);
-        }
-      } catch {
-        // Batch transport failed (e.g. endpoint missing) — fall back to per-call.
-        for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+      // Prefer the streaming endpoint (each call resolves as its result lands, no
+      // head-of-line blocking); fall back to the buffered batch once/if it's absent.
+      if (this.batchStreamOff) void this.sendBatchBuffered(calls, hostArg);
+      else void this.sendBatchStream(calls, hostArg);
+    }
+  }
+
+  private batchBody(calls: HopeTransport["batchQ"]) {
+    return { calls: Object.fromEntries(calls.map((c) => [c.alias, { service: c.service, method: c.method, args: c.args }])) };
+  }
+
+  // sendBatchStream POSTs /rpc/_batchstream and settles each call the moment its NDJSON
+  // frame arrives — so a fast call never waits on a slow sibling. Degrades safely: a 404
+  // (older gateway) switches the session to the buffered batch; a transport failure or an
+  // alias the server never emitted falls the affected calls back to a direct request.
+  private async sendBatchStream(calls: HopeTransport["batchQ"], hostArg?: string) {
+    const pending = new Map(calls.map((c) => [c.alias, c] as const));
+    const direct = (c: (typeof calls)[number]) => this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/_batchstream`, { method: "POST", headers: this.headers(hostArg), body: JSON.stringify(this.batchBody(calls)) });
+    } catch {
+      return this.sendBatchBuffered(calls, hostArg); // transport failed — try the buffered path
+    }
+    if (res.status === 404) { this.batchStreamOff = true; return this.sendBatchBuffered(calls, hostArg); }
+    if (res.status === 401) { for (const c of calls) direct(c); return; } // whole-batch auth failure → SSO/login path
+    if (!res.ok || !res.body) return this.sendBatchBuffered(calls, hostArg);
+
+    const settle = (alias: string, r: { data?: any; error?: { message?: string; code?: string } }) => {
+      const c = pending.get(alias);
+      if (!c) return;
+      pending.delete(alias);
+      if (r?.error) c.reject(new RpcError(r.error.message ?? `RPC ${c.service}.${c.method}`, res.status, c.service, c.method, r.error.code));
+      else c.resolve(r?.data);
+    };
+    const feed = (line: string) => {
+      const s = line.trim();
+      if (!s) return;
+      try { const f = JSON.parse(s) as { alias: string; result: any }; settle(f.alias, f.result); } catch { /* skip a malformed line */ }
+    };
+    try {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) { feed(buffer.slice(0, nl)); buffer = buffer.slice(nl + 1); }
       }
+      feed(buffer); // trailing line without a newline
+    } catch {
+      /* mid-stream drop — unsettled calls fall through to the direct fallback below */
+    }
+    // Any alias the server never returned (drop, or an omission) must not hang forever.
+    for (const [, c] of pending) direct(c);
+  }
+
+  // sendBatchBuffered is the original all-or-nothing /rpc/_batch: one request, one blob,
+  // every call settling together. The streaming path's fallback.
+  private async sendBatchBuffered(calls: HopeTransport["batchQ"], hostArg?: string) {
+    try {
+      const res = await fetch(`${this.baseUrl}/_batch`, { method: "POST", headers: this.headers(hostArg), body: JSON.stringify(this.batchBody(calls)) });
+      if (res.status === 401) { // whole-batch auth failure — fall back to direct (which drives the SSO/login path)
+        for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
+        return;
+      }
+      const json: any = await res.json();
+      // The batch body is {results}; tolerate a {data:{results}} envelope too.
+      const results: Record<string, { data?: any; error?: { message?: string; code?: string } }> = json.results || json.data?.results || {};
+      for (const c of calls) {
+        const r = results[c.alias];
+        if (!r) { c.reject(new RpcError(`RPC ${c.service}.${c.method}: missing batch result`, res.status, c.service, c.method)); continue; }
+        if (r.error) c.reject(new RpcError(r.error.message ?? `RPC ${c.service}.${c.method}`, res.status, c.service, c.method, r.error.code));
+        else c.resolve(r.data);
+      }
+    } catch {
+      // Batch transport failed (e.g. endpoint missing) — fall back to per-call.
+      for (const c of calls) this.directCall(c.service, c.method, c.args, undefined, false, hostArg).then(c.resolve, c.reject);
     }
   }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/cloudflare"
+	"github.com/toyz/hope/internal/batchstream"
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
@@ -273,6 +274,7 @@ func runServe(configPath string) error {
 	}
 	gw.MustUse(lg)                          // same instance → unified log sink, captures every dispatch
 	gw.MustUse(batch.New(batch.Config{}))   // /rpc/_batch — coalesce a page's many calls into one round-trip
+	gw.MustUse(batchstream.New())           // /rpc/_batchstream — same, but streams each result as it resolves (no head-of-line block)
 	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
