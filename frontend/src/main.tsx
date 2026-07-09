@@ -112,3 +112,13 @@ async function boot() {
   app.start();
 }
 boot();
+
+// Register the image-cache service worker (see public/sw.js): it durably caches image bytes
+// locally, CORS-free, so plugin art (badges/avatars/canvases) loads from cache after the first
+// view. Scoped to image requests only, so it can't touch app assets. Best-effort — a failure
+// (unsupported/insecure context) just means images load from the network as before.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => { /* SW unavailable — no caching, no harm */ });
+  });
+}
