@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -133,7 +134,27 @@ func (c *Client) NetworkByRef(ctx context.Context, ref string) (*NetworkInfo, er
 
 // RemoveNetwork deletes a network by id.
 func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
+	// Refuse to delete a protected network (mirrors the UI guard). The daemon already
+	// rejects its own predefined nets; hope additionally protects its infrastructure
+	// bridges (ink-plugins, hope-tunnels) which the daemon WOULD remove — doing so
+	// severs plugin/tunnel connectivity. Best-effort: if inspect fails we fall through
+	// and let NetworkRemove report the real error.
+	if n, err := c.sdk().NetworkInspect(ctx, id, network.InspectOptions{}); err == nil && protectedNetwork(n.Name, n.Labels) {
+		return fmt.Errorf("network %q is protected by hope and can't be removed", n.Name)
+	}
 	return c.sdk().NetworkRemove(ctx, id)
+}
+
+// protectedNetwork reports whether a network must never be deleted: the daemon's
+// predefined nets (Docker bridge/host/none, Podman's default), or a hope
+// infrastructure bridge — recognized by the LabelSystem marker, with a name fallback
+// for bridges created before the label existed.
+func protectedNetwork(name string, labels map[string]string) bool {
+	switch name {
+	case "bridge", "host", "none", "podman", PluginNetwork, hopeTunnelsNetwork:
+		return true
+	}
+	return labels[LabelSystem] != ""
 }
 
 // RemoveVolume deletes a volume by name (force removes even if referenced).

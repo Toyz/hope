@@ -12,6 +12,11 @@ const (
 	// LabelManaged marks a container/network/volume hope created via a deploy, so
 	// the UI and teardown can tell hope-owned objects from externally-created ones.
 	LabelManaged = "ink.hope.managed"
+	// LabelSystem marks a hope-owned INFRASTRUCTURE network — the plugin bridge and
+	// the tunnel fallback bridge. Distinct from LabelManaged (which also lands on
+	// ordinary stack networks, which stay deletable): hope refuses to delete a network
+	// carrying this, since removing it breaks plugin/tunnel connectivity.
+	LabelSystem = "ink.hope.system"
 )
 
 // WithManaged tags labels with LabelManaged=1 (creating the map if needed).

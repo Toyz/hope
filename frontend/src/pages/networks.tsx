@@ -397,6 +397,16 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
     }
   }
 
+  // Networks the UI must never offer to delete (mirrored server-side in RemoveNetwork):
+  //  - daemon-predefined bridge/host/none + Podman's default `podman` — the daemon
+  //    itself refuses removal.
+  //  - hope's own infrastructure bridges (ink-plugins, hope-tunnels) — the daemon WOULD
+  //    remove them, but that breaks plugin/tunnel connectivity, so hope protects them.
+  // Everything else (user + compose stack networks) stays removable.
+  private static readonly protectedNets = new Set(["bridge", "host", "none", "podman", "ink-plugins", "hope-tunnels"]);
+  private isProtected = (n: NetworkInfo) =>
+    NetworksPage.protectedNets.has(n.name) || !!n.labels?.["ink.hope.system"];
+
   // Selection keys: host|id (empty networks only).
   protected key = (n: NetworkInfo & { host?: string }) =>
     (n.host ? n.host + "|" : "") + n.id;
@@ -445,8 +455,8 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
   }
 
   private removeSelected = async () => {
-    const nets = this.items().filter((n) =>
-      this.selected.includes(this.key(n)),
+    const nets = this.items().filter(
+      (n) => this.selected.includes(this.key(n)) && !this.isProtected(n),
     );
     if (!nets.length) return;
     const ok = await this.confirm.ask({
@@ -820,7 +830,7 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
                     )}
                   </div>
                   <div class="rmc">
-                    {c ? null : (
+                    {c || this.isProtected(n) ? null : (
                       <button
                         class="rm"
                         title="remove network"

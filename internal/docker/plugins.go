@@ -22,17 +22,29 @@ const PluginNetwork = "ink-plugins"
 
 // EnsurePluginNetwork creates the shared ink-plugins bridge if missing (idempotent).
 func (c *Client) EnsurePluginNetwork(ctx context.Context) error {
-	f := filters.NewArgs(filters.Arg("name", PluginNetwork))
+	return c.ensureSystemBridge(ctx, PluginNetwork)
+}
+
+// ensureSystemBridge creates a hope INFRASTRUCTURE bridge (the plugin bridge or the
+// tunnel fallback bridge) if it doesn't already exist. Idempotent and tolerant of a
+// concurrent create. Stamps the managed + system labels so hope (UI + server)
+// recognizes it as its own and refuses to delete it — removing it would sever plugin
+// or tunnel connectivity.
+func (c *Client) ensureSystemBridge(ctx context.Context, name string) error {
+	f := filters.NewArgs(filters.Arg("name", name))
 	nets, err := c.sdk().NetworkList(ctx, network.ListOptions{Filters: f})
 	if err != nil {
 		return err
 	}
 	for _, n := range nets {
-		if n.Name == PluginNetwork {
+		if n.Name == name {
 			return nil
 		}
 	}
-	_, err = c.sdk().NetworkCreate(ctx, PluginNetwork, network.CreateOptions{Driver: "bridge"})
+	_, err = c.sdk().NetworkCreate(ctx, name, network.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{LabelManaged: "1", LabelSystem: "1"},
+	})
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "already exists") {
 		return nil
 	}

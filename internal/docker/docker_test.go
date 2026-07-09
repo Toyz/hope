@@ -138,3 +138,31 @@ func TestNormalizeRegistry(t *testing.T) {
 		t.Errorf("normalizeRegistry(ghcr.io) = %q; want ghcr.io (unchanged)", got)
 	}
 }
+
+// TestProtectedNetwork locks the delete guard: daemon-predefined nets and hope's own
+// infrastructure bridges are undeletable; ordinary user + hope-managed STACK networks
+// stay removable (the LabelSystem marker, not LabelManaged, is what protects).
+func TestProtectedNetwork(t *testing.T) {
+	for _, name := range []string{"bridge", "host", "none", "podman", PluginNetwork, hopeTunnelsNetwork} {
+		if !protectedNetwork(name, nil) {
+			t.Errorf("protectedNetwork(%q) = false; want true (undeletable)", name)
+		}
+	}
+	// The label protects regardless of name (survives a rename / future infra net).
+	if !protectedNetwork("anything", map[string]string{LabelSystem: "1"}) {
+		t.Error("a network with LabelSystem must be protected")
+	}
+	// Deletable: user nets and hope's STACK networks (LabelManaged but NOT LabelSystem).
+	cases := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{"custom", nil},
+		{"myapp_default", map[string]string{LabelManaged: "1"}},
+	}
+	for _, tc := range cases {
+		if protectedNetwork(tc.name, tc.labels) {
+			t.Errorf("protectedNetwork(%q, %v) = true; want false (should be deletable)", tc.name, tc.labels)
+		}
+	}
+}

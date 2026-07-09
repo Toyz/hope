@@ -240,17 +240,8 @@ func sanitizeName(s string) string {
 // EnsureTunnelsNetwork makes sure the fallback user-defined bridge exists (for
 // loose containers that only have the default bridge, which lacks name DNS).
 func (c *Client) EnsureTunnelsNetwork(ctx context.Context) (string, error) {
-	f := filters.NewArgs(filters.Arg("name", hopeTunnelsNetwork))
-	nets, err := c.sdk().NetworkList(ctx, network.ListOptions{Filters: f})
-	if err != nil {
-		return "", err
-	}
-	for _, n := range nets {
-		if n.Name == hopeTunnelsNetwork {
-			return hopeTunnelsNetwork, nil
-		}
-	}
-	if _, err := c.sdk().NetworkCreate(ctx, hopeTunnelsNetwork, network.CreateOptions{Driver: "bridge"}); err != nil {
+	// Same idempotent create+label as the plugin bridge — shared helper (see plugins.go).
+	if err := c.ensureSystemBridge(ctx, hopeTunnelsNetwork); err != nil {
 		return "", err
 	}
 	return hopeTunnelsNetwork, nil
