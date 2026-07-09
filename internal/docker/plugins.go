@@ -51,14 +51,16 @@ func (c *Client) ensureSystemBridge(ctx context.Context, name string) error {
 	return err
 }
 
-// PluginNetAlias is the stable DNS name a plugin container is aliased to on the shared
-// network — always a valid DNS label (hex id), so hope can dial it directly.
+// PluginNetAlias is the DNS name hope dials a plugin container by on the shared
+// network: its SHORT container id. docker's embedded DNS registers the short id (the
+// default hostname) automatically on every user network the container joins — so a
+// plain NetworkConnect (no explicit alias) is enough, sidestepping the "already
+// connected, custom alias dropped" no-op. Always a valid DNS label (hex).
 func PluginNetAlias(containerID string) string {
-	id := containerID
-	if len(id) > 12 {
-		id = id[:12]
+	if len(containerID) > 12 {
+		return containerID[:12]
 	}
-	return "plugin-" + id
+	return containerID
 }
 
 // IsLocalSocket reports whether this client talks to a local unix socket (as opposed

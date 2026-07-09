@@ -264,11 +264,9 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			labels[k] = v
 		}
 
-		// On a remote tcp:// daemon hope drives directly (no agent, not a container on
-		// it), hope can't join ink-plugins to reach the container by DNS — it must dial a
-		// PUBLISHED port at the daemon host. Publish the plugin port (ephemeral host port,
-		// Host="") so PluginDialCandidates finds a directTarget. Local-socket / agent hosts
-		// need nothing — the shared ink-plugins network handles reachability.
+		// A remote tcp:// daemon (hope drives it directly, not a container on it) can't be
+		// reached over ink-plugins — publish the plugin port so hope dials it at the daemon
+		// host. A local-socket / agent host uses the shared network (hope joins it), no port.
 		var ports []stackspec.PortMap
 		if !dock.IsLocalSocket() {
 			ports = []stackspec.PortMap{{Container: strconv.Itoa(entry.PortOrDefault())}}

@@ -96,19 +96,20 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	}
 
 	// Shared ink-plugins network. Put the routing side (hope on a local socket, the
-	// agent on a remote host) AND the plugin on one bridge, then reach the plugin by a
-	// stable DNS alias — no published port, no hairpin, deterministic. Best-effort; the
-	// raw candidates below remain as fallback. Skipped for a remote tcp:// daemon
-	// (hope isn't a container there, so it can't join — it uses the published port).
+	// agent on a remote host) AND the plugin on one bridge, then reach the plugin by its
+	// SHORT CONTAINER ID — docker's embedded DNS resolves that on every user network a
+	// container joins, automatically, so a plain connect is enough (no custom alias to
+	// register, which a no-op'd "already connected" attach would silently drop). No
+	// published port, no hairpin. Best-effort; the raw candidates below stay as fallback.
+	// Skipped for a remote tcp:// daemon (hope isn't a container there, so it can't join).
 	alias := ""
 	if dock.IsLocalSocket() || (hc.Kind != "local" && r.dialer != nil) {
 		if dock.EnsurePluginNetwork(ctx) == nil {
-			a := docker.PluginNetAlias(pc.ContainerID)
 			if self := dock.SelfContainerID(ctx); self != "" {
 				_ = dock.AttachNetwork(ctx, self, docker.PluginNetwork, nil) // hope/agent joins
 			}
-			if dock.AttachNetwork(ctx, pc.ContainerID, docker.PluginNetwork, []string{a}) == nil {
-				alias = a
+			if dock.AttachNetwork(ctx, pc.ContainerID, docker.PluginNetwork, nil) == nil {
+				alias = docker.PluginNetAlias(pc.ContainerID) // == the short id docker resolves
 			}
 		}
 	}
@@ -124,7 +125,12 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 		// while the container IP is not), then the container IP.
 		var urls []string
 		if alias != "" {
-			urls = append(urls, "http://"+alias+":"+strconv.Itoa(pc.Port)+path)
+			urls = append(urls, "http://"+alias+":"+strconv.Itoa(pc.Port)+path) // short container id
+			// The container NAME is also auto-registered on the shared network — try it
+			// too, in case a custom --hostname made the short id unresolvable.
+			if pc.Name != "" && pc.Name != alias {
+				urls = append(urls, "http://"+pc.Name+":"+strconv.Itoa(pc.Port)+path)
+			}
 		}
 		urls = append(urls, directURLs(directTargets)...)
 		urls = append(urls, directURLs(netTargets)...)
