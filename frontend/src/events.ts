@@ -140,6 +140,15 @@ export class TopologyRemoved extends LoomEvent {
   }
 }
 
+// Fired when containers are ADDED to the fleet (e.g. a marketplace plugin install deploys a
+// container into a stack). The new container's details aren't known client-side, so unlike
+// TopologyRemoved (which patches in place) the rail refetches the fleet so the stack shows it.
+export class TopologyChanged extends LoomEvent {
+  constructor(public host: string, public project?: string) {
+    super();
+  }
+}
+
 // Fired around any refresh: active=true when it starts, false when it ends. The
 // shared refresh control (<hope-refresh>) ref-counts these and spins while any
 // refresh is in flight — so the spin lasts exactly as long as the work, on every

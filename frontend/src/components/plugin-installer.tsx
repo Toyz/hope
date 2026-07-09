@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
-import { OpenInstaller, PluginsChanged, Refreshing, withRefresh } from "../events";
+import { OpenInstaller, PluginsChanged, Refreshing, TopologyChanged, withRefresh } from "../events";
 import type { CatalogEntry, CatalogEnvField, CatalogVolume, VolumeChoice, InstallParams, NetworkInfo, VolumeInfo, StackSummary, HostView, OpFrame } from "../contracts";
 import { theme } from "../styles";
 import "./select"; // <hope-select>
@@ -380,6 +380,7 @@ export class HopePluginInstaller extends LoomElement {
     if (ok) {
       this.toast.ok("installed " + project);
       bus.emit(new PluginsChanged());
+      bus.emit(new TopologyChanged(this.host, project)); // rail refetches so the new container shows
       this.close();
     }
   };

@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -211,6 +211,12 @@ export class HopeRail extends LoomElement {
   // A stack or container(s) were removed — drop the affected nodes from the tree in
   // place (no whole-fleet refetch). project => the whole stack; ids => those
   // containers, and a stack emptied by the removal drops too.
+  // Containers were ADDED (e.g. a marketplace plugin install). Their details aren't known
+  // client-side, so refetch the fleet — the affected stack then shows the new container without
+  // a page reload. Install is rare + user-initiated, so a refetch here is fine (unlike delete).
+  @on(TopologyChanged)
+  private onTopologyChanged() { void this.load(); }
+
   @on(TopologyRemoved)
   private onTopologyRemoved(e: TopologyRemoved) {
     this.fleet = this.fleet.map((h) => {
