@@ -170,6 +170,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
   /* Flush/embedded (TableData.Flush): no height cap or inner scroll — the panel/flyout scrolls. */
   .gwrap.embed { max-height: none; overflow: visible; border: 0; }
+  /* With overflow:visible the sticky header would latch onto the flyout's scroll and float over
+     the content above the table — so in a flush table the header scrolls with its rows. */
+  .gwrap.embed table.g th { position: static; }
   .tblwrap { display: flex; flex-direction: column; min-height: 0; }
   /* A filled table gets a tall internal scroll (not flex-grow) so it stays usable
      without collapsing siblings; the page scrolls between sections. */
