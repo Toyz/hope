@@ -1437,7 +1437,16 @@ export class HopePluginSurface extends LoomElement {
             else img.style.visibility = "hidden";     // no (or failed) fallback -> hide the broken icon
           };
           const lb = !!cell.lb;
-          return <img class={"pcimg" + (sized ? "" : " thumb")} src={src} alt={alt} title={alt} loading="lazy" style={style}
+          // Async flow: decode off the main thread and (for thumbnails) fetch at low
+          // priority, so a table of many remote images — e.g. big canvas PNGs — streams in
+          // without blocking. loading="lazy" only defers OFFSCREEN images, and a w-only
+          // image has no height until it loads (rows collapse -> everything's "onscreen" ->
+          // nothing defers), so a list should size BOTH dims (ImgBox) to reserve row height.
+          // decoding/fetchpriority aren't in loom's img attr type; pass them via a cast so
+          // the DOM still gets them (async decode + low-priority thumbnail fetch).
+          const asyncAttrs = { decoding: "async", fetchpriority: h && h <= 64 ? "low" : undefined } as any;
+          return <img class={"pcimg" + (sized ? "" : " thumb")} src={src} alt={alt} title={alt}
+            loading="lazy" {...asyncAttrs} style={style}
             onError={onErr}
             onClick={(e: any) => { e.stopPropagation(); if (lb) this.lightbox = { src, alt }; else window.open(src, "_blank", "noopener"); }} />;
         }
