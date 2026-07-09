@@ -191,6 +191,10 @@ func (c *Client) RedeployContainer(ctx context.Context, id string, pull, force b
 		if err := c.PullImageStream(ctx, img, emit); err != nil {
 			return err
 		}
+		// Freshness is known the moment the pull returns — refresh the cache now so the
+		// "update available" flag clears even when we skip the recreate below (image
+		// already current). Otherwise the UI stays stuck showing a phantom update.
+		c.RefreshImageStatus(ctx, img)
 	}
 	if !force && c.onCurrentImage(ctx, info.Image, img) {
 		emit("skip " + name + " — already on the current image")
@@ -218,6 +222,7 @@ func (c *Client) RedeployProject(ctx context.Context, project string, pull, forc
 			if err := c.PullImageStream(ctx, img, emit); err != nil {
 				return err
 			}
+			c.RefreshImageStatus(ctx, img) // clear the update flag immediately post-pull (even for skipped-recreate containers)
 		}
 	}
 	ids, err := c.ProjectContainerIDs(ctx, project)
