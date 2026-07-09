@@ -319,14 +319,19 @@ func registryHostFromImage(image string) string {
 	if !ok {
 		return "docker.io"
 	}
-	if strings.ContainsAny(first, ".:") || first == "localhost" {
+	if strings.ContainsAny(first, ".:") || strings.EqualFold(first, "localhost") {
 		return normalizeRegistry(first)
 	}
 	return "docker.io"
 }
 
-// normalizeRegistry folds Docker Hub's several spellings to "docker.io".
+// normalizeRegistry folds Docker Hub's several spellings to "docker.io". It also
+// lowercases: registry hosts are DNS names (case-insensitive per RFC 4343) and docker
+// lowercases the domain when it canonicalizes a ref, so folding case here keeps the
+// auth-map KEY (store side) and the LOOKUP (from an image ref) in agreement no matter
+// what case the user typed — else `GHCR.IO/x` would miss a stored `ghcr.io` cred.
 func normalizeRegistry(r string) string {
+	r = strings.ToLower(r)
 	switch r {
 	case "https://index.docker.io/v1/", "index.docker.io", "registry-1.docker.io", "docker.io":
 		return "docker.io"

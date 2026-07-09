@@ -120,6 +120,8 @@ func TestRegistryHostFromImage(t *testing.T) {
 		"ghcr.io/toyz/hope-redis:latest": "ghcr.io",
 		"localhost:5000/img":             "localhost:5000",
 		"registry-1.docker.io/x":         "docker.io", // folded to docker.io
+		"GHCR.IO/toyz/img":               "ghcr.io",   // host case-folded (DNS is case-insensitive)
+		"LOCALHOST/img":                  "localhost", // bare uppercase localhost still a registry host
 	}
 	for in, want := range cases {
 		if got := registryHostFromImage(in); got != want {
@@ -129,13 +131,14 @@ func TestRegistryHostFromImage(t *testing.T) {
 }
 
 func TestNormalizeRegistry(t *testing.T) {
-	for _, in := range []string{"https://index.docker.io/v1/", "index.docker.io", "registry-1.docker.io", "docker.io"} {
+	for _, in := range []string{"https://index.docker.io/v1/", "index.docker.io", "registry-1.docker.io", "docker.io", "Index.Docker.IO"} {
 		if got := normalizeRegistry(in); got != "docker.io" {
 			t.Errorf("normalizeRegistry(%q) = %q; want docker.io", in, got)
 		}
 	}
-	if got := normalizeRegistry("ghcr.io"); got != "ghcr.io" {
-		t.Errorf("normalizeRegistry(ghcr.io) = %q; want ghcr.io (unchanged)", got)
+	// non-hub host is returned lowercased (case-insensitive DNS), not dropped
+	if got := normalizeRegistry("GHCR.IO"); got != "ghcr.io" {
+		t.Errorf("normalizeRegistry(GHCR.IO) = %q; want ghcr.io (lowercased)", got)
 	}
 }
 
