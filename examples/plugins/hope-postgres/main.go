@@ -166,6 +166,7 @@ func registerOverview(p *plugin.Plugin) {
 			}
 			items = append(items, plugin.Card{
 				Title: name, Subtitle: sub, Icon: "database", Tone: tone,
+				To:    "database/" + name, // open the per-database page (maintenance lives there)
 				Fields: []plugin.CardField{
 					{Label: "size", Value: plugin.Badge(humanBytes(int64(bytes)), tone)},
 					{Label: "connections", Value: plugin.Number(conns, "")},
@@ -175,13 +176,58 @@ func registerOverview(p *plugin.Plugin) {
 		return plugin.CardsData{Items: items}, nil
 	})
 
+	// Per-database detail: stats for the ONE database named in the {db} param. The stat
+	// catalogs (pg_database_size, pg_stat_activity, pg_stat_database) are cluster-wide, so
+	// this reads them from the pooled connection without connecting to the target DB — only
+	// the maintenance actions (analyzeDb/vacuumDb) need a connection to it.
+	p.View("databaseDetail", "Database", plugin.KV, func(ctx context.Context) (any, error) {
+		name, err := dbParam(ctx)
+		if err != nil {
+			return nil, err
+		}
+		pool, err := getPool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var size string
+		var conns, active int64
+		var current bool
+		if err := pool.QueryRow(ctx, `
+			select pg_size_pretty(pg_database_size($1)),
+			       (select count(*) from pg_stat_activity where datname = $1),
+			       (select count(*) from pg_stat_activity where datname = $1 and state = 'active'),
+			       $1 = current_database()
+			from pg_database where datname = $1`, name).Scan(&size, &conns, &active, &current); err != nil {
+			return nil, plugin.NewError(-32602, "database not found: "+name)
+		}
+		var hit *float64
+		_ = pool.QueryRow(ctx, `select sum(blks_hit)::float / nullif(sum(blks_hit) + sum(blks_read), 0)
+			from pg_stat_database where datname = $1`, name).Scan(&hit)
+		kv := map[string]any{
+			"database":    name,
+			"size":        size,
+			"connections": plugin.Number(conns, ""),
+			"active":      plugin.Number(active, ""),
+		}
+		if hit != nil {
+			kv["cache hit"] = fmt.Sprintf("%.1f%%", *hit*100)
+		}
+		if current {
+			kv["status"] = plugin.Badge("connected", plugin.ToneInfo)
+		}
+		return kv, nil
+	})
+
 	// Top tables by total size (heap + indexes + toast) — the bar chart that shows
 	// where disk goes.
 	p.ChartView("sizes", "Largest tables", func(ctx context.Context) (any, error) {
 		res, err := grid(ctx, `
-			select relname as name,
-			       pg_total_relation_size(relid) as bytes
-			from pg_stat_user_tables
+			select c.relname as name, pg_total_relation_size(c.oid) as bytes
+			from pg_class c
+			join pg_namespace n on n.oid = c.relnamespace
+			where c.relkind in ('r','p','m')
+			  and n.nspname not in ('pg_catalog','information_schema')
+			  and n.nspname not like 'pg_toast%'
 			order by bytes desc
 			limit 12`)
 		if err != nil {
@@ -236,10 +282,22 @@ func registerBrowser(p *plugin.Plugin) {
 	// carrying "schema.table" as the param — the pgAdmin left-tree click, as a link.
 	// A relative size bar makes the heavy tables pop.
 	p.View("tables", "Tables", plugin.Table, func(ctx context.Context) (any, error) {
+		// Enumerate from pg_class (not pg_stat_user_tables) so materialized views are
+		// always included, and take the row estimate from reltuples — which REFRESH keeps
+		// current for an MV, unlike n_live_tup (bumped only by DML, so it sits at 0 for an
+		// MV and for any never-analyzed table). reltuples is -1 when unknown; fall back to
+		// n_live_tup then. Scan stats come from an optional LEFT JOIN (null for a fresh MV).
 		res, err := grid(ctx, `
-			select schemaname, relname, n_live_tup, n_dead_tup, seq_scan, idx_scan,
-			       pg_total_relation_size(relid) as bytes
-			from pg_stat_user_tables
+			select n.nspname, c.relname, c.relkind::text,
+			       case when c.reltuples < 0 then coalesce(s.n_live_tup, 0) else c.reltuples::bigint end as est_rows,
+			       coalesce(s.n_dead_tup, 0), coalesce(s.seq_scan, 0), coalesce(s.idx_scan, 0),
+			       pg_total_relation_size(c.oid) as bytes
+			from pg_class c
+			join pg_namespace n on n.oid = c.relnamespace
+			left join pg_stat_user_tables s on s.relid = c.oid
+			where c.relkind in ('r','p','m')
+			  and n.nspname not in ('pg_catalog','information_schema')
+			  and n.nspname not like 'pg_toast%'
 			order by bytes desc`)
 		if err != nil {
 			return nil, err
@@ -247,7 +305,7 @@ func registerBrowser(p *plugin.Plugin) {
 		src := res.Rows
 		var maxBytes int64 = 1
 		for _, r := range src {
-			if b := int64(toInt(r[6])); b > maxBytes {
+			if b := int64(toInt(r[7])); b > maxBytes {
 				maxBytes = b
 			}
 		}
@@ -255,21 +313,26 @@ func registerBrowser(p *plugin.Plugin) {
 		for _, r := range src {
 			schema, _ := r[0].(string)
 			table, _ := r[1].(string)
-			live, dead := toInt(r[2]), toInt(r[3])
-			seq, idx := toInt(r[4]), toInt(r[5])
-			bytes := int64(toInt(r[6]))
-			// Bloat/scan health: mostly-sequential scans or lots of dead tuples warn.
+			kind, _ := r[2].(string)
+			est := toInt(r[3])
+			dead, seq, idx := toInt(r[4]), toInt(r[5]), toInt(r[6])
+			bytes := int64(toInt(r[7]))
+			// Bloat/scan health: mostly-sequential scans or lots of dead tuples warn. A
+			// materialized view is a read-only snapshot — scan/bloat health is N/A, so mark
+			// it as a matview instead.
 			health, tone := "ok", plugin.ToneOK
-			if seq > 0 && idx == 0 && live > 10000 {
-				health, tone = "seq scans", plugin.ToneWarn
-			}
-			if live > 0 && dead*100/live > 20 {
+			switch {
+			case kind == "m":
+				health, tone = "matview", plugin.ToneInfo
+			case dead > 0 && est > 0 && dead*100/est > 20:
 				health, tone = "bloated", plugin.ToneBad
+			case seq > 0 && idx == 0 && est > 10000:
+				health, tone = "seq scans", plugin.ToneWarn
 			}
 			rows = append(rows, []any{
 				plugin.Badge(schema, ""),
 				plugin.DetailLink(table, "table", schema+"."+table),
-				plugin.Number(live, ""),
+				plugin.Number(est, ""),
 				plugin.Badge(humanBytes(bytes), ""),
 				plugin.Progress(float64(bytes) / float64(maxBytes)),
 				plugin.Badge(health, tone),
@@ -279,8 +342,8 @@ func registerBrowser(p *plugin.Plugin) {
 			Columns: []string{"schema", "table", "rows", "size", "", "health"},
 			Rows:    rows,
 			ColumnTips: map[string]*plugin.Tooltip{
-				"rows":   plugin.Tip("Live row estimate from planner stats (n_live_tup)"),
-				"health": plugin.Tip("Scan/bloat state: seq-scan-heavy or a high dead-tuple ratio"),
+				"rows":   plugin.Tip("Row estimate from planner stats (pg_class.reltuples); exact after ANALYZE / REFRESH"),
+				"health": plugin.Tip("Scan/bloat state: seq-scan-heavy or a high dead-tuple ratio; matview = read-only snapshot"),
 			},
 		}, nil
 	})
@@ -354,29 +417,21 @@ func registerBrowser(p *plugin.Plugin) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := grid(ctx, `
-			select column_name, data_type, is_nullable, coalesce(column_default, '')
-			from information_schema.columns
-			where table_schema = $1 and table_name = $2
-			order by ordinal_position`, schema, table)
+		cols, err := columnsOf(ctx, schema, table)
 		if err != nil {
 			return nil, err
 		}
 		rows := [][]any{}
-		for _, r := range res.Rows {
-			name, _ := r[0].(string)
-			typ, _ := r[1].(string)
-			nullable, _ := r[2].(string)
-			def, _ := r[3].(string)
+		for _, ci := range cols {
 			nullCell := plugin.Badge("not null", plugin.ToneWarn)
-			if nullable == "YES" {
+			if !ci.NotNull {
 				nullCell = plugin.Badge("null", "")
 			}
 			key := ""
-			if pks[name] {
+			if pks[ci.Name] {
 				key = "PK"
 			}
-			rows = append(rows, []any{plugin.Badge(key, plugin.ToneInfo), name, plugin.Code(typ), nullCell, plugin.Code(def)})
+			rows = append(rows, []any{plugin.Badge(key, plugin.ToneInfo), ci.Name, plugin.Code(ci.Type), nullCell, plugin.Code(ci.Default)})
 		}
 		return &plugin.TableData{Columns: []string{"key", "column", "type", "null", "default"}, Rows: rows}, nil
 	})
@@ -417,17 +472,25 @@ func registerBrowser(p *plugin.Plugin) {
 		if err != nil {
 			return nil, err
 		}
-		var live, dead, seq, idx int64
+		var est, live, dead, seq, idx int64
 		var totalSize, tableSize string
 		var lastVacuum, lastAnalyze *time.Time
+		// Source the estimate from reltuples (kept current by REFRESH for an MV; n_live_tup
+		// is not), falling back to n_live_tup when reltuples is unknown (-1). Stats columns
+		// LEFT JOIN in — null for a materialized view that's never been vacuumed/analyzed.
 		_ = pool.QueryRow(ctx, `
-			select n_live_tup, n_dead_tup, seq_scan, coalesce(idx_scan, 0),
-			       pg_size_pretty(pg_total_relation_size(relid)),
-			       pg_size_pretty(pg_relation_size(relid)),
-			       greatest(last_vacuum, last_autovacuum), greatest(last_analyze, last_autoanalyze)
-			from pg_stat_user_tables where schemaname = $1 and relname = $2`, schema, table).
-			Scan(&live, &dead, &seq, &idx, &totalSize, &tableSize, &lastVacuum, &lastAnalyze)
+			select case when c.reltuples < 0 then coalesce(s.n_live_tup, 0) else c.reltuples::bigint end,
+			       coalesce(s.n_live_tup, 0), coalesce(s.n_dead_tup, 0), coalesce(s.seq_scan, 0), coalesce(s.idx_scan, 0),
+			       pg_size_pretty(pg_total_relation_size(c.oid)),
+			       pg_size_pretty(pg_relation_size(c.oid)),
+			       greatest(s.last_vacuum, s.last_autovacuum), greatest(s.last_analyze, s.last_autoanalyze)
+			from pg_class c
+			join pg_namespace n on n.oid = c.relnamespace
+			left join pg_stat_user_tables s on s.relid = c.oid
+			where n.nspname = $1 and c.relname = $2`, schema, table).
+			Scan(&est, &live, &dead, &seq, &idx, &totalSize, &tableSize, &lastVacuum, &lastAnalyze)
 		return map[string]any{
+			"est. rows":    plugin.Number(est, ""),
 			"live rows":    plugin.Number(live, ""),
 			"dead rows":    plugin.Number(dead, ""),
 			"total size":   totalSize,
@@ -596,6 +659,39 @@ func registerMaintenance(p *plugin.Plugin) {
 		}
 		return map[string]any{"ok": true, "message": "vacuum + analyze complete"}, nil
 	}, plugin.ActionIcon("trash"), plugin.ActionTip("Reclaim dead-tuple space + refresh stats — heavier, runs a while", plugin.TipTop))
+
+	// Per-database variants — the {db} page param names the target, and we open a
+	// connection to THAT database (VACUUM/ANALYZE act on the connection's own database).
+	p.Action("analyzeDb", "Analyze this database", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		name, err := dbParam(ctx)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := connectTo(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close(ctx)
+		if _, err := conn.Exec(ctx, `analyze`); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "message": "analyzed " + name}, nil
+	}, plugin.ActionIcon("rotate"), plugin.ActionTip("Refresh this database's planner statistics", plugin.TipTop))
+	p.DangerAction("vacuumDb", "Vacuum this database", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		name, err := dbParam(ctx)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := connectTo(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close(ctx)
+		if _, err := conn.Exec(ctx, `vacuum (analyze)`); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true, "message": "vacuum + analyze complete on " + name}, nil
+	}, plugin.ActionIcon("trash"), plugin.ActionTip("Reclaim dead-tuple space in this database + refresh stats", plugin.TipTop))
 }
 
 // --- Layout ---------------------------------------------------------------------
@@ -661,6 +757,17 @@ func registerLayout(p *plugin.Plugin) {
 	// node renders that table's tabs — the pgAdmin left-tree, as navigable rail pages.
 	p.DynamicPageFunc("Browse", tableTabs(), schemaPageItems)
 
+	// Per-database page, reached by clicking a card in the Databases gallery. Its {db}
+	// param drives the detail view and the maintenance header actions (analyze/vacuum
+	// scoped to that one database).
+	p.DetailPage("database", "Database", "db", plugin.Section("",
+		plugin.Section("Overview", plugin.Leaf("databaseDetail")),
+	)).Subtitle("{db}").
+		Breadcrumbs(
+			plugin.Crumb{Label: "Postgres", To: "postgres"},
+			plugin.Crumb{Label: "{db}"},
+		).HeaderActions("analyzeDb", "vacuumDb")
+
 	// Hidden master-detail page for a single table, reached via the DetailLink in the
 	// tables list. Every leaf receives {table: "schema.table"} as the page param.
 	p.DetailPage("table", "Table", "table", tableTabs()).
@@ -703,11 +810,16 @@ func schemaPageItems(ctx context.Context) []plugin.PageItem {
 	if treeItems != nil && time.Since(treeAt) < 15*time.Second {
 		return treeItems
 	}
+	// pg_class (not information_schema, which omits materialized views) so MVs show in
+	// the rail tree alongside tables. relkind: 'r' table, 'p' partitioned, 'm' matview.
 	res, err := grid(ctx, `
-		select table_schema, table_name
-		from information_schema.tables
-		where table_schema not in ('pg_catalog', 'information_schema') and table_type = 'BASE TABLE'
-		order by table_schema, table_name`)
+		select n.nspname, c.relname, c.relkind::text
+		from pg_class c
+		join pg_namespace n on n.oid = c.relnamespace
+		where c.relkind in ('r','p','m')
+		  and n.nspname not in ('pg_catalog','information_schema')
+		  and n.nspname not like 'pg_toast%'
+		order by n.nspname, c.relname`)
 	if err != nil {
 		return treeItems
 	}
@@ -716,11 +828,17 @@ func schemaPageItems(ctx context.Context) []plugin.PageItem {
 	for _, r := range res.Rows {
 		schema, _ := r[0].(string)
 		table, _ := r[1].(string)
+		kind, _ := r[2].(string)
 		if _, ok := bySchema[schema]; !ok {
 			order = append(order, schema)
 		}
+		icon := ""
+		if kind == "m" {
+			icon = "layers" // a materialized view reads as a stacked snapshot
+		}
 		bySchema[schema] = append(bySchema[schema], plugin.PageItem{
 			Title: table,
+			Icon:  icon,
 			Param: map[string]any{"table": schema + "." + table},
 		})
 	}
@@ -788,6 +906,37 @@ func grid(ctx context.Context, sql string, args ...any) (*plugin.TableData, erro
 	return &plugin.TableData{Columns: cols, Rows: out}, nil
 }
 
+// dbParam reads the {db} page param — the database a per-database page/action targets.
+func dbParam(ctx context.Context) (string, error) {
+	var pr struct {
+		DB string `json:"db"`
+	}
+	_ = plugin.Params(ctx, &pr)
+	name := strings.TrimSpace(pr.DB)
+	if name == "" {
+		return "", plugin.NewError(-32602, "no database selected")
+	}
+	return name, nil
+}
+
+// connectTo opens a short-lived connection to another database on the same server,
+// reusing DATABASE_URL's host/credentials but swapping the database name. The per-database
+// maintenance actions need it because VACUUM/ANALYZE run against the connection's OWN
+// database and the pool is pinned to one. The name only sets the connection's database
+// (never interpolated into SQL), so there's no injection surface. Caller must Close.
+func connectTo(ctx context.Context, dbname string) (*pgx.Conn, error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return nil, errors.New("DATABASE_URL is not set")
+	}
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Database = dbname
+	return pgx.ConnectConfig(ctx, cfg)
+}
+
 // tableParam reads the {table} page param ("schema.table") and splits it.
 func tableParam(ctx context.Context) (schema, table string, err error) {
 	var pr struct {
@@ -801,22 +950,73 @@ func tableParam(ctx context.Context) (schema, table string, err error) {
 	return schema, table, nil
 }
 
-// tableColumns returns the ordered column names of a table.
-func tableColumns(ctx context.Context, schema, table string) ([]string, error) {
+// colInfo is one column's catalog metadata. Sourced from pg_attribute (not
+// information_schema) so it covers materialized views and views too — Postgres omits
+// both from information_schema entirely, which is why an MV's columns/data/DDL used to
+// come back empty.
+type colInfo struct {
+	Name    string
+	Type    string
+	NotNull bool
+	Default string
+}
+
+// columnsOf returns a relation's columns from pg_catalog, in attribute order. Works for
+// ordinary/partitioned tables AND materialized views + views.
+func columnsOf(ctx context.Context, schema, table string) ([]colInfo, error) {
 	res, err := grid(ctx, `
-		select column_name from information_schema.columns
-		where table_schema = $1 and table_name = $2 order by ordinal_position`, schema, table)
+		select a.attname,
+		       format_type(a.atttypid, a.atttypmod) as type,
+		       a.attnotnull,
+		       coalesce(pg_get_expr(d.adbin, d.adrelid), '') as def
+		from pg_attribute a
+		join pg_class c on c.oid = a.attrelid
+		join pg_namespace n on n.oid = c.relnamespace
+		left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+		where n.nspname = $1 and c.relname = $2 and a.attnum > 0 and not a.attisdropped
+		order by a.attnum`, schema, table)
 	if err != nil {
 		return nil, err
 	}
-	cols := []string{}
+	out := make([]colInfo, 0, len(res.Rows))
 	for _, r := range res.Rows {
-		if s, ok := r[0].(string); ok {
-			cols = append(cols, s)
+		var ci colInfo
+		ci.Name, _ = r[0].(string)
+		ci.Type, _ = r[1].(string)
+		ci.NotNull, _ = r[2].(bool)
+		ci.Default, _ = r[3].(string)
+		out = append(out, ci)
+	}
+	if len(out) == 0 {
+		return nil, plugin.NewError(-32602, "relation not found: "+schema+"."+table)
+	}
+	return out, nil
+}
+
+// relkindOf returns a relation's pg_class.relkind ('r' table, 'p' partitioned, 'm'
+// materialized view, 'v' view). Defaults to 'r' if it can't be resolved.
+func relkindOf(ctx context.Context, schema, table string) string {
+	res, err := grid(ctx, `
+		select c.relkind::text from pg_class c
+		join pg_namespace n on n.oid = c.relnamespace
+		where n.nspname = $1 and c.relname = $2`, schema, table)
+	if err == nil && len(res.Rows) > 0 {
+		if s, ok := res.Rows[0][0].(string); ok && s != "" {
+			return s
 		}
 	}
-	if len(cols) == 0 {
-		return nil, plugin.NewError(-32602, "table not found: "+schema+"."+table)
+	return "r"
+}
+
+// tableColumns returns the ordered column names of a table (or MV/view).
+func tableColumns(ctx context.Context, schema, table string) ([]string, error) {
+	cis, err := columnsOf(ctx, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	cols := make([]string, len(cis))
+	for i := range cis {
+		cols[i] = cis[i].Name
 	}
 	return cols, nil
 }
@@ -843,10 +1043,16 @@ func primaryKey(ctx context.Context, schema, table string) (map[string]bool, err
 // tableDDL reconstructs a readable CREATE TABLE (+ index definitions) from the
 // catalog — enough to copy the shape, not a pg_dump-exact reproduction.
 func tableDDL(ctx context.Context, schema, table string) (string, error) {
-	cres, err := grid(ctx, `
-		select column_name, data_type, is_nullable, coalesce(column_default, '')
-		from information_schema.columns
-		where table_schema = $1 and table_name = $2 order by ordinal_position`, schema, table)
+	// A materialized view has no CREATE TABLE — reconstruct its defining query instead.
+	if relkindOf(ctx, schema, table) == "m" {
+		res, err := grid(ctx, `select pg_get_viewdef(format('%I.%I', $1::text, $2::text)::regclass, true)`, schema, table)
+		if err == nil && len(res.Rows) > 0 {
+			if def, ok := res.Rows[0][0].(string); ok {
+				return fmt.Sprintf("CREATE MATERIALIZED VIEW %s.%s AS\n%s", quoteIdent(schema), quoteIdent(table), def), nil
+			}
+		}
+	}
+	cols, err := columnsOf(ctx, schema, table)
 	if err != nil {
 		return "", err
 	}
@@ -854,24 +1060,19 @@ func tableDDL(ctx context.Context, schema, table string) (string, error) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE %s.%s (\n", quoteIdent(schema), quoteIdent(table))
-	colRows := cres.Rows
 	pkOrder := []string{}
-	for i, r := range colRows {
-		name, _ := r[0].(string)
-		typ, _ := r[1].(string)
-		nullable, _ := r[2].(string)
-		def, _ := r[3].(string)
-		fmt.Fprintf(&b, "    %s %s", quoteIdent(name), typ)
-		if nullable == "NO" {
+	for i, ci := range cols {
+		fmt.Fprintf(&b, "    %s %s", quoteIdent(ci.Name), ci.Type)
+		if ci.NotNull {
 			b.WriteString(" NOT NULL")
 		}
-		if def != "" {
-			fmt.Fprintf(&b, " DEFAULT %s", def)
+		if ci.Default != "" {
+			fmt.Fprintf(&b, " DEFAULT %s", ci.Default)
 		}
-		if pks[name] {
-			pkOrder = append(pkOrder, quoteIdent(name))
+		if pks[ci.Name] {
+			pkOrder = append(pkOrder, quoteIdent(ci.Name))
 		}
-		if i < len(colRows)-1 || len(pkOrder) > 0 {
+		if i < len(cols)-1 || len(pkOrder) > 0 {
 			b.WriteString(",")
 		}
 		b.WriteString("\n")
@@ -898,11 +1099,17 @@ func tableDDL(ctx context.Context, schema, table string) (string, error) {
 // schemaTree builds a rich schema -> table -> column tree: schemas collapse, tables
 // carry a "box" icon and link (To) to their detail page, columns show name : type.
 func schemaTree(ctx context.Context) (plugin.TreeData, error) {
+	// pg_catalog, not information_schema — the latter omits materialized views (and their
+	// columns) entirely, so MVs were missing from the schema tree.
 	res, err := grid(ctx, `
-		select table_schema, table_name, column_name, data_type
-		from information_schema.columns
-		where table_schema not in ('pg_catalog', 'information_schema')
-		order by table_schema, table_name, ordinal_position`)
+		select n.nspname, c.relname, a.attname, format_type(a.atttypid, a.atttypmod)
+		from pg_class c
+		join pg_namespace n on n.oid = c.relnamespace
+		join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+		where c.relkind in ('r','p','m')
+		  and n.nspname not in ('pg_catalog','information_schema')
+		  and n.nspname not like 'pg_toast%'
+		order by n.nspname, c.relname, a.attnum`)
 	if err != nil {
 		return plugin.TreeData{}, err
 	}
