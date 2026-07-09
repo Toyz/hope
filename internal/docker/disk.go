@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 )
 
 // StartDiskCrawler computes docker disk usage on boot, then every `every`.
@@ -40,7 +41,7 @@ func (c *Client) crawlDisk(ctx context.Context) {
 // builds — often the biggest reclaimable chunk, and invisible to image prune).
 // Returns bytes reclaimed.
 func (c *Client) PruneBuildCache(ctx context.Context) (uint64, error) {
-	rep, err := c.sdk().BuildCachePrune(ctx, types.BuildCachePruneOptions{All: true})
+	rep, err := c.sdk().BuildCachePrune(ctx, build.CachePruneOptions{All: true})
 	if err != nil {
 		return 0, err
 	}

@@ -44,7 +44,7 @@ type ClusterUpdate struct {
 // current digest. It uses DistributionInspect (a manifest lookup, NOT a pull) so
 // it never downloads layers.
 func (c *Client) imageStatus(ctx context.Context, ref string) (string, string) {
-	insp, _, err := c.sdk().ImageInspectWithRaw(ctx, ref)
+	insp, err := c.sdk().ImageInspect(ctx, ref)
 	if err != nil {
 		return "unknown", "image not found locally"
 	}

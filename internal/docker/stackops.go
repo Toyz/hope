@@ -274,7 +274,7 @@ func (c *Client) onCurrentImage(ctx context.Context, runningImageID, ref string)
 	if runningImageID == "" || ref == "" {
 		return false
 	}
-	insp, _, err := c.sdk().ImageInspectWithRaw(ctx, ref)
+	insp, err := c.sdk().ImageInspect(ctx, ref)
 	if err != nil {
 		return false
 	}
