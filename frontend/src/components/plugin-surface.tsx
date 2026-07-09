@@ -1488,6 +1488,10 @@ export class HopePluginSurface extends LoomElement {
       const abs = to.startsWith("/")
         ? (to.startsWith("//") ? "/" : to)
         : `/plugin/${encodeURIComponent(this.surface?.key || "")}/${to}`;
+      // Following a link leaves this surface — dismiss any open flyout/modal so it doesn't
+      // hang over the destination page.
+      this.flyout = null;
+      this.modal = null;
       this.router.navigate(abs);
     } else if (cell.href) {
       // External link: http(s) only — never javascript:/data:/etc (window.open runs
