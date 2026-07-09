@@ -281,15 +281,26 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 		return err
 	}
 
-	// Per instance: wait until reachable, enable, validate + init settings.
+	// Per instance: wait until reachable, enable, validate + init settings. Each plugin
+	// is independent — all N containers are already deployed by ApplyStack above — so
+	// do NOT abort the whole run on one instance's failure: that would leave earlier
+	// plugins enabled, later ones deployed-but-unenabled, and report a blanket failure
+	// with no indication of what actually landed. Enable each on its own, collect the
+	// failures, and report them together. Succeeded plugins stay enabled (they're
+	// usable); the operator retries or removes the named failures.
+	var failed []string
 	for _, pl := range plan {
 		emit("waiting for " + pl.service + " to start…")
 		if err := r.waitReachable(ctx, pl.key, 60*time.Second); err != nil {
-			return fmt.Errorf("%s deployed but hope couldn't reach it — a remote daemon with no agent needs a published port: %w", pl.service, err)
+			emit("warning: " + pl.service + " deployed but hope couldn't reach it (a remote daemon with no agent needs a published port): " + err.Error())
+			failed = append(failed, pl.service)
+			continue
 		}
 		ep, schemaRaw, rec, err := r.enableRecord(ctx, pl.key, pl.entry.ID)
 		if err != nil {
-			return fmt.Errorf("enable %s: %s", pl.service, err.Error())
+			emit("warning: could not enable " + pl.service + ": " + err.Error())
+			failed = append(failed, pl.service)
+			continue
 		}
 		emit("enabled " + pl.service)
 
@@ -299,6 +310,9 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 		_ = r.store.PutPlugin(*rec)
 		r.initPlugin(ctx, ep, rec, emit)
 		emit("installed " + pl.service)
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("deployed, but %d of %d plugin(s) could not be enabled (%s) — they are running; retry or remove them", len(failed), len(plan), strings.Join(failed, ", "))
 	}
 	return nil
 }

@@ -343,8 +343,12 @@ func (c *Client) Recreate(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
-	// Connect remaining networks before start.
-	for _, n := range nets[1:] {
+	// Connect remaining networks before start. Index-based from 1: nets[1:] would
+	// panic with "slice bounds out of range [1:0]" for a container that had zero
+	// network attachments — and that panic would land AFTER the remove+recreate,
+	// leaving the container created-but-not-started.
+	for i := 1; i < len(nets); i++ {
+		n := nets[i]
 		if err := c.sdk().NetworkConnect(ctx, n.name, created.ID, n.ep); err != nil {
 			return fmt.Errorf("connect %s to %s: %w", name, n.name, err)
 		}
