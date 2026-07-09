@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing, PluginsChanged, UpdatesApplied } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -198,6 +198,25 @@ export class HopeRail extends LoomElement {
       return { ...h, updates, outdated: updates.filter((u) => u.status === "outdated").length };
     });
     if (touched) this.fleet = fleet;
+  }
+
+  // A stack or container(s) were removed — drop the affected nodes from the tree in
+  // place (no whole-fleet refetch). project => the whole stack; ids => those
+  // containers, and a stack emptied by the removal drops too.
+  @on(TopologyRemoved)
+  private onTopologyRemoved(e: TopologyRemoved) {
+    this.fleet = this.fleet.map((h) => {
+      if (h.id !== e.host) return h;
+      let stacks = h.stacks || [];
+      if (e.ids && e.ids.length) {
+        stacks = stacks
+          .map((s) => ({ ...s, containers: (s.containers || []).filter((c) => !e.ids!.includes(c.id)) }))
+          .filter((s) => (s.containers || []).length > 0);
+      } else if (e.project) {
+        stacks = stacks.filter((s) => s.project !== e.project);
+      }
+      return { ...h, stacks };
+    });
   }
 
   private toggleHost(id: string, e: Event) {

@@ -16,7 +16,7 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
 import { markClass, stackSeverity, severityMark, healthLabel } from "../styles";
-import { UpdatesApplied } from "../events";
+import { UpdatesApplied, TopologyRemoved } from "../events";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
@@ -1136,7 +1136,10 @@ export class StackPage extends LoomElement {
       }
     });
     this.busy = "";
-    if (success) this.router.navigate(withHost(this.hostCtx.token, "/"));
+    if (success) {
+      bus.emit(new TopologyRemoved(this.hostCtx.token, this.project)); // rail patches the tree in place
+      this.router.navigate(withHost(this.hostCtx.token, "/"));
+    }
   };
 
   // removeContainer stops and deletes a single container — used for loose
@@ -1163,6 +1166,7 @@ export class StackPage extends LoomElement {
       }
     });
     this.busy = "";
+    bus.emit(new TopologyRemoved(this.hostCtx.token, undefined, [id])); // rail drops this container
     await this.load();
   };
 
@@ -1177,10 +1181,12 @@ export class StackPage extends LoomElement {
       message: `Remove "${service}" from ${this.project}? Stops and deletes its container(s) and updates the stack.`,
     });
     if (!ok) return;
+    const ids = (this.stack?.containers || []).filter((c) => (c.service || c.name) === service).map((c) => c.id);
     await this.applyStackEdit("remove " + service, "svc:remove:" + service, (spec) => {
       spec.services = (spec.services || []).filter((s) => s.name !== service);
       return null;
     });
+    bus.emit(new TopologyRemoved(this.hostCtx.token, undefined, ids)); // rail drops the service's containers
   };
 
   // addServiceToStack collects a minimal service (name + image + optional ports)

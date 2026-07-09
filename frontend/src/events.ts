@@ -130,6 +130,16 @@ export class HostChanged extends LoomEvent {
   }
 }
 
+// Fired when a stack or container(s) were removed, so the rail (and any fleet view)
+// can patch its tree IN PLACE — drop the affected nodes — instead of refetching the
+// whole fleet. host is the fleet host id; give `project` for a whole-stack removal or
+// `ids` for specific container(s). Mirrors UpdatesApplied's in-place patch model.
+export class TopologyRemoved extends LoomEvent {
+  constructor(public host: string, public project?: string, public ids?: string[]) {
+    super();
+  }
+}
+
 // Fired around any refresh: active=true when it starts, false when it ends. The
 // shared refresh control (<hope-refresh>) ref-counts these and spins while any
 // refresh is in flight — so the spin lasts exactly as long as the work, on every
