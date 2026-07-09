@@ -819,15 +819,18 @@ export class StackPage extends LoomElement {
         emit("done");
         return ok;
       });
-      await this.load();
-      // A pull makes the target current — patch the rail's dots in place (whole
-      // project for a stack redeploy, one container for a single redeploy).
-      if (ok && pull) {
-        const ids = method === "redeploy" ? [args[0]] : undefined;
-        bus.emit(new UpdatesApplied(this.hostCtx.token, this.project, ids));
-      }
     } finally {
+      // Release the controls the moment the OP resolves (or the user cancels the dialog) —
+      // NOT gated on the refresh below. A slow/hung post-op load() must never keep the
+      // redeploy button disabled (that was the "redeploy completely deadlocked" bug).
       this.busy = "";
+    }
+    await this.load();
+    // A pull makes the target current — patch the rail's dots in place (whole project for
+    // a stack redeploy, one container for a single redeploy).
+    if (ok && pull) {
+      const ids = method === "redeploy" ? [args[0]] : undefined;
+      bus.emit(new UpdatesApplied(this.hostCtx.token, this.project, ids));
     }
   };
 
@@ -901,10 +904,11 @@ export class StackPage extends LoomElement {
         emit("done");
         return ok;
       });
-      await this.load();
     } finally {
+      // Release controls when the op resolves / is cancelled — not gated on the refresh.
       this.busy = "";
     }
+    await this.load();
   };
 
   // Run a Stream op, tolerating a mid-stream drop. A hope/agent self-update tears

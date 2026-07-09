@@ -82,7 +82,12 @@ export default class ProcDialogImpl extends LoomElement {
           </div>
           <pre class="log">{this.lines.join("\n") || "starting…"}</pre>
           <div class="acts">
-            <button class="btn" disabled={!this.done} onClick={this.close}>{this.done ? "Close" : "Working…"}</button>
+            {/* Always clickable: while the op runs, this CANCELS (aborts the client's
+                stream watch). The op is detached server-side (streamOp uses WithoutCancel),
+                so it still completes on the host — cancel just stops watching and, crucially,
+                unblocks the caller (its awaited proc.run resolves) so a slow/hung op can
+                never permanently deadlock the redeploy controls. */}
+            <button class="btn" onClick={this.close}>{this.done ? "Close" : "Cancel"}</button>
           </div>
         </div>
       </div>

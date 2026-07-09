@@ -8,6 +8,7 @@
 import { LoomElement, component, styles, css, reactive, prop, mount, watch, on } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
+import { capabilities } from "../caps";
 import { PluginsChanged } from "../events";
 import { theme } from "../styles";
 import "./plugin-surface"; // registers <hope-plugin-surface> + <hope-plugin-icon>
@@ -37,15 +38,34 @@ export class HopePluginWidgets extends LoomElement {
   @prop accessor stack = "";
   @prop accessor host = "";
 
-  @mount onMount() { void this.load(); }
+  private pluginsOn = false;
+  private lastKey = ""; // the (mode/host/project) we last fetched — dedupes redundant loads
+
+  @mount async onMount() {
+    // Never call the plugin surfaces when the plugin system is off — a whole class of
+    // stacks (every stack, when no plugins are enabled) otherwise fires a pointless
+    // request. capabilities() is cached, so this is one shared lookup.
+    this.pluginsOn = !!(await capabilities()).plugins_enabled;
+    void this.load();
+  }
   @watch("stack") onStack() { void this.load(); }
   @watch("host") onHost() { void this.load(); }
-  @on(PluginsChanged) onChanged() { void this.load(); }
+  @on(PluginsChanged) onChanged() { this.lastKey = ""; void this.load(); }
 
   private async load() {
+    if (!this.pluginsOn) { this.widgets = []; return; }
+    // Stack mode needs BOTH host and project to match against the stack's containers. The
+    // two props hydrate separately, so a half-set state (host still blank) would POST a
+    // bad request the backend rejects 400 ("host and project are required") — and the two
+    // watchers firing per navigation made it a burst. Wait for both, and skip a repeat of
+    // the same target (two watchers = one real change).
+    if (this.stack && !this.host) return;
+    const key = this.stack ? `s:${this.host}/${this.stack}` : "d";
+    if (key === this.lastKey) return;
+    this.lastKey = key;
     try {
-      // Stack mode needs its host to match against the stack's containers; the backend
-      // already returns only the matched widgets, so there's nothing to filter here.
+      // Stack mode is backend-filtered by the stack's containers; dashboard mode fetches
+      // the whole fleet's widgets (host-independent — update() scopes them client-side).
       const w = this.stack
         ? await this.rpc.call<Widget[]>("Plugins", "stackWidgets", [{ host: this.host, project: this.stack }])
         : await this.rpc.call<Widget[]>("Plugins", "dashboard", []);
