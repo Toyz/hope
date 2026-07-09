@@ -22,7 +22,9 @@ type Widget = Surface & { host?: string; stack?: string; icon?: string };
   /* Align with the dashboard's content inset (its section header uses 22px/28px). */
   .wsec { margin: 8px 0 28px; padding: 0 28px; }
   .whead { display: flex; align-items: center; gap: 8px; padding: 14px 0 12px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; }
-  .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 14px; }
+  /* align-items:start so each widget is its own content height instead of stretching to the
+     tallest card in the row (which left big empty space under short widgets). */
+  .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 14px; align-items: start; }
   .wcard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; transition: border-color .12s ease; }
   .wcard:hover { border-color: var(--line2); }
   .wtitle { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line); color: var(--hi); font: 600 12px/1.2 var(--mono); }
