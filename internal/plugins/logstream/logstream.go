@@ -203,7 +203,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad stack spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, false, emit) })
 
 	case pathDeployCont:
 		if p.deploy == nil {

@@ -133,6 +133,10 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 	if project == "" {
 		return fmt.Errorf("a stack/instance name is required")
 	}
+	// Joining an existing stack (stack_net) MERGES the plugin into that stack: the
+	// frontend sends its project, and we deploy additively so the stack's own services
+	// are neither pruned nor forgotten. A new stack is a normal full deploy.
+	additive := p.Placement.Mode == "stack_net"
 
 	// ink-plugins must exist (external ref) so hope can dial the new containers.
 	if err := dock.EnsurePluginNetwork(ctx); err != nil {
@@ -260,12 +264,22 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			labels[k] = v
 		}
 
+		// On a remote tcp:// daemon hope drives directly (no agent, not a container on
+		// it), hope can't join ink-plugins to reach the container by DNS — it must dial a
+		// PUBLISHED port at the daemon host. Publish the plugin port (ephemeral host port,
+		// Host="") so PluginDialCandidates finds a directTarget. Local-socket / agent hosts
+		// need nothing — the shared ink-plugins network handles reachability.
+		var ports []stackspec.PortMap
+		if !dock.IsLocalSocket() {
+			ports = []stackspec.PortMap{{Container: strconv.Itoa(entry.PortOrDefault())}}
+		}
 		spec.Services = append(spec.Services, stackspec.ContainerSpec{
 			Name:     service,
 			Image:    entry.Image,
 			Restart:  "unless-stopped",
 			Env:      env,
 			Networks: nets,
+			Ports:    ports,
 			Mounts:   mounts,
 			Labels:   labels,
 		})
@@ -275,9 +289,10 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 		spec.Networks = append(spec.Networks, stackspec.NetworkSpec{Name: n, External: true})
 	}
 
-	// Deploy the whole stack (pulls images, creates/refs nets + vols, creates containers).
+	// Deploy the stack (pulls images, creates/refs nets + vols, creates containers).
+	// additive when merging into an existing stack (don't prune/forget its services).
 	emit("deploying " + project + "…")
-	if err := r.deploy.ApplyStack(ctx, spec, emit); err != nil {
+	if err := r.deploy.ApplyStack(ctx, spec, additive, emit); err != nil {
 		return err
 	}
 
@@ -370,7 +385,7 @@ func (r *PluginsRouter) reconfigure(ctx context.Context, key string, env map[str
 	}
 
 	emit("reconfiguring " + rec.Service + "…")
-	if err := r.deploy.ApplyStack(ctx, spec, emit); err != nil {
+	if err := r.deploy.ApplyStack(ctx, spec, false, emit); err != nil {
 		return err
 	}
 	emit("waiting for " + rec.Service + " to restart…")

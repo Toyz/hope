@@ -34,7 +34,12 @@ func (e *Engine) Store() *Store { return e.store }
 // and leaving unchanged ones. On success the authored spec is saved so the stack
 // can be reopened in the editor. Tunnel routes ride on the spec as data and are
 // applied by the caller (the Tunnels RPC), not here.
-func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit func(string)) error {
+// ApplyStack reconciles a stack to spec. When additive is true it ONLY creates the
+// spec's services (and their nets/vols) and does NOT prune services missing from the
+// spec or overwrite the stored spec — used to drop a plugin container INTO an existing
+// stack (merge, join its network) without touching or forgetting the stack's own
+// services. A normal deploy passes additive=false for full reconciliation.
+func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, additive bool, emit func(string)) error {
 	if emit == nil {
 		emit = func(string) {}
 	}
@@ -173,19 +178,27 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, emit
 		}
 	}
 
-	// 3) Remove services no longer desired.
-	for name := range live {
-		if desired[name] {
-			continue
-		}
-		emit("remove " + name + " — no longer in stack")
-		if err := e.removeService(ctx, project, name, emit); err != nil {
-			return err
+	// 3) Remove services no longer desired — SKIPPED in additive mode (we're adding a
+	// container to someone else's stack, not reconciling the whole stack).
+	if !additive {
+		for name := range live {
+			if desired[name] {
+				continue
+			}
+			emit("remove " + name + " — no longer in stack")
+			if err := e.removeService(ctx, project, name, emit); err != nil {
+				return err
+			}
 		}
 	}
 
-	if err := e.store.Save(e.hostID(ctx), project, spec); err != nil {
-		emit("warning: could not persist stack spec: " + err.Error())
+	// Persist the spec only for a full deploy. In additive mode the spec is a fragment
+	// (just the plugin) — saving it would overwrite the real stack's stored spec, so a
+	// later full ApplyStack would prune the stack's own services. Don't.
+	if !additive {
+		if err := e.store.Save(e.hostID(ctx), project, spec); err != nil {
+			emit("warning: could not persist stack spec: " + err.Error())
+		}
 	}
 	emit("stack " + project + " applied")
 	return nil

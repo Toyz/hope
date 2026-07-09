@@ -349,9 +349,11 @@ export class HopePluginInstaller extends LoomElement {
     // The plugin(s) always deploy as their OWN stack (project); "join a stack" means
     // attach to that stack's network, not merge into it. Networks all plugins get =
     // the joined stack's nets (if any) + the extra picked ones.
-    const project = this.placeMode === "new_stack"
-      ? this.project.trim()
-      : (this.selected.length === 1 ? this.forms[this.selected[0]].name.trim() : (this.project.trim() || "plugins"));
+    // Join an existing stack => deploy UNDER that stack's project so the plugin lands
+    // inside it (merged, additive on the backend). A new stack uses the typed name.
+    const project = this.placeMode === "stack_net"
+      ? this.pickStack
+      : this.project.trim();
     const stackNets = this.placeMode === "stack_net" && this.pickStack ? this.stackNets(this.pickStack) : [];
     const networks = Array.from(new Set([...stackNets, ...this.pickNets]));
     const params: InstallParams = {
@@ -514,6 +516,17 @@ export class HopePluginInstaller extends LoomElement {
   }
 
   private configView() {
+    // Placement is host-scoped — the stack/network lists come from the chosen fleet.
+    // Force that choice first so you can't pick a stack with no fleet (or the wrong
+    // one), which is also why the install button stays disabled until a host is set.
+    if (!this.host) {
+      return (
+        <div class="sec">
+          <span class="lbl">fleet</span>
+          <span class="hint">Choose a fleet (top-right) to pick where the plugin installs — its stacks and networks load from that host.</span>
+        </div>
+      );
+    }
     return (
       <>
         <div class="sec">
