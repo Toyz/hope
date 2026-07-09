@@ -36,6 +36,8 @@ jobs:
             dockerfile: examples/plugins/hope-postgres/Dockerfile
           - name: hope-redis
             dockerfile: examples/plugins/hope-redis/Dockerfile
+          - name: hope-nats
+            dockerfile: examples/plugins/hope-nats/Dockerfile
     steps:
       - uses: actions/checkout@v5
         with:

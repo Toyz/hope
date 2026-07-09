@@ -11,8 +11,8 @@ import (
 func TestBuiltinsInstallable(t *testing.T) {
 	svc := New(nil, 0, nil) // no repos, no cache
 	entries := svc.Entries()
-	if len(entries) != 2 {
-		t.Fatalf("want 2 built-in entries, got %d", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("want 3 built-in entries, got %d", len(entries))
 	}
 	byID := map[string]CatalogEntry{}
 	for _, e := range entries {
@@ -27,7 +27,7 @@ func TestBuiltinsInstallable(t *testing.T) {
 			t.Errorf("%s: bad port/path", e.ID)
 		}
 	}
-	for _, id := range []string{"hope-postgres", "hope-redis"} {
+	for _, id := range []string{"hope-postgres", "hope-redis", "hope-nats"} {
 		e, ok := byID[id]
 		if !ok {
 			t.Fatalf("built-in %s missing", id)

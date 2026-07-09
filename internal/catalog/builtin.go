@@ -46,5 +46,25 @@ func Builtins() []CatalogEntry {
 			},
 			Settings: []SettingSeed{{Key: "scan_limit", Value: "1000"}},
 		},
+		{
+			ID:          "hope-nats",
+			Title:       "NATS",
+			Icon:        "server",
+			Description: "Inspect streams, consumers, and KV; watch subjects live; publish; purge/delete streams.",
+			Image:       "ghcr.io/toyz/hope-nats:latest",
+			Port:        8080,
+			Path:        "/__hope",
+			Env: []EnvField{
+				{
+					Key:         "NATS_URL",
+					Label:       "Connection URL",
+					Kind:        "secret",
+					Required:    true,
+					Placeholder: "nats://user:pass@host:4222",
+					Hint:        "nats:// DSN reachable from the plugin's networks; JetStream must be enabled for stream/KV views",
+				},
+			},
+			Settings: []SettingSeed{{Key: "watch_subject", Value: ">"}, {Key: "page_size", Value: "100"}},
+		},
 	}
 }
