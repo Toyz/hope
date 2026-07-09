@@ -115,7 +115,6 @@ type Filter = "all" | "used" | "unused" | "dangling";
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .dacts .grow { flex: 1; }
   .dnote { font: 11px/1.4 var(--mono); color: var(--warn); max-width: 360px; }
-  .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
 
   /* registries manager modal — hosts the shared <hope-registries> component */
   .regsheet { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
@@ -559,7 +558,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
 
           {first ? (
             <div class="disk"><div class="diskmain"><div class="disktotal"><hope-skel w="90" h="26"></hope-skel><hope-skel w="150" h="10"></hope-skel></div><hope-skel h="8"></hope-skel><div class="legend"><hope-skel w="120" h="11"></hope-skel><hope-skel w="120" h="11"></hope-skel><hope-skel w="120" h="11"></hope-skel></div></div></div>
-          ) : items.length > 0 ? (
+          ) : (
             <div class="disk">
               <div class="diskmain">
                 <div class="disktotal"><span class="big num">{bytes(total)}</span><span class="lbl">on disk &middot; {items.length} images</span></div>
@@ -580,7 +579,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
                 <span class="sub">prune unused + dangling</span>
               </div>
             </div>
-          ) : null}
+          )}
         </hope-phead>
 
         {this.err() ? <div class="empty">{this.err()}</div> : null}

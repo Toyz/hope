@@ -103,6 +103,12 @@ export const theme = css`
 
   .vpad { padding: 18px 28px; }
 
+  /* empty / offline state — one canonical look for every page's "nothing here"
+     message (no border, centered mono, dim; <b> lifts to primary). Defined here so
+     pages don't each re-style it and drift apart. */
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
+  .empty b { color: var(--hi); }
+
   .vtable { width: 100%; border-collapse: collapse; }
   .vtable thead th { text-align: left; padding: 12px 14px; color: var(--dim); font: 600 9.5px/1 var(--mono);
     letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); }

@@ -84,7 +84,6 @@ type Filter = "all" | "mounted" | "unused";
     border: 1px solid transparent; color: var(--dim); cursor: pointer; opacity: 0; }
   .vrow:hover .rm { opacity: 1; }
   .rm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line2)); }
-  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
 `)
 export class VolumesPage extends ResourcePage<VolumeInfo> {
   @inject(HopeTransport) accessor rpc!: HopeTransport; // cross-host removal (per-item host)
@@ -284,7 +283,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
 
           {first ? (
             <div class="disk"><div class="diskmain"><div class="disktotal"><hope-skel w="52" h="26"></hope-skel><hope-skel w="150" h="10"></hope-skel></div><hope-skel h="8"></hope-skel><div class="legend"><hope-skel w="90" h="11"></hope-skel><hope-skel w="80" h="11"></hope-skel></div></div></div>
-          ) : items.length > 0 ? (
+          ) : (
             <div class="disk">
               <div class="diskmain">
                 <div class="disktotal"><span class="big num">{bytes(total)}</span><span class="lbl">in {items.length} volumes</span></div>
@@ -296,7 +295,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
               </div>
               <div class="reclaim"><span class="k">reclaimable</span><span class="v num">{bytes(unusedSz)}</span><span class="sub">remove unused</span></div>
             </div>
-          ) : null}
+          )}
         </hope-phead>
 
         {error ? <div class="empty">{error}</div> : null}
@@ -345,10 +344,8 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
               );
             })}
           </div>
-        ) : items.length === 0 && !error && !busy ? (
-          <div class="empty">No volumes.</div>
-        ) : !first && !error ? (
-          <div class="empty">{this.query ? <span>No volumes match <b>{this.query}</b>.</span> : this.filter === "mounted" ? "No mounted volumes — nothing is using a volume right now." : this.filter === "unused" ? "No unused volumes — every volume is mounted." : "No volumes."}</div>
+        ) : !busy && !error ? (
+          <div class="empty">{this.query ? <span>No volumes match <b>{this.query}</b>.</span> : items.length === 0 ? "No volumes on this daemon." : this.filter === "mounted" ? "No mounted volumes — nothing is using a volume right now." : this.filter === "unused" ? "No unused volumes — every volume is mounted." : "No volumes on this daemon."}</div>
         ) : null}
       </div>
     );

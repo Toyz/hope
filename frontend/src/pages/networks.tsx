@@ -342,12 +342,6 @@ import { ResourcePage } from "./resource-page";
       color: var(--bad);
       border-color: color-mix(in srgb, var(--bad) 50%, var(--line2));
     }
-    .empty {
-      padding: 40px 28px;
-      text-align: center;
-      color: var(--dim);
-      font: 12.5px/1.5 var(--mono);
-    }
   `,
 )
 export class NetworksPage extends ResourcePage<NetworkInfo> {

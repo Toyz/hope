@@ -22,7 +22,8 @@ export const resourceStyles = `
   .bar .act button:disabled { opacity: .55; cursor: default; }
 
   main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
-  .empty { padding: 40px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
+  .empty b { color: var(--hi); }
 
   .summary { display: flex; align-items: center; border: 1px solid var(--line); margin-bottom: 20px; }
   .summary .stat { display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; border-right: 1px solid var(--line); }

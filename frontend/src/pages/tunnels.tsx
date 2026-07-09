@@ -27,8 +27,6 @@ import { theme } from "../styles";
 @component("hope-tunnels")
 @styles(theme, css`
   :host { display: block; min-height: 100%; background: var(--ink); }
-  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
-  .empty b { color: var(--hi); }
 
   /* header stat-band children (slotted into <hope-stat>) */
   .skstat { display: flex; flex-direction: column; gap: 8px; }
@@ -569,10 +567,9 @@ export class TunnelsPage extends LoomElement {
         </hope-phead>
 
         {this.disabled ? (
-          <div class="disabled">
-            Cloudflare tunnels are off.<br />
-            Set <b>[cloudflare]</b> in config (enabled + api_token + account_id), then hope can<br />
-            deploy a connector for you or adopt one you run (labeled <b>ink.hope.tunnel=&lt;id&gt;</b>).
+          <div class="empty">
+            Cloudflare tunnels are off. Set <b>[cloudflare]</b> in config (enabled + api_token + account_id),<br />
+            then hope can deploy a connector for you or adopt one you run (labeled <b>ink.hope.tunnel=&lt;id&gt;</b>).
           </div>
         ) : null}
 

@@ -249,7 +249,8 @@ interface HostSec {
   .tile .ct .tupd { color: var(--upd); display: inline-flex; vertical-align: middle; margin-right: 6px; }
   .tile .seg { --seg-h: 7px; }
 
-  .empty { padding: 44px; text-align: center; color: var(--dim); border: 1px solid var(--line); }
+  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.5 var(--mono); }
+  .empty b { color: var(--hi); }
 
   /* the bar's updates indicator is now a button that opens the bulk picker */
   .upind { display: inline-flex; align-items: center; gap: 7px; height: 100%; padding: 0 16px;

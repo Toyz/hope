@@ -74,7 +74,6 @@ import { theme } from "../styles";
 
   .pacts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 
-  .empty { padding: 40px 28px; text-align: center; color: var(--dim); font: 12.5px/1.6 var(--mono); }
   .empty code { color: var(--mid); }
   .note { margin: 12px 28px 0; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line2));
     color: var(--warn); font: 12px/1.6 var(--mono); }
