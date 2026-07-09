@@ -183,16 +183,22 @@ export class HopePluginInstaller extends LoomElement {
   }
 
   private async reloadHostResources() {
-    const h = this.host || undefined;
+    // Capture the fleet these resources belong to: a fast fleet switch could otherwise
+    // let an earlier host's networks/stacks/volumes land last and show under the wrong one.
+    const host = this.host;
+    const h = host || undefined;
     try {
-      this.networks = (await this.rpc.call<NetworkInfo[]>("System", "networks", [], undefined, false, h)) || [];
-    } catch { this.networks = []; }
+      const n = (await this.rpc.call<NetworkInfo[]>("System", "networks", [], undefined, false, h)) || [];
+      if (this.host === host) this.networks = n;
+    } catch { if (this.host === host) this.networks = []; }
     try {
-      this.stacks = (await this.rpc.call<StackSummary[]>("Stacks", "list", [], undefined, false, h)) || [];
-    } catch { this.stacks = []; }
+      const s = (await this.rpc.call<StackSummary[]>("Stacks", "list", [], undefined, false, h)) || [];
+      if (this.host === host) this.stacks = s;
+    } catch { if (this.host === host) this.stacks = []; }
     try {
-      this.volumes = (await this.rpc.call<VolumeInfo[]>("System", "volumes", [], undefined, false, h)) || [];
-    } catch { this.volumes = []; }
+      const v = (await this.rpc.call<VolumeInfo[]>("System", "volumes", [], undefined, false, h)) || [];
+      if (this.host === host) this.volumes = v;
+    } catch { if (this.host === host) this.volumes = []; }
   }
 
   private setHost = (id: string) => { this.host = id; this.pickNets = []; this.pickStack = ""; void this.reloadHostResources(); };

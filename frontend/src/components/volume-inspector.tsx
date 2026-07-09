@@ -77,13 +77,16 @@ export class HopeVolumeInspector extends LoomElement {
 
   private async load() {
     if (!this.name) return;
+    const host = this.host, name = this.name;
     try {
-      const list = await this.rpc.callOn<VolumeInfo[]>(this.host, "System", "volumes", []);
-      const v = (list || []).find((x) => x.name === this.name);
+      const list = await this.rpc.callOn<VolumeInfo[]>(host, "System", "volumes", []);
+      if (host !== this.host || name !== this.name) return; // switched host/volume mid-flight (list is the OLD host's)
+      const v = (list || []).find((x) => x.name === name);
       if (!v) { this.error = "volume not found on this host"; this.vol = null; return; }
       this.vol = { ...v, used_by: v.used_by || [] };
       this.error = "";
     } catch (e: any) {
+      if (host !== this.host || name !== this.name) return;
       this.error = e?.message ?? "failed to load volume";
       this.vol = null;
     }

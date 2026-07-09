@@ -356,6 +356,8 @@ export class HopePluginSurface extends LoomElement {
     this.streamAborts.clear();
     for (const t of this.debFetch.values()) clearTimeout(t); // cancel pending filter debounces
     this.debFetch.clear();
+    for (const t of this.searchDeb.values()) clearTimeout(t); // cancel pending search debounces
+    this.searchDeb.clear();
     for (const t of this.intervalTimers.values()) clearInterval(t); // stop auto-refresh timers
     this.intervalTimers.clear();
     this.streamOn = {};

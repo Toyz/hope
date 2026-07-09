@@ -97,18 +97,21 @@ export class HopeConnectorInspector extends LoomElement {
 
   private async load() {
     if (!this.id) return;
+    const host = this.host, id = this.id;
     try {
       // One connector by id (host-aware BE lookup), plus its routes.
       const [c, routes] = await Promise.all([
-        this.rpc.callOn<ConnectorView>(this.host, "Tunnels", "connector", [this.id]),
-        this.rpc.callOn<TunnelView[]>(this.host, "Tunnels", "tunnels", []).catch(() => []),
+        this.rpc.callOn<ConnectorView>(host, "Tunnels", "connector", [id]),
+        this.rpc.callOn<TunnelView[]>(host, "Tunnels", "tunnels", []).catch(() => []),
       ]);
+      if (host !== this.host || id !== this.id) return; // switched connector mid-flight
       this.conn = c || null;
       // Routes reference their connector by name; scope them to this connector's
       // name (a connector's own routes all carry its name).
       this.routes = c ? (routes || []).filter((t) => t.connector === c.name) : [];
       this.error = c ? "" : "connector not found on this host";
     } catch (e: any) {
+      if (host !== this.host || id !== this.id) return;
       this.error = e?.message ?? "connector not found on this host";
       this.conn = null;
     }

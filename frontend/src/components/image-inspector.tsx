@@ -120,13 +120,17 @@ export class HopeImageInspector extends LoomElement {
 
   private async load() {
     if (!this.ref) return;
+    const host = this.host, ref = this.ref;
     try {
-      this.info = await this.rpc.callOn<ImageInfo>(this.host, "System", "image", [this.ref]);
-      this.error = "";
+      const info = await this.rpc.callOn<ImageInfo>(host, "System", "image", [ref]);
+      if (host !== this.host || ref !== this.ref) return; // switched image mid-flight
+      this.info = info; this.error = "";
       try {
-        this.layers = await this.rpc.callOn<ImageLayer[]>(this.host, "System", "imageHistory", [this.info.id]);
-      } catch { this.layers = []; }
+        const layers = await this.rpc.callOn<ImageLayer[]>(host, "System", "imageHistory", [info.id]);
+        if (host === this.host && ref === this.ref) this.layers = layers;
+      } catch { if (host === this.host && ref === this.ref) this.layers = []; }
     } catch (e: any) {
+      if (host !== this.host || ref !== this.ref) return;
       this.error = e?.message ?? "image not found on this host";
       this.info = null;
     }

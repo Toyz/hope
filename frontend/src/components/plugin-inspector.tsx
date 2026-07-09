@@ -124,17 +124,20 @@ export class HopePluginInspector extends LoomElement {
 
   private async load() {
     if (!this.key) return;
+    const host = this.host, key = this.key;
     this.settings = [];
     this.settingVals = {};
     this.config = null;
     this.manifestErr = "";
     try {
-      const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host: this.host }])) || [];
-      const v = all.find((p) => p.key === this.key) || null;
+      const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host }])) || [];
+      if (host !== this.host || key !== this.key) return; // switched plugin mid-flight
+      const v = all.find((p) => p.key === key) || null;
       this.view = v;
       this.error = v ? "" : "plugin not found on this host";
       if (v?.enabled) { void this.loadManifest(); void this.loadConfig(); }
     } catch (e: any) {
+      if (host !== this.host || key !== this.key) return;
       this.error = e?.message ?? "failed to load plugin";
       this.view = null;
     }
@@ -143,9 +146,11 @@ export class HopePluginInspector extends LoomElement {
   // Fetch the env schema + current values for a hope-installed plugin. Empty (fields
   // = []) for a hand-labeled plugin, which hides the Configuration section.
   private async loadConfig() {
+    const key = this.key;
     try {
-      this.config = await this.rpc.call<PluginConfig>("Plugins", "config", [{ key: this.key }]);
-    } catch { this.config = null; }
+      const cfg = await this.rpc.call<PluginConfig>("Plugins", "config", [{ key }]);
+      if (key === this.key) this.config = cfg;
+    } catch { if (key === this.key) this.config = null; }
   }
 
   // Edit env via the shared prompt form, then stream a recreate (Stream/reconfigurePlugin).
@@ -182,16 +187,18 @@ export class HopePluginInspector extends LoomElement {
   // Dial the enabled plugin for its settings schema + current values. Reachability
   // failures are non-fatal — the identity/trust view still renders.
   private async loadManifest() {
+    const key = this.key;
     this.manifestBusy = true;
     try {
-      const m = await this.rpc.call<PluginManifest>("Plugins", "manifest", [{ key: this.key }]);
+      const m = await this.rpc.call<PluginManifest>("Plugins", "manifest", [{ key }]);
+      if (key !== this.key) return; // switched plugin while dialing (this call is slow) — don't show A's settings under B
       this.settings = m?.schema?.settings || [];
       this.settingVals = m?.settings || {};
       this.manifestErr = "";
     } catch (e: any) {
-      this.manifestErr = e?.message ?? "couldn't reach the plugin";
+      if (key === this.key) this.manifestErr = e?.message ?? "couldn't reach the plugin";
     } finally {
-      this.manifestBusy = false;
+      if (key === this.key) this.manifestBusy = false;
     }
   }
 

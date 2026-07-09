@@ -308,7 +308,11 @@ export class HopeInspector extends LoomElement {
     // lazy tabs (processes) only load on tab-click, so without this they hang on
     // "loading…" after a container switch.
     if (this.tab === "processes") this.loadProcs();
-    void this.rpc.callOn<any>(this.host, "Containers", "inspect", [this.id]).then((r) => { this.raw = r; if (!this.name) this.name = this.deriveName(r); this.loadSiblings(); }).catch(() => {});
+    const ihost = this.host, iid = this.id;
+    void this.rpc.callOn<any>(ihost, "Containers", "inspect", [iid]).then((r) => {
+      if (ihost !== this.host || iid !== this.id) return; // switched away mid-flight — don't render A's config under B
+      this.raw = r; if (!this.name) this.name = this.deriveName(r); this.loadSiblings();
+    }).catch(() => {});
     this.loadRoutes();
     void capabilities().then((c) => { this.pluginsOn = !!c.plugins_enabled; if (this.pluginsOn) this.loadSurfaces(); });
   }
