@@ -89,13 +89,14 @@ func TestTruthy(t *testing.T) {
 }
 
 func TestPluginNetAlias(t *testing.T) {
-	// A full 64-char id is truncated to the 12-char short id docker uses for DNS.
+	// The dial name is the 12-char short id docker auto-registers on a user network —
+	// no prefix, so a plain NetworkConnect resolves it.
 	long := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-	if got := PluginNetAlias(long); got != "plugin-abcdef012345" {
-		t.Errorf("PluginNetAlias(long) = %q; want plugin-abcdef012345", got)
+	if got := PluginNetAlias(long); got != "abcdef012345" {
+		t.Errorf("PluginNetAlias(long) = %q; want abcdef012345", got)
 	}
-	if got := PluginNetAlias("abc"); got != "plugin-abc" {
-		t.Errorf("PluginNetAlias(short) = %q; want plugin-abc", got)
+	if got := PluginNetAlias("abc"); got != "abc" {
+		t.Errorf("PluginNetAlias(short) = %q; want abc", got)
 	}
 }
 
