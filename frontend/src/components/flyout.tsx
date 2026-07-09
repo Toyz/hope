@@ -34,9 +34,6 @@ import { signalModal } from "../modal";
 export class HopeFlyout extends LoomElement {
   @prop accessor open = false;
   @prop accessor title = "";
-  // Called on any dismissal (Esc, backdrop, close button). The OWNER controls `open`, so
-  // it flips its own state here — the flyout never self-closes behind the caller's back.
-  @prop accessor onClose: (() => void) | undefined = undefined;
 
   @watch("open") private lock() { signalModal(this, this.open); }
   @mount private onM() { window.addEventListener("keydown", this.onKey); }
@@ -45,7 +42,10 @@ export class HopeFlyout extends LoomElement {
   private onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape" && this.open) { e.stopPropagation(); this.close(); }
   };
-  private close = () => { this.onClose?.(); };
+  // Dismissal (Esc, backdrop, close button) fires a "close" event — the loom convention
+  // (parent binds onClose={...}, like hope-select's onSelect). The OWNER controls `open`,
+  // so it flips its own state on this event; the flyout never self-closes.
+  private close = () => { this.dispatchEvent(new CustomEvent("close", { bubbles: true, composed: true })); };
 
   update() {
     if (!this.open) return document.createComment("");
