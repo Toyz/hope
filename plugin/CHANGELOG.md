@@ -5,7 +5,25 @@ The SDK is a nested Go module, tagged `plugin/vX.Y.Z`. It follows the
 minor bumps and never break existing plugins; `ProtocolVersion` bumps only on a
 breaking change to an existing wire shape (still `1`).
 
-## v0.0.7 — unreleased
+## v0.0.9
+
+- **Durable image byte cache (`plugin.ImgCache()`).** Opt an image into the browser's Cache
+  Storage API so its bytes persist across reloads and sessions, independent of the image
+  host's HTTP cache headers: a cache hit serves the stored blob with zero network, a miss
+  fetches once + stores. Ideal for immutable, content-addressed art (a badge/canvas keyed by
+  hash) on a remote host. Requires the host to allow cross-origin reads (CORS); without it the
+  image still loads normally over the network — just uncached. Additive.
+
+## v0.0.8
+
+- **Row flyout (`plugin.RowFlyout("method")`).** A table/query row click can open a right-side
+  DRAWER instead of the row-detail modal. The method receives `{row}` and returns a component
+  tree (`plugin.Box(...)`) hope renders in the drawer, with the row's actions as a footer bar;
+  the flyout wins over `RowDetail` when both are set. Announced as the `flyout` capability so a
+  plugin can feature-detect it (`Caps(ctx).Supports("flyout")`) and fall back to `RowDetail` on
+  an older hope. Backed by a generic `<hope-flyout>` drawer hope reuses internally. Additive.
+
+## v0.0.7
 
 - **Init handshake (`hope.init`).** hope now calls a reserved `hope.init` method once a
   plugin is reachable (at enable/install, and again after a restart), delivering the
