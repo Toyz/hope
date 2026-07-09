@@ -615,10 +615,55 @@ func registerActivity(p *plugin.Plugin) {
 		}, nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(5),
 		plugin.EmptyView("No active queries 🎉", plugin.EmptyIcon("check"), plugin.EmptyText("Every backend is idle right now.")),
+		// Row click opens a right-side flyout with the FULL query + backend detail (the
+		// grid truncates it); its cancel/terminate row actions ride along as the footer.
+		plugin.RowFlyout("activityDetail"),
 		plugin.RowActions(
 			plugin.RowAction{Method: "cancel", Label: "Cancel query", Icon: "stop", Tip: plugin.Tip("Cancel this backend's running query (pg_cancel_backend)", plugin.TipTopEnd)},
 			plugin.RowAction{Method: "terminate", Label: "Terminate", Icon: "trash", Danger: true, Tip: plugin.Tip("Drop the whole backend connection (pg_terminate_backend)", plugin.TipTopEnd)},
 		))
+
+	// activityDetail is the flyout body for a clicked backend: its full SQL (re-fetched by
+	// pid, since the grid cell is truncated) plus its identity/state, as a component tree.
+	p.ComponentView("activityDetail", "Backend", func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		pid := toInt(pr.Row["pid"])
+		if pid == 0 {
+			return plugin.Box(plugin.CText("no pid on this row")), nil
+		}
+		pool, err := getPool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var user, db, state, wait, query string
+		var dur int
+		_ = pool.QueryRow(ctx, `
+			select coalesce(usename, ''), coalesce(datname, ''), coalesce(state, ''),
+			       coalesce(wait_event_type, '—'),
+			       coalesce(extract(epoch from (now() - query_start))::int, 0), coalesce(query, '')
+			from pg_stat_activity where pid = $1`, pid).Scan(&user, &db, &state, &wait, &dur, &query)
+		if query == "" {
+			query = "(no active query)"
+		}
+		return plugin.Box(
+			plugin.Heading(fmt.Sprintf("Backend %d", pid), 2),
+			plugin.CRow(
+				plugin.KeyVal("user", user),
+				plugin.KeyVal("db", db),
+				plugin.KeyVal("state", plugin.Badge(state, stateTone(state))),
+			).Gapped(18),
+			plugin.CRow(
+				plugin.KeyVal("wait", wait),
+				plugin.KeyVal("age", plugin.Number(dur, "s")),
+			).Gapped(18),
+			plugin.Divider(),
+			plugin.CText("query"),
+			plugin.CCell(plugin.Code(query)),
+		), nil
+	})
 
 	p.Action("cancel", "Cancel query", nil, backendOp("pg_cancel_backend", "cancelled"))
 	p.DangerAction("terminate", "Terminate backend", nil, backendOp("pg_terminate_backend", "terminated"))
