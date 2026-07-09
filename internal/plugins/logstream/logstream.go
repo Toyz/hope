@@ -170,7 +170,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		id := args[0]
 		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit) })
 
 	case pathRedeployStack:
 		if len(args) == 0 {
@@ -179,18 +179,18 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		project := args[0]
 		pull := !(len(args) > 1 && args[1] == "false")
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RedeployProject(ctx, project, pull, force, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RedeployProject(ctx, project, pull, force, emit) })
 
 	case pathPull:
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		ids := append([]string(nil), args...)
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).PullContainers(ctx, ids, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).PullContainers(ctx, ids, emit) })
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).PruneImagesStream(ctx, all, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).PruneImagesStream(ctx, all, emit) })
 
 	case pathApplyStack:
 		if p.deploy == nil {
@@ -203,7 +203,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad stack spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, emit) })
 
 	case pathDeployCont:
 		if p.deploy == nil {
@@ -216,7 +216,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.DeployContainer(ctx, spec, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.DeployContainer(ctx, spec, emit) })
 
 	case pathDestroyStack:
 		if p.deploy == nil {
@@ -227,7 +227,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		}
 		project := args[0]
 		prune := len(args) > 1 && args[1] == "true"
-		return p.streamOp(ctx, func(emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
 
 	case pathEditContainer:
 		if len(args) < 2 {
@@ -241,7 +241,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[1]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
@@ -263,12 +263,26 @@ type opFrame struct {
 // timeout (a big image-layer extract emits nothing for tens of seconds).
 const keepAlive = 15 * time.Second
 
+// opTimeout bounds a detached op so a genuinely hung docker call can't leak the
+// goroutine forever. Generous: a cold multi-image stack pull over a slow link is
+// legitimately minutes long.
+const opTimeout = 30 * time.Minute
+
 // streamOp runs a long operation, forwarding each progress line as an opFrame and
 // finishing with a terminal done frame (so the client knows the outcome even
 // though the HTTP status is already committed). The op runs in a goroutine so the
 // main loop can emit keepalive pings while it's blocked on a silent step; writes
 // are serialized so the two goroutines never interleave a frame.
-func (p *Plugin) streamOp(_ context.Context, run func(emit func(string)) error) *gateway.Response {
+func (p *Plugin) streamOp(ctx context.Context, run func(context.Context, func(string)) error) *gateway.Response {
+	// Detach the op from the REQUEST context. net/http cancels r.Context() the moment
+	// the client disconnects — and when the client reaches hope THROUGH the very
+	// tunnel/connector this op is recreating, the first destructive step (stop/remove)
+	// drops that tunnel, cancels the request, and would abort the op before it
+	// recreates the container (how an edit/redeploy destroys it for good). WithoutCancel
+	// keeps request VALUES (the target host lives in a ctx value) but strips
+	// cancellation; the timeout bounds a genuinely hung op. cancel fires when the op
+	// finishes — NOT when the client drops — so a disconnect never kills the work.
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opTimeout)
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		enc := json.NewEncoder(w)
 		var mu sync.Mutex
@@ -282,7 +296,7 @@ func (p *Plugin) streamOp(_ context.Context, run func(emit func(string)) error) 
 		// Run the op detached: it keeps going to completion on the host even if the
 		// client (or its stream) drops. done is buffered so it never blocks.
 		done := make(chan error, 1)
-		go func() { done <- run(emit) }()
+		go func() { defer cancel(); done <- run(opCtx, emit) }()
 
 		ticker := time.NewTicker(keepAlive)
 		defer ticker.Stop()

@@ -33,6 +33,10 @@ const (
 // agent tunnel / Cloudflare while the plugin is quiet.
 const keepAlivePlugin = 15 * time.Second
 
+// opTimeout bounds a detached install/reconfigure op so a hung docker call can't
+// leak the goroutine forever (image pulls over a slow link are legitimately long).
+const opTimeout = 30 * time.Minute
+
 // StreamHandler proxies a container plugin's NDJSON stream to the UI. It shares
 // the PluginsRouter's discovery + dial machinery (same package) and authenticates
 // like the other stream routes.
@@ -201,7 +205,7 @@ func (h *StreamHandler) serveInstall(ctx context.Context, req *gateway.Request) 
 		return errResp(http.StatusBadRequest, "bad install params: "+err.Error())
 	}
 	p.Host = host
-	return h.runOp(ctx, func(emit func(string)) error { return h.r.install(ctx, dock, host, p, emit) })
+	return h.runOp(ctx, func(ctx context.Context, emit func(string)) error { return h.r.install(ctx, dock, host, p, emit) })
 }
 
 // serveReconfigure streams an env-reconfigure (recreate). Args: [key, json env map].
@@ -221,7 +225,7 @@ func (h *StreamHandler) serveReconfigure(ctx context.Context, req *gateway.Reque
 	if err := json.Unmarshal([]byte(args[1]), &env); err != nil {
 		return errResp(http.StatusBadRequest, "bad env: "+err.Error())
 	}
-	return h.runOp(ctx, func(emit func(string)) error { return h.r.reconfigure(ctx, key, env, emit) })
+	return h.runOp(ctx, func(ctx context.Context, emit func(string)) error { return h.r.reconfigure(ctx, key, env, emit) })
 }
 
 // opFrame is one NDJSON line of a streamed operation: "log" progress lines, a "ping"
@@ -237,7 +241,12 @@ type opFrame struct {
 // runOp runs a long operation, forwarding each progress line as an opFrame and
 // finishing with a terminal done frame. The op runs in a goroutine so keepalive pings
 // go out during a silent step; writes are serialized.
-func (h *StreamHandler) runOp(ctx context.Context, run func(emit func(string)) error) *gateway.Response {
+func (h *StreamHandler) runOp(ctx context.Context, run func(context.Context, func(string)) error) *gateway.Response {
+	// Detach the op from the request context (see streamOp): install/reconfigure both
+	// deploy + recreate containers, so a client disconnect mid-op must not cancel the
+	// docker work and leave a half-deployed stack. WithoutCancel keeps the target-host
+	// value; the timeout bounds a hung op; cancel fires only when the op completes.
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), opTimeout)
 	return ndjsonResponse(gateway.PipeStream(func(w io.Writer) error {
 		enc := json.NewEncoder(w)
 		var mu sync.Mutex
@@ -249,7 +258,7 @@ func (h *StreamHandler) runOp(ctx context.Context, run func(emit func(string)) e
 		emit := func(line string) { _ = write(opFrame{Type: "log", Data: line}) }
 
 		done := make(chan error, 1)
-		go func() { done <- run(emit) }()
+		go func() { defer cancel(); done <- run(opCtx, emit) }()
 
 		ticker := time.NewTicker(keepAlivePlugin)
 		defer ticker.Stop()
