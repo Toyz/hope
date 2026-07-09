@@ -12,6 +12,7 @@ import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { registerPluginIcons } from "./plugin-icon";
 import "./flyout"; // registers <hope-flyout> (generic right-side drawer)
+import "./cached-img"; // registers <hope-cached-img> (durable Cache-Storage image cache)
 import "./select"; // registers <hope-select> (custom dropdown; native <select> is banned)
 import { runPluginAction } from "../plugin-run";
 import { theme } from "../styles";
@@ -1447,6 +1448,14 @@ export class HopePluginSurface extends LoomElement {
             else img.style.visibility = "hidden";     // no (or failed) fallback -> hide the broken icon
           };
           const lb = !!cell.lb;
+          const imgClass = "pcimg" + (sized ? "" : " thumb");
+          const onClick = (e: any) => { e.stopPropagation(); if (lb) this.lightbox = { src, alt }; else window.open(src, "_blank", "noopener"); };
+          // ImgCache()-flagged images go through <hope-cached-img>, which persists the bytes
+          // in Cache Storage (durable across reloads/sessions, independent of the host's HTTP
+          // cache headers) and serves later views with zero network. Click bubbles to the host.
+          if (cell.cache) {
+            return <hope-cached-img class="pcimgwrap" imgClass={imgClass} imgStyle={style || ""} fb={fb} src={src} alt={alt} onClick={onClick}></hope-cached-img>;
+          }
           // Async flow: decode off the main thread and (for thumbnails) fetch at low
           // priority, so a table of many remote images — e.g. big canvas PNGs — streams in
           // without blocking. loading="lazy" only defers OFFSCREEN images, and a w-only
@@ -1455,10 +1464,10 @@ export class HopePluginSurface extends LoomElement {
           // decoding/fetchpriority aren't in loom's img attr type; pass them via a cast so
           // the DOM still gets them (async decode + low-priority thumbnail fetch).
           const asyncAttrs = { decoding: "async", fetchpriority: h && h <= 64 ? "low" : undefined } as any;
-          return <img class={"pcimg" + (sized ? "" : " thumb")} src={src} alt={alt} title={alt}
+          return <img class={imgClass} src={src} alt={alt} title={alt}
             loading="lazy" {...asyncAttrs} style={style}
             onError={onErr}
-            onClick={(e: any) => { e.stopPropagation(); if (lb) this.lightbox = { src, alt }; else window.open(src, "_blank", "noopener"); }} />;
+            onClick={onClick} />;
         }
         default:
           return this.cellStr(cell.value);

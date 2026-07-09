@@ -127,3 +127,11 @@ func ImgFallback(url string) ImageOpt { return func(m map[string]any) { m["fb"] 
 // full-screen overlay, closed by backdrop click / Esc / the close button) instead of
 // a new browser tab — nicer for viewing badge/avatar art in place.
 func ImgLightbox() ImageOpt { return func(m map[string]any) { m["lb"] = true } }
+
+// ImgCache opts this image into hope's DURABLE client-side byte cache: the browser stores
+// the image bytes in the Cache Storage API (surviving reloads and sessions) and serves them
+// locally on later views, independent of the image host's HTTP cache headers. Ideal for
+// immutable, content-addressed art (a badge/canvas by hash) that's expensive to re-fetch
+// from a remote host. Requires the image host to allow cross-origin reads (CORS); if it
+// doesn't, the image still loads normally over the network — just uncached.
+func ImgCache() ImageOpt { return func(m map[string]any) { m["cache"] = true } }
