@@ -330,7 +330,7 @@ export class HopePluginInspector extends LoomElement {
                 </>
               )}
 
-              {v.enabled && this.config && this.config.fields.length ? (
+              {v.enabled && this.config && this.config.fields?.length ? (
                 <>
                   <div class="ctitle sep">
                     configuration

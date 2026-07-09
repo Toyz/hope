@@ -379,7 +379,7 @@ export class HopePluginSurface extends LoomElement {
     this.streamData = {};
     this.streamHist = {};
     this.filterDraft = {};
-    if (!s) return;
+    if (!s || !s.schema) return; // a surface can arrive with a node but no schema yet
     registerPluginIcons(s.key, s.schema.icons); // sanitize + namespace this plugin's icons
     for (const v of s.schema.views || []) this.views[v.method] = v;
     for (const a of s.schema.actions || []) this.actions[a.method] = a;
@@ -881,8 +881,11 @@ export class HopePluginSurface extends LoomElement {
   // row_method the rows are clickable (detail modal); row_actions add a trailing
   // action cell. Columns are fully dynamic — whatever the plugin returns.
   private renderTable(data: any, v?: ViewDesc) {
-    const cols: string[] = data?.columns || [];
-    const rows: any[][] = data?.rows || [];
+    const cols: string[] = Array.isArray(data?.columns) ? data.columns : [];
+    // `data` is untrusted plugin output. Normalize rows to a real array-of-arrays up
+    // front (a non-array `rows`, or null/non-array row elements, would otherwise throw
+    // in the .map/.some/index below and blank the whole surface).
+    const rows: any[][] = (Array.isArray(data?.rows) ? data.rows : []).map((r: any) => (Array.isArray(r) ? r : []));
     // Hidden columns stay in each row (so row-detail / row actions still see them, e.g.
     // an id) but are not rendered. Indices stay stable — we skip on render, not filter.
     const hidden: Set<string> = new Set(Array.isArray(data?.hidden) ? data.hidden : []);

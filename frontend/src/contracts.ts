@@ -426,7 +426,7 @@ export interface InstallParams {
 
 // PluginConfig is the env (Configuration) editor's data for an installed plugin.
 export interface PluginConfig {
-  fields: CatalogEnvField[];
+  fields: CatalogEnvField[] | null; // Go entry.Env is omitempty → null when the entry declares no env
   values: Record<string, string>;
 }
 
@@ -704,7 +704,7 @@ export interface FleetHost {
   online: boolean;
   error?: string;
   outdated: number;
-  updates: ClusterUpdate[];
+  updates: ClusterUpdate[] | null; // Go appends only for outdated hosts → null when all current
   checked_at: string;
   stacks: StackSummary[];
 }
