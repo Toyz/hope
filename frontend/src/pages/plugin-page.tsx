@@ -2,10 +2,10 @@
 // same <hope-plugin-surface> renderer that drives the container-inspector panel
 // drives a full page here; the route's :path selects which page (and which param,
 // for dynamic pages that share one layout).
-import { LoomElement, component, styles, css, mount, unmount, reactive, prop, watch, app, bus } from "@toyz/loom";
+import { LoomElement, component, styles, css, mount, unmount, reactive, prop, watch, on, app, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
-import { PageCrumbs, pluginCrumbs } from "../events";
+import { PageCrumbs, pluginCrumbs, PluginsChanged, UpdatesApplied } from "../events";
 import { AuthStore } from "../auth-store";
 import { HopeTransport } from "../transport";
 import { PromptService } from "../prompt";
@@ -49,6 +49,19 @@ export class PluginPage extends LoomElement {
   @watch("key") onKey() { void this.load(); }
   @watch("path") onPath() { void this.load(); }
   @watch("arg") onArg() { void this.load(); }
+
+  // Keep an open plugin page live when the plugin itself changes underneath it. Without
+  // this the schema/layout is fetched once on nav and never again, so redeploying the
+  // plugin (new image/schema) left the panel stale until a manual disable/enable + nav —
+  // the reported "have to toggle to update" annoyance. The backend force-rescans on every
+  // Page call, so a reload resolves the freshly-recreated container.
+  @on(PluginsChanged) private onPluginsChanged() { void this.load(); } // enable/disable/install/forget
+  @on(UpdatesApplied) private onUpdatesApplied(e: UpdatesApplied) {
+    // Only reload when it's THIS plugin's stack that was redeployed (key is
+    // "host|project/service"), not every container update on the fleet.
+    const proj = this.surface?.key?.split("|")[1]?.split("/")[0];
+    if (proj && proj === e.project) void this.load();
+  }
 
   private loadSeq = 0; // supersedes overlapping loads (a nav changes path+arg -> two watchers fire)
 
