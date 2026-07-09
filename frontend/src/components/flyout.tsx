@@ -7,7 +7,7 @@
 //   <hope-flyout open={!!this.sel} title="Details" onClose={() => this.sel = null}>
 //     {this.sel ? <my-content/> : null}
 //   </hope-flyout>
-import { LoomElement, component, styles, css, prop, watch, mount, unmount } from "@toyz/loom";
+import { LoomElement, component, styles, css, prop, mount, unmount } from "@toyz/loom";
 import { theme } from "../styles";
 import { signalModal } from "../modal";
 
@@ -35,20 +35,23 @@ export class HopeFlyout extends LoomElement {
   @prop accessor open = false;
   @prop accessor title = "";
 
-  @watch("open") private lock() { signalModal(this, this.open); }
-  @mount private onM() { window.addEventListener("keydown", this.onKey); }
+  // Lifecycle-driven, not open-prop-driven: the OWNER mounts the flyout only when it should
+  // be visible (renders it conditionally) and unmounts to close, so we lock the body scroll
+  // + bind Esc on mount and release on unmount. Relying on an `open` boolean to hide an
+  // always-mounted element left it stuck open with an empty body. `open` is kept as a no-op
+  // prop for API symmetry with declarative callers.
+  @mount private onM() { window.addEventListener("keydown", this.onKey); signalModal(this, true); }
   @unmount private onU() { window.removeEventListener("keydown", this.onKey); signalModal(this, false); }
 
   private onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && this.open) { e.stopPropagation(); this.close(); }
+    if (e.key === "Escape") { e.stopPropagation(); this.close(); }
   };
-  // Dismissal (Esc, backdrop, close button) fires a "close" event — the loom convention
-  // (parent binds onClose={...}, like hope-select's onSelect). The OWNER controls `open`,
-  // so it flips its own state on this event; the flyout never self-closes.
+  // Dismissal (Esc, backdrop, close button) fires a bubbling "close" event — the loom
+  // convention (parent binds onClose={...}, like hope-select's onSelect). The owner clears
+  // its own state on this event (unmounting the flyout); the flyout never self-closes.
   private close = () => { this.dispatchEvent(new CustomEvent("close", { bubbles: true, composed: true })); };
 
   update() {
-    if (!this.open) return document.createComment("");
     return (
       <>
         <div class="scrim" onClick={this.close}></div>

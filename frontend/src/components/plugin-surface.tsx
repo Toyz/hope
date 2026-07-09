@@ -1424,12 +1424,22 @@ export class HopePluginSurface extends LoomElement {
           const src = this.cellStr(cell.value);
           const alt = this.cellStr(cell.alt ?? "");
           if (!/^https?:\/\//i.test(src)) return alt;
-          // Optional render box: w and/or h in px. w-only keeps aspect ("240×N"); both
-          // = a fixed box the image is centered in (object-fit contain, or cover to crop).
+          // Optional render box: w and/or h in px.
+          //  - both  -> a FIXED box the image fits into (object-fit contain, or cover to crop).
+          //  - w only -> RESPONSIVE: fills the container up to w, preserving aspect (height
+          //    auto). Not a hard `width:Wpx` — that both overflows a narrow container AND
+          //    refuses to grow, so a wide hero looked stuck/clamped.
+          //  - h only -> fixed height, auto width.
           const w = Number(cell.w) || 0, h = Number(cell.h) || 0;
           const fit = cell.fit === "cover" ? "cover" : "contain";
           const sized = w || h;
-          const style = sized ? `${w ? `width:${w}px;` : ""}${h ? `height:${h}px;` : ""}object-fit:${fit};` : undefined;
+          const style = w && h
+            ? `width:${w}px;height:${h}px;object-fit:${fit};`
+            : w
+              ? `width:100%;max-width:${w}px;height:auto;`
+              : h
+                ? `height:${h}px;width:auto;`
+                : undefined;
           const fb = typeof cell.fb === "string" && /^https?:\/\//i.test(cell.fb) ? cell.fb : "";
           const onErr = (e: any) => {
             const img = e.target as HTMLImageElement;
@@ -1543,20 +1553,20 @@ export class HopePluginSurface extends LoomElement {
   // component tree, plus a footer of the row's actions (same run path as the modal).
   private renderFlyout() {
     const f = this.flyout;
+    // Render the drawer ONLY when open (like renderModal), so clearing this.flyout UNMOUNTS
+    // it — a robust close. An always-mounted <hope-flyout open={false}> relied on the boolean
+    // prop reactively hiding it, which left it stuck open with an empty "Details" body.
+    if (!f) return null;
     return (
-      <hope-flyout open={!!f} title={f?.title || "Details"} onClose={this.closeFlyout}>
-        {f ? (
-          <>
-            {this.renderComponent(f.comp?.comp ?? f.comp, "fly")}
-            {f.actions && f.actions.length && f.row ? (
-              <div class="flyacts">{f.actions.map((a) => (
-                <hope-button size="sm" tone={a.danger ? "danger" : "primary"}
-                  onClick={() => this.runFlyoutAction(a, f)}>
-                  {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}{a.label}
-                </hope-button>
-              ))}</div>
-            ) : null}
-          </>
+      <hope-flyout open title={f.title || "Details"} onClose={this.closeFlyout}>
+        {this.renderComponent(f.comp?.comp ?? f.comp, "fly")}
+        {f.actions && f.actions.length && f.row ? (
+          <div class="flyacts">{f.actions.map((a) => (
+            <hope-button size="sm" tone={a.danger ? "danger" : "primary"}
+              onClick={() => this.runFlyoutAction(a, f)}>
+              {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}{a.label}
+            </hope-button>
+          ))}</div>
         ) : null}
       </hope-flyout>
     );
