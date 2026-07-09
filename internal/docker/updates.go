@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -287,10 +288,14 @@ func (c *Client) RefreshImageStatus(ctx context.Context, ref string) {
 	}
 	st, detail := c.imageStatus(ctx, ref)
 	c.updMu.Lock()
-	if c.updByRef == nil {
-		c.updByRef = map[string]refStatus{}
-	}
-	c.updByRef[ref] = refStatus{status: st, detail: detail}
+	// Copy-on-write, NOT an in-place map write. AllUpdates copies the map header
+	// under RLock then reads it UNLOCKED, so the published map must be immutable —
+	// mutating it in place here would be a concurrent map read+write (a fatal,
+	// process-killing runtime error). Rebuild + reassign, like the crawler does.
+	next := make(map[string]refStatus, len(c.updByRef)+1)
+	maps.Copy(next, c.updByRef)
+	next[ref] = refStatus{status: st, detail: detail}
+	c.updByRef = next
 	c.updMu.Unlock()
 	c.saveUpdateCache()
 }
