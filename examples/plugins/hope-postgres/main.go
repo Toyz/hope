@@ -15,6 +15,8 @@ package main
 
 import (
 	"context"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -25,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/toyz/hope/plugin"
@@ -1183,11 +1186,29 @@ func schemaTree(ctx context.Context) (plugin.TreeData, error) {
 func jsonSafeRow(vals []any) []any {
 	out := make([]any, len(vals))
 	for i, v := range vals {
-		if b, ok := v.([]byte); ok {
-			out[i] = string(b)
-			continue
+		switch t := v.(type) {
+		case [16]byte:
+			// pgx decodes a uuid column into a raw [16]byte ARRAY (not a []byte slice), so
+			// it slips past the []byte case below and JSON-marshals as a 16-number array.
+			// uuid.UUID IS a [16]byte, so this is a direct cast to a proper UUID whose
+			// String() is the canonical 8-4-4-4-12 form.
+			out[i] = uuid.UUID(t).String()
+		case []byte:
+			// json / jsonb come back as raw bytes. Render valid JSON as a Code cell (indented
+			// so it reads as structured data, not a wall of text); everything else (bytea,
+			// text served as bytes) stays a plain string.
+			s := string(t)
+			if trimmed := strings.TrimSpace(s); (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Valid(t) {
+				var buf bytes.Buffer
+				if json.Indent(&buf, t, "", "  ") == nil {
+					out[i] = plugin.Code(buf.String())
+					continue
+				}
+			}
+			out[i] = s
+		default:
+			out[i] = v
 		}
-		out[i] = v
 	}
 	return out
 }
