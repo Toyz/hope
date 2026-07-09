@@ -28,6 +28,7 @@
 /examples/plugins/hello-world/hello-world
 /examples/plugins/hope-postgres/hope-postgres
 /examples/plugins/hope-redis/hope-redis
+/examples/plugins/hope-nats/hope-nats
 /examples/plugins/kitchen-sink/kitchen-sink
 
 # go workspace / vendor (sov is a normal module, fetched on build)
