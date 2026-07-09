@@ -56,7 +56,12 @@ export class HopePluginWidgets extends LoomElement {
   }
 
   update() {
-    const shown = this.widgets;
+    // Stack mode is backend-filtered already. Dashboard mode fetches the whole fleet's
+    // widgets, so scope to this host when one is selected (a host with no plugins shows
+    // nothing); an empty host is the fleet "all" view, which shows every host's widgets.
+    const shown = this.stack || !this.host
+      ? this.widgets
+      : this.widgets.filter((w) => w.host === this.host);
     if (!shown.length) return <></>;
     return (
       <div class="wsec">

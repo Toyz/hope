@@ -1054,7 +1054,7 @@ export class DashboardPage extends LoomElement {
               {first ? this.stackTableSkeleton() : this.stackTable(secs[0])}
             </>
           ) : null}
-          <hope-plugin-widgets></hope-plugin-widgets>
+          <hope-plugin-widgets host={this.hostCtx.fleet ? "" : this.hostCtx.activeHost}></hope-plugin-widgets>
         </main>
         {this.updModalOpen ? this.renderUpdModal() : null}
       </div>
