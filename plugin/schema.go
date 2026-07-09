@@ -82,6 +82,11 @@ type TableData struct {
 	// the data-side equivalent of the RowDetail table option (for views without opts,
 	// like a QueryView).
 	RowMethod string `json:"row_method,omitempty"`
+	// RowFlyout makes rows clickable into a right-side DRAWER instead of a modal. The
+	// method receives the clicked {row} and returns a component tree (plugin.Box(...)) hope
+	// renders in the flyout. Data-side equivalent of the RowFlyout table option. When both
+	// RowFlyout and RowMethod are set, the flyout wins.
+	RowFlyout string `json:"row_flyout,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
@@ -294,6 +299,10 @@ type ViewDesc struct {
 	// with params {row: {column: value}}. The result (kv or table) is shown in a
 	// modal — a fully author-controlled row-detail RPC.
 	RowMethod string `json:"row_method,omitempty"`
+	// RowFlyout (table/query views): like RowMethod but opens a right-side DRAWER instead
+	// of a modal. The method receives {row} and returns a component tree hope renders in
+	// the flyout. When both are set, the flyout wins.
+	RowFlyout string `json:"row_flyout,omitempty"`
 	// RowDetailButton triggers RowMethod from a dedicated per-row button instead of a
 	// whole-row click. Use when the row body is otherwise interactive (e.g. inline-
 	// editable cells) so the two don't fight.

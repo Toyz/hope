@@ -199,6 +199,13 @@ type TableOpt func(*ViewDesc)
 // value}} and shows the returned kv/table in a modal (an author-controlled RPC).
 func RowDetail(method string) TableOpt { return func(v *ViewDesc) { v.RowMethod = method } }
 
+// RowFlyout makes table rows clickable into a right-side DRAWER (not a modal): a click
+// calls method with {row: {column: value}} and hope renders the returned component tree
+// (plugin.Box(...) — image, key/values, Buttons bound to actions) in the flyout. Richer
+// than RowDetail's modal; good for a compact record shown beside the table. If both
+// RowFlyout and RowDetail are set, the flyout wins.
+func RowFlyout(method string) TableOpt { return func(v *ViewDesc) { v.RowFlyout = method } }
+
 // RowDetailButton is like RowDetail but triggers from a per-row button instead of a
 // whole-row click — use it when the row is also inline-editable so the click to
 // edit a cell and the click to open the detail don't collide.
