@@ -161,7 +161,7 @@ func registerOverview(p *plugin.Plugin) {
 // --- Streams --------------------------------------------------------------------
 
 func registerStreams(p *plugin.Plugin) {
-	cols := []string{"id", "stream", "subjects", "messages", "bytes", "consumers", "last seq"}
+	cols := []string{"id", "stream", "storage", "subjects", "messages", "bytes", "consumers", "last seq"}
 	p.TableView("streams", "Streams", func(ctx context.Context) (any, error) {
 		_, js, err := conn(ctx)
 		if err != nil {
@@ -170,9 +170,16 @@ func registerStreams(p *plugin.Plugin) {
 		rows := [][]any{}
 		lister := js.ListStreams(ctx)
 		for si := range lister.Info() {
+			// KV buckets + object stores are JetStream streams under the hood (named KV_* /
+			// OBS_*). They're surfaced in the KV tab, so hide their backing streams here — the
+			// Streams tab should show real streams only.
+			if strings.HasPrefix(si.Config.Name, "KV_") || strings.HasPrefix(si.Config.Name, "OBS_") {
+				continue
+			}
 			rows = append(rows, []any{
 				plugin.Code(si.Config.Name),
 				plugin.DetailLink(si.Config.Name, "stream", si.Config.Name),
+				plugin.Badge(si.Config.Storage.String(), storageTone(si.Config.Storage.String())),
 				truncate(strings.Join(si.Config.Subjects, " "), 60),
 				plugin.Number(int64(si.State.Msgs), ""),
 				plugin.Badge(humanBytes(int64(si.State.Bytes)), ""),
@@ -212,6 +219,7 @@ func registerStreams(p *plugin.Plugin) {
 		}
 		kids = append(kids,
 			plugin.KeyVal("subjects", plugin.Code(strings.Join(si.Config.Subjects, " "))),
+			plugin.KeyVal("storage", plugin.Badge(si.Config.Storage.String(), storageTone(si.Config.Storage.String()))),
 			plugin.Divider(),
 			plugin.CRow(
 				plugin.KeyVal("messages", plugin.Number(int64(si.State.Msgs), "")),
@@ -510,6 +518,14 @@ func settingInt(p *plugin.Plugin, key string, def int) int {
 		return n
 	}
 	return def
+}
+
+// storageTone: memory storage is volatile (warn), file is durable (ok).
+func storageTone(s string) string {
+	if s == "memory" {
+		return plugin.ToneWarn
+	}
+	return plugin.ToneOK
 }
 
 func orDash(s string) string {
