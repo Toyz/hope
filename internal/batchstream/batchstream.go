@@ -71,10 +71,31 @@ type streamFrame struct {
 	Result json.RawMessage `json:"result"`
 }
 
+// hasSubject reports whether the request carries an authenticated subject — set by the
+// gateway's edge auth middleware. req.User is a subject string or *gateway.Claims; an
+// anonymous request leaves it nil.
+func hasSubject(req *gateway.Request) bool {
+	switch u := req.User.(type) {
+	case string:
+		return u != ""
+	case *gateway.Claims:
+		return u != nil && u.Subject != ""
+	}
+	return false
+}
+
 // ServeRoute parses {calls}, then streams one frame per entry as it finishes.
 func (h *Handler) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.Response {
 	if req.Method != http.MethodPost {
 		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusMethodNotAllowed, Code: "BAD_REQUEST", Message: "method not allowed"})
+	}
+	// Require an authenticated subject for the whole envelope. The gateway's edge auth
+	// middleware already resolved req.User before this handler runs; RouteHandlers aren't
+	// gated by the deny-by-default authz the way business methods are, so gate it here so
+	// an anonymous caller can't even open a batch (belt-and-suspenders — each proxied call
+	// is re-authed through gw.Handle regardless, but this fails fast at the edge).
+	if !hasSubject(req) {
+		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "authentication required"})
 	}
 	var br gateway.BatchRequest
 	if err := json.Unmarshal(req.Body, &br); err != nil {
