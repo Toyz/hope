@@ -252,8 +252,11 @@ func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorPara
 	isDefault := !hasDefault(existing)
 	cid, err := r.dock(ctx).DeployConnector(ctx, p.Name, id, token, isDefault)
 	if err != nil {
-		// Best-effort rollback so we don't leave an orphan tunnel.
-		_ = r.cf.DeleteTunnel(ctx, id)
+		// Best-effort rollback so we don't leave an orphan tunnel — on a DETACHED
+		// context: if DeployConnector failed BECAUSE the request was canceled (client
+		// dropped during the first-time cloudflared pull), a rollback on the same
+		// canceled ctx would also fail and leave the tunnel orphaned.
+		_ = r.cf.DeleteTunnel(context.WithoutCancel(ctx), id)
 		return nil, rpc.Internal("deploy cloudflared: %v", err)
 	}
 	return &docker.Connector{ContainerID: cid, Name: p.Name, Title: p.Name, TunnelID: id, Default: isDefault, Running: true}, nil
@@ -305,11 +308,16 @@ func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorPara
 	if !ok {
 		return nil, rpc.NotFound("connector not found")
 	}
-	if err := r.dock(ctx).Remove(ctx, con.ContainerID); err != nil {
+	// Removing the in-use connector drops the tunnel the operator is on, which cancels
+	// this request mid-op — so run the teardown on a detached context (values, i.e. the
+	// target host, preserved). Otherwise the container is left stopped-not-removed
+	// and/or the Cloudflare tunnel is orphaned.
+	octx := context.WithoutCancel(ctx)
+	if err := r.dock(octx).Remove(octx, con.ContainerID); err != nil {
 		return nil, rpc.Internal("remove connector: %v", err)
 	}
 	if p.DeleteTunnel && con.TunnelID != "" {
-		if err := r.cf.DeleteTunnel(ctx, con.TunnelID); err != nil {
+		if err := r.cf.DeleteTunnel(octx, con.TunnelID); err != nil {
 			return &RouteResult{OK: false, Error: "container removed but tunnel delete failed: " + err.Error()}, nil
 		}
 	}
@@ -601,10 +609,16 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 	}
 	// Replicated: give every replica a unique alias on the stack network (a brief
 	// per-replica reattach), then round-robin on that alias.
+	// Detached context: a client disconnect mid-loop must not strand a replica between
+	// its detach and reattach (left off its only network). Values (target host) survive.
+	octx := context.WithoutCancel(ctx)
 	alias := docker.ReplicaAlias(p.Project, p.Service)
 	for _, m := range members {
-		_ = r.dock(ctx).DetachNetwork(ctx, m.ID, netName)
-		if e := r.dock(ctx).AttachNetwork(ctx, m.ID, netName, []string{alias}); e != nil {
+		_ = r.dock(octx).DetachNetwork(octx, m.ID, netName)
+		if e := r.dock(octx).AttachNetwork(octx, m.ID, netName, []string{alias}); e != nil {
+			// Reattach WITHOUT the alias so this replica isn't left stranded off its
+			// only network (it just won't join the round-robin — AddTunnel fails anyway).
+			_ = r.dock(octx).AttachNetwork(octx, m.ID, netName, nil)
 			return "", "", false, e
 		}
 	}
