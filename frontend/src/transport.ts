@@ -53,7 +53,14 @@ export class HopeTransport extends RpcTransport {
   //                 fallback (which re-issues each call through directCall).
   //   - System.fleet — gates the topology rail's first paint; keep it direct so
   //                 it returns on its own response, not the tick's slowest.
-  private static readonly NEVER_BATCH: ReadonlySet<string> = new Set(["Auth.*", "System.fleet"]);
+  //   - Plugins.*  — a plugin call crosses a network boundary (dial a container,
+  //                 run arbitrary author code / a heavy query, possibly over the
+  //                 agent tunnel), so its latency is unbounded. Batched, one slow
+  //                 plugin call head-of-line-blocks every hope core call in the
+  //                 same tick — the UI-lag the batch was meant to avoid. Keep
+  //                 plugin calls direct so their latency stays isolated to the
+  //                 plugin panel that made them.
+  private static readonly NEVER_BATCH: ReadonlySet<string> = new Set(["Auth.*", "System.fleet", "Plugins.*"]);
 
   private neverBatch(router: string, method: string): boolean {
     return HopeTransport.NEVER_BATCH.has(`${router}.*`) || HopeTransport.NEVER_BATCH.has(`${router}.${method}`);
