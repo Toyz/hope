@@ -601,7 +601,7 @@ func (r *TunnelsRouter) resolveOrigin(ctx *rpc.Context, con docker.Connector, p 
 	}
 	// Replicated: give every replica a unique alias on the stack network (a brief
 	// per-replica reattach), then round-robin on that alias.
-	alias := "hope-" + p.Project + "-" + p.Service
+	alias := docker.ReplicaAlias(p.Project, p.Service)
 	for _, m := range members {
 		_ = r.dock(ctx).DetachNetwork(ctx, m.ID, netName)
 		if e := r.dock(ctx).AttachNetwork(ctx, m.ID, netName, []string{alias}); e != nil {

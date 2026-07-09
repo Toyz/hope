@@ -107,12 +107,21 @@ func (r *PluginsRouter) scan(ctx context.Context, refresh bool) []Discovered {
 func pluginIdentity(host string, pc docker.PluginContainer) string {
 	switch {
 	case pc.Project != "" && pc.Service != "":
-		return host + "|" + pc.Project + "/" + pc.Service
+		return identityKey(host, pc.Project, pc.Service)
 	case pc.Name != "":
 		return host + "|~/" + pc.Name
 	default:
 		return host + "|id/" + pc.ContainerID
 	}
+}
+
+// identityKey formats the compose-plugin identity string: host|project/service.
+// The install orchestrator derives the token from this BEFORE deploy, and discovery
+// recomputes it AFTER (from the container's compose labels) to look the token up —
+// the two must be byte-identical or trust silently breaks, so both go through here
+// instead of hand-building the string. TestInstallKeyMatchesIdentity guards it.
+func identityKey(host, project, service string) string {
+	return host + "|" + project + "/" + service
 }
 
 // representative picks the container hope should dial for a group of same-identity

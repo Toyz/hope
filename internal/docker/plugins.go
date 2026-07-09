@@ -164,7 +164,7 @@ func (c *Client) PluginContainers(ctx context.Context) ([]PluginContainer, error
 			Title:       title,
 			Icon:        ct.Labels[labelPluginIcon],
 			Project:     projectLabel(ct.Labels),
-			Service:     ct.Labels[LabelService],
+			Service:     serviceLabel(ct.Labels),
 			Networks:    nets,
 			Image:       ct.Image,
 			ImageID:     ct.ImageID,

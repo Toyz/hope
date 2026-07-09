@@ -183,7 +183,7 @@ func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host s
 			return err
 		}
 
-		key := host + "|" + project + "/" + service
+		key := identityKey(host, project, service)
 		token := r.store.DeriveToken(key)
 
 		env := map[string]string{}

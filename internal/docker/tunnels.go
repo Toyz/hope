@@ -127,7 +127,7 @@ func (c *Client) OriginIndex(ctx context.Context) (map[string]OriginRef, error) 
 		// aliases, so reconstruct it from labels) — so a replicated service's
 		// route origin resolves back to its stack/service.
 		if ref.Project != "" && ref.Service != "" {
-			idx["hope-"+ref.Project+"-"+ref.Service] = ref
+			idx[ReplicaAlias(ref.Project, ref.Service)] = ref
 		}
 	}
 	return idx, nil
@@ -172,6 +172,15 @@ func (c *Client) DetachNetwork(ctx context.Context, containerID, netName string)
 		return nil
 	}
 	return err
+}
+
+// ReplicaAlias is the stack-network alias hope assigns to every replica of a
+// scaled service so a tunnel route can round-robin across them. The tunnels router
+// ATTACHES this alias to each replica; OriginIndex RECONSTRUCTS it from labels to
+// map a route origin back to its stack/service — the two must be byte-identical, so
+// both go through here rather than hand-building the string.
+func ReplicaAlias(project, service string) string {
+	return "hope-" + project + "-" + service
 }
 
 // connectorImage is the cloudflared image hope deploys.
