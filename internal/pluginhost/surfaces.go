@@ -89,8 +89,9 @@ type matchDoc struct {
 	Services []string          `json:"services"`
 }
 type schemaDoc struct {
-	Name string `json:"name"`
-	Icon string `json:"icon"`
+	Name  string            `json:"name"`
+	Icon  string            `json:"icon"`
+	Icons map[string]string `json:"icons,omitempty"` // plugin-scoped custom icons (name -> inner SVG)
 }
 
 // Surfaces returns the container-surface contributions of every enabled plugin on
@@ -413,11 +414,12 @@ type PluginPageNode struct {
 
 // PluginPages groups an enabled plugin's page tree for the rail (plugin -> pages).
 type PluginPages struct {
-	Key   string           `json:"key"`
-	Name  string           `json:"name"`
-	Host  string           `json:"host"`
-	Icon  string           `json:"icon"`
-	Pages []PluginPageNode `json:"pages"`
+	Key   string            `json:"key"`
+	Name  string            `json:"name"`
+	Host  string            `json:"host"`
+	Icon  string            `json:"icon"`
+	Icons map[string]string `json:"icons,omitempty"` // plugin's custom icons, so the rail can render them
+	Pages []PluginPageNode  `json:"pages"`
 }
 
 // Pages returns every enabled plugin (fleet-wide) that contributes `page` surfaces,
@@ -482,7 +484,7 @@ func (r *PluginsRouter) Pages(ctx *rpc.Context) ([]PluginPages, error) {
 			}
 		}
 		if len(nodes) > 0 {
-			out = append(out, PluginPages{Key: rec.Key, Name: sd.Name, Host: host, Icon: sd.Icon, Pages: nodes})
+			out = append(out, PluginPages{Key: rec.Key, Name: sd.Name, Host: host, Icon: sd.Icon, Icons: sd.Icons, Pages: nodes})
 		}
 	}
 	return out, nil

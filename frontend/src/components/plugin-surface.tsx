@@ -242,6 +242,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .stream { display: inline-flex; flex-direction: column; gap: 6px; padding: 8px 0; }
   .stream .k { color: var(--dim); font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
   .stream .v { color: var(--upd); font: 600 20px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .slog { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; padding: 4px 0; }
+  .sline { color: var(--fg); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; padding: 2px 0; border-bottom: 1px solid var(--line); }
+  .sline:first-child { color: var(--upd); } /* newest line accented */
 
   .spark { display: flex; align-items: center; gap: 14px; padding: 4px 0; }
   .sparksvg { width: 240px; height: 44px; overflow: visible; }
@@ -299,6 +302,7 @@ export class HopePluginSurface extends LoomElement {
   private fetched = new Set<string>(); // view refs already fetched this surface (lazy-tab)
   @reactive accessor streamData: Record<string, any> = {};
   @reactive accessor streamHist: Record<string, number[]> = {}; // numeric history for sparklines
+  @reactive accessor streamLog: Record<string, string[]> = {}; // append-only line history for Log streams
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
   // row-detail modal: the returned detail plus the clicked row + its actions (so the
   // modal footer can offer the same row actions).
@@ -380,6 +384,7 @@ export class HopePluginSurface extends LoomElement {
     this.cells = {};
     this.streamData = {};
     this.streamHist = {};
+    this.streamLog = {};
     this.filterDraft = {};
     if (!s || !s.schema) return; // a surface can arrive with a node but no schema yet
     registerPluginIcons(s.key, s.schema.icons); // sanitize + namespace this plugin's icons
@@ -414,7 +419,21 @@ export class HopePluginSurface extends LoomElement {
       const has = this.intervalTimers.has(ref);
       if (vis.has(ref) && !has) {
         const ms = Math.max(2, v.refresh_interval) * 1000;
-        this.intervalTimers.set(ref, setInterval(() => this.refetchView(ref), ms));
+        // Pin the timer to the surface it was created for. If the surface has since
+        // changed (page nav) or the element was detached, the timer self-cancels on its
+        // next tick — otherwise an orphaned interval keeps polling the PREVIOUS plugin's
+        // method forever ("call spammed for the previous plugin"). Also pause while the
+        // tab is hidden — no point polling a backgrounded page.
+        const forKey = this.curKey;
+        this.intervalTimers.set(ref, setInterval(() => {
+          if (!this.isConnected || this.curKey !== forKey) {
+            clearInterval(this.intervalTimers.get(ref));
+            this.intervalTimers.delete(ref);
+            return;
+          }
+          if (document.hidden) return;
+          this.refetchView(ref);
+        }, ms));
       } else if (!vis.has(ref) && has) {
         clearInterval(this.intervalTimers.get(ref));
         this.intervalTimers.delete(ref);
@@ -445,12 +464,20 @@ export class HopePluginSurface extends LoomElement {
     if (!s || this.streamAborts.has(method)) return;
     const ctrl = new AbortController();
     this.streamAborts.set(method, ctrl);
+    const isLog = this.streams[method]?.kind === "log";
     this.streamOn = { ...this.streamOn, [method]: true };
-    this.streamHist = { ...this.streamHist, [method]: [] }; // fresh history per live session
+    this.streamHist = { ...this.streamHist, [method]: [] }; // fresh numeric history per live session
+    this.streamLog = { ...this.streamLog, [method]: [] }; // fresh line history per live session
     try {
       for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], ctrl.signal)) {
         if (frame?.type === "data") {
           this.streamData = { ...this.streamData, [method]: frame.data };
+          // A Log stream is append-only: keep a rolling buffer of the last 200 lines so
+          // history stays visible, instead of only ever showing the latest frame.
+          if (isLog) {
+            const line = this.cellStr(frame.data);
+            if (line !== "") this.streamLog = { ...this.streamLog, [method]: [...(this.streamLog[method] || []), line].slice(-200) };
+          }
           const val = this.pickNumeric(frame.data);
           if (val != null) this.streamHist = { ...this.streamHist, [method]: [...(this.streamHist[method] || []), val].slice(-60) };
         } else if (frame?.type === "error") this.streamData = { ...this.streamData, [method]: { error: frame.error } };
@@ -1148,6 +1175,12 @@ export class HopePluginSurface extends LoomElement {
 
   private renderStream(d: any, kind?: string, method?: string) {
     if (d && typeof d === "object" && d.error) return <div class="msg bad">{String(d.error)}</div>;
+    if (kind === "log" && method) {
+      // Newest line at the top so the latest activity is always visible without scrolling.
+      const lines = [...(this.streamLog[method] || [])].reverse();
+      if (!lines.length) return <div class="msg">waiting…</div>;
+      return <div class="slog">{lines.map((l) => <div class="sline">{l}</div>)}</div>;
+    }
     if ((kind === "series" || kind === "counter") && method) {
       const hist = this.streamHist[method] || [];
       if (hist.length >= 2) return this.renderSparkline(hist, this.pickNumeric(d));

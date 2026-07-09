@@ -13,11 +13,12 @@ import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved } from "../
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
+import { registerPluginIcons } from "./plugin-icon"; // registers <hope-plugin-icon> + the per-plugin icon namespace
 
 // An enabled plugin's custom page tree (mirrors pluginhost.PluginPages). A node is
 // a navigable page (path) or a group (children).
 interface PluginPageNode { title: string; icon?: string; path?: string; children?: PluginPageNode[] }
-interface PluginPages { key: string; name: string; host: string; icon?: string; pages: PluginPageNode[] }
+interface PluginPages { key: string; name: string; host: string; icon?: string; icons?: Record<string, string>; pages: PluginPageNode[] }
 
 // A host's roll-up state: the worst of its stacks, or offline.
 function hostTone(h: FleetHost): string {
@@ -143,7 +144,14 @@ export class HopeRail extends LoomElement {
 
   private refetchPages() {
     if (!this.pluginsOn) return;
-    void this.rpc.call<PluginPages[]>("Plugins", "pages", []).then((p) => (this.pluginPages = p || [])).catch(() => {});
+    void this.rpc.call<PluginPages[]>("Plugins", "pages", []).then((p) => {
+      const pages = p || [];
+      // Register each plugin's custom icons under its key so the rail's <hope-plugin-icon>
+      // nodes resolve them (else an author's icon name falls back to a missing built-in
+      // and renders blank).
+      for (const pg of pages) registerPluginIcons(pg.key, pg.icons);
+      this.pluginPages = pages;
+    }).catch(() => {});
   }
 
   // A plugin was enabled/disabled/forgotten — refetch its pages immediately.
@@ -443,7 +451,7 @@ export class HopeRail extends LoomElement {
         <>
           <div class={"node" + (active ? " sel" : "")} style={`padding-left:${pad}px`}>
             <span class={"caret" + (open ? " open" : "")} onClick={(e: Event) => this.togglePages(gid, e)}><loom-icon name="chevron-right" size={11}></loom-icon></span>
-            <loom-icon name={n.icon || "box"} size={12}></loom-icon>
+            <hope-plugin-icon plugin={key} name={n.icon || "box"} size={12}></hope-plugin-icon>
             <span class="label">{n.title}</span>
           </div>
           {open ? n.children.map((c) => this.renderTopoPageNode(key, c, pad + 16)) : null}
@@ -454,7 +462,7 @@ export class HopeRail extends LoomElement {
     return (
       <div class={"node" + (active ? " sel" : "")} style={`padding-left:${pad}px`} onClick={() => this.router.navigate(to)}>
         <span class="caret leaf"></span>
-        <loom-icon name={n.icon || "file"} size={12}></loom-icon>
+        <hope-plugin-icon plugin={key} name={n.icon || "file"} size={12}></hope-plugin-icon>
         <span class="label">{n.title}</span>
       </div>
     );

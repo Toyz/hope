@@ -33,7 +33,16 @@ import (
 func main() {
 	p := plugin.New("hope-postgres", "2.0.0").
 		Description("Browse, query, and operate a Postgres database").
-		Icon("database")
+		Icon("database").
+		// Plugin-scoped icons: names hope doesn't ship as built-ins, registered here so
+		// the plugin can use them anywhere (leaf/tab/stat/empty/rail). Inner SVG markup
+		// only (Lucide-style, 24x24 stroke); hope sanitizes + namespaces them per plugin.
+		Icons(map[string]string{
+			"activity": `<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`,
+			"key":      `<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>`,
+			"check":    `<path d="M20 6 9 17l-5-5"/>`,
+			"layers":   `<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>`,
+		})
 
 	// Operator-managed default page size for the drill-down data grid. Configured +
 	// saved from the plugin inspector; read here with p.SettingValue.
@@ -88,7 +97,7 @@ func registerOverview(p *plugin.Plugin) {
 		}
 		return plugin.StatData{Stats: []plugin.StatBlock{
 			{Label: "Database", Value: db, Sub: serverVersion(version), Icon: "database", Tone: plugin.ToneInfo},
-			{Label: "Size", Value: humanBytes(sizeBytes), Icon: "hdd"},
+			{Label: "Size", Value: humanBytes(sizeBytes), Icon: "hard-drive"},
 			{Label: "Tables", Value: tables},
 			{Label: "Connections", Value: total, Sub: strconv.FormatInt(active, 10) + " active", Icon: "activity", Tip: plugin.Tip("Total backends vs the ones actively running a query right now")},
 			{Label: "Cache hit", Value: hitVal, Tone: hitTone, Sub: "blocks served from cache", Tip: plugin.Tip("Share of block reads served from shared_buffers instead of disk — low means add RAM or tune shared_buffers")},
@@ -532,10 +541,12 @@ func registerBrowser(p *plugin.Plugin) {
 // --- Query editor + EXPLAIN -----------------------------------------------------
 
 func registerQuery(p *plugin.Plugin) {
-	// SQL editor → results grid. The {schema}.{table} default is filled from the page
-	// param, so opening it from a table starts on that table's SELECT. Result rows are
-	// clickable (row_detail). The plugin owns the connection; hope audits the call.
-	p.QueryView("query", "Query", "sql", "select * from {schema}.{table} limit 100", func(ctx context.Context) (any, error) {
+	// SQL editor → results grid. The {table} default is filled from the page param —
+	// which is the already-schema-qualified "schema.table", so the template is just
+	// {table} (a separate {schema} placeholder would expand to nothing and yield a stray
+	// leading dot: "from .public.foo"). Result rows are clickable (row_detail). The
+	// plugin owns the connection; hope audits the call.
+	p.QueryView("query", "Query", "sql", "select * from {table} limit 100", func(ctx context.Context) (any, error) {
 		sql := strings.TrimSpace(plugin.Input(ctx))
 		if sql == "" {
 			return &plugin.TableData{Columns: []string{}, Rows: [][]any{}}, nil
@@ -550,7 +561,7 @@ func registerQuery(p *plugin.Plugin) {
 
 	// EXPLAIN pane: type a query, see its plan. Plain EXPLAIN (no ANALYZE) never runs
 	// the statement, so it's safe to poke at anything.
-	p.QueryView("explain", "Explain", "sql", "select * from {schema}.{table}", func(ctx context.Context) (any, error) {
+	p.QueryView("explain", "Explain", "sql", "select * from {table}", func(ctx context.Context) (any, error) {
 		sql := strings.TrimSpace(plugin.Input(ctx))
 		if sql == "" {
 			return &plugin.TableData{Columns: []string{"QUERY PLAN"}, Rows: [][]any{}}, nil
@@ -823,28 +834,36 @@ func schemaPageItems(ctx context.Context) []plugin.PageItem {
 	if err != nil {
 		return treeItems
 	}
+	// Keep tables and materialized views in separate buckets per schema, so MVs can be
+	// tucked under their own "materialized views" subgroup instead of mixing into the
+	// table list (cleaner tree, and the group carries the distinguishing icon).
 	order := []string{}
-	bySchema := map[string][]plugin.PageItem{}
+	tables := map[string][]plugin.PageItem{}
+	matviews := map[string][]plugin.PageItem{}
 	for _, r := range res.Rows {
 		schema, _ := r[0].(string)
 		table, _ := r[1].(string)
 		kind, _ := r[2].(string)
-		if _, ok := bySchema[schema]; !ok {
-			order = append(order, schema)
+		if _, seen := tables[schema]; !seen {
+			if _, seen2 := matviews[schema]; !seen2 {
+				order = append(order, schema)
+			}
 		}
-		icon := ""
+		item := plugin.PageItem{Title: table, Param: map[string]any{"table": schema + "." + table}}
 		if kind == "m" {
-			icon = "layers" // a materialized view reads as a stacked snapshot
+			matviews[schema] = append(matviews[schema], item)
+		} else {
+			tables[schema] = append(tables[schema], item)
 		}
-		bySchema[schema] = append(bySchema[schema], plugin.PageItem{
-			Title: table,
-			Icon:  icon,
-			Param: map[string]any{"table": schema + "." + table},
-		})
 	}
 	items := make([]plugin.PageItem, 0, len(order))
 	for _, s := range order {
-		items = append(items, plugin.PageItem{Title: s, Icon: "database", Children: bySchema[s]})
+		kids := tables[s]
+		if mvs := matviews[s]; len(mvs) > 0 {
+			// Nest MVs under one collapsible group at the end of the schema's children.
+			kids = append(kids, plugin.PageItem{Title: "materialized views", Icon: "layers", Children: mvs})
+		}
+		items = append(items, plugin.PageItem{Title: s, Icon: "database", Children: kids})
 	}
 	treeAt = time.Now()
 	treeItems = items
