@@ -34,6 +34,19 @@ const protoVersion = "HOPE-AGENT/1"
 // any peer that omits it stays docker-only.
 const capStreamTypes = "streamtypes"
 
+// capReverse is the handshake capability for the plugin reverse channel over the
+// tunnel: when both peers advertise it, the agent opens REVERSE streams carrying an
+// agent-hosted plugin's HTTP call back to hope's /rpc/_plugin_* ingress (so
+// Publish/Alert/Storage/Action work off-host, not just for co-located plugins).
+// Back-compatible: any peer that omits it leaves the reverse channel co-located-only.
+const capReverse = "reverse"
+
+// reversePort is the port the agent listens on (inside its container) for a
+// co-located plugin's reverse-channel HTTP, reachable by the agent's container id
+// once hope attaches the agent to the ink-plugins network. Shared by the agent
+// listener and the callback URL hope hands an agent-hosted plugin.
+const reversePort = 8790
+
 // Logger is the small logging surface the agent/hub need (hope's logger fits).
 type Logger interface {
 	Info(msg string, kv ...any)

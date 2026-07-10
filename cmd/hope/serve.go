@@ -95,6 +95,17 @@ func hopeCallbackURL(self, serverAddr string) string {
 	return "http://" + self + ":" + port
 }
 
+// loopbackAddr is hope's own gateway as a loopback host:port (127.0.0.1:<port>),
+// the target the agent hub relays agent-hosted plugins' reverse-channel calls to.
+// Empty when the server addr has no usable port.
+func loopbackAddr(serverAddr string) string {
+	_, port, err := net.SplitHostPort(serverAddr)
+	if err != nil || port == "" {
+		return ""
+	}
+	return "127.0.0.1:" + port
+}
+
 // storeUpdCache adapts the state db to docker's UpdateCacheStore so the local
 // host's freshness cache lives in hope.db (bucket "updates") instead of a file.
 type storeUpdCache struct{ st *store.Store }
@@ -197,6 +208,13 @@ func runServe(configPath string) error {
 		hub = agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
 		hubReg = hub.Registry()
 		hub.SetBus(eventBus) // agent online/offline -> live feed
+		// Relay target for agent-hosted plugins' reverse-channel calls: hope's own
+		// gateway over loopback. Enables the `reverse` handshake cap so a plugin on an
+		// agent host can Publish/Alert/Storage back through the tunnel (see
+		// docs/reverse-over-agent.md). Empty (no host:port) leaves the cap off.
+		if lb := loopbackAddr(cfg.Server.Addr); lb != "" {
+			hub.SetReverseTarget(lb)
+		}
 		// Give every connected agent the same background jobs as the local
 		// daemon — registry creds + update/disk crawlers — scoped to its
 		// connection (sctx is cancelled when it drops). The freshness cache is

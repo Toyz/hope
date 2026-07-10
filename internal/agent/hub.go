@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -120,17 +122,24 @@ type HostInfo struct {
 
 // Hub accepts agent connections and registers each as a Host.
 type Hub struct {
-	token      string
-	configPath string
-	reg        *Registry
-	log        Logger
-	onConnect  func(ctx context.Context, h *Host)
-	bus        *events.Bus // nil-safe: publishes agent online/offline to the global feed
+	token         string
+	configPath    string
+	reg           *Registry
+	log           Logger
+	onConnect     func(ctx context.Context, h *Host)
+	bus           *events.Bus // nil-safe: publishes agent online/offline to the global feed
+	reverseTarget string      // hope's own loopback gateway addr for relayed plugin reverse calls; empty = reverse channel over agent off
 }
 
 // SetBus wires the event bus after construction (the hub is built before the bus in
 // serve.go). Safe to leave unset — publishing on a nil bus is a no-op.
 func (h *Hub) SetBus(bus *events.Bus) { h.bus = bus }
+
+// SetReverseTarget wires hope's own gateway address (loopback, e.g. 127.0.0.1:8080)
+// that relayed plugin reverse-channel calls from agent-hosted plugins are piped to.
+// Empty (unset) leaves the reverse-over-agent path off — the hub won't advertise the
+// `reverse` capability, so agents stay co-located-only for the reverse channel.
+func (h *Hub) SetReverseTarget(addr string) { h.reverseTarget = addr }
 
 // OnConnect registers a callback run for each agent once it's online, with a
 // context cancelled when that agent disconnects. hope uses it to start the
@@ -253,15 +262,26 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	// supports it. Both new => streams carry a DOCKER/DIAL header; any old peer =>
 	// plain OK, docker-only (fully back-compatible).
 	streamTypes := false
+	reverse := false
 	for _, f := range parts[min(len(parts), 9):] {
 		if f == capStreamTypes {
 			streamTypes = true
 		}
+		if f == capReverse {
+			reverse = true
+		}
 	}
-	reply := "OK\n"
+	// Only offer the reverse channel when hope has a loopback target wired (else the
+	// relay has nowhere to go); an agent that didn't advertise it stays off too.
+	reverse = reverse && h.reverseTarget != ""
+	caps := ""
 	if streamTypes {
-		reply = "OK " + capStreamTypes + "\n"
+		caps += " " + capStreamTypes
 	}
+	if reverse {
+		caps += " " + capReverse
+	}
+	reply := "OK" + caps + "\n"
 	if _, err := conn.Write([]byte(reply)); err != nil {
 		conn.Close()
 		return
@@ -306,6 +326,13 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 
 	// Per-session context so the host's background jobs stop when it drops.
 	sessCtx, cancel := context.WithCancel(ctx)
+	// Reverse channel: the agent opens REVERSE streams carrying an agent-hosted
+	// plugin's HTTP call; relay each to hope's own gateway over loopback. Only when
+	// both peers negotiated `reverse` (and hope has a target). yamux is symmetric —
+	// hope opens DOCKER/DIAL, the agent opens REVERSE, each accepts the other's.
+	if reverse {
+		go h.acceptReverse(sess)
+	}
 	if h.onConnect != nil {
 		h.onConnect(sessCtx, host)
 	}
@@ -320,4 +347,56 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	h.reg.remove(hostID, host)
 	h.log.Info("agent offline", "host", hostID)
 	h.bus.Publish(events.Event{Kind: events.KindAgentOffline, Host: hostID})
+}
+
+// acceptReverse serves the agent's REVERSE streams until the session drops. Each
+// stream carries one agent-hosted plugin's HTTP call back to hope.
+func (h *Hub) acceptReverse(sess *yamux.Session) {
+	for {
+		s, err := sess.Accept()
+		if err != nil {
+			return // session closed
+		}
+		go h.handleReverse(s)
+	}
+}
+
+// handleReverse relays one accepted REVERSE stream to hope's own /rpc/_plugin_*
+// ingress over loopback. It reads the plugin's HTTP request, refuses any path that
+// isn't a plugin-ingress route (the relay must never reach operator RPCs), then
+// dials hope's gateway and copies the exchange. The plugin's bearer token still
+// authorizes at the ingress — the relay is pure transport, and the agent is already
+// trusted (it proxies docker), so this grants no new authority.
+func (h *Hub) handleReverse(s net.Conn) {
+	defer s.Close()
+	// The agent prefixes the stream with "REVERSE\n"; read it byte-wise so the HTTP
+	// request bytes that follow stay intact.
+	if line, err := readStreamLine(s); err != nil || strings.TrimSpace(line) != "REVERSE" {
+		return
+	}
+	req, err := http.ReadRequest(bufio.NewReader(s))
+	if err != nil {
+		return
+	}
+	if req.Method != http.MethodPost || !strings.HasPrefix(req.URL.Path, "/rpc/_plugin") {
+		writeReverseStatus(s, http.StatusForbidden, "reverse relay: only POST /rpc/_plugin* is allowed")
+		return
+	}
+	up, err := net.DialTimeout("tcp", h.reverseTarget, 5*time.Second)
+	if err != nil {
+		writeReverseStatus(s, http.StatusBadGateway, "reverse relay: hope gateway unreachable")
+		return
+	}
+	defer up.Close()
+	req.RequestURI = "" // required to re-Write a server-parsed request as a client request
+	if err := req.Write(up); err != nil {
+		return
+	}
+	_, _ = io.Copy(s, up) // stream hope's response back to the plugin
+}
+
+// writeReverseStatus sends a minimal HTTP response over a raw stream (relay errors).
+func writeReverseStatus(w net.Conn, code int, msg string) {
+	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+		code, http.StatusText(code), len(msg), msg)
 }
