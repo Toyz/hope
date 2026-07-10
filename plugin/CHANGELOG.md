@@ -5,6 +5,27 @@ The SDK is a nested Go module, tagged `plugin/vX.Y.Z`. It follows the
 minor bumps and never break existing plugins; `ProtocolVersion` bumps only on a
 breaking change to an existing wire shape (still `1`).
 
+## v0.1.0
+
+- **The reverse channel — plugins call back into hope.** A new, opt-in, least-privilege
+  plugin->hope direction (see the [protocol doc](../docs/plugin-protocol.md#the-reverse-channel-events-publish-storage-actions)).
+  All additive; a plugin that uses none of it behaves exactly as before. hope auto-derives
+  its callback URL from its own container id (no config); a verb no-ops with
+  `ErrNoReverseChannel` for a remote/non-co-located plugin that can't reach hope.
+  - **Subscribe:** `p.OnEvent(fn)` receives fleet events (stack/container/image/agent/…).
+    Auto-declares the `events:subscribe` permission.
+  - **Publish:** `p.Publish(ctx, Event)`, plus `p.Alert(sev,title,detail,dedupeKey)` and
+    `p.ResolveAlert(title,dedupeKey)`. hope stamps attribution (Source/Kind) — unspoofable.
+    Requires `events:publish`.
+  - **Storage:** `p.Storage()` → `Get/Set/Delete/List`, durable per-install opaque KV
+    persisted by hope. Requires `storage`.
+  - **Operate:** `p.Hope().AddServiceLabel(service,key,value)` mutates the plugin's own
+    stack spec (persists across redeploys). Requires `spec:label`.
+  - **Permissions:** `p.RequirePermission(scope, reason)` declares a wanted capability
+    (consented at enable); `p.RequestPermission(ctx, scope, reason)` asks at runtime.
+    Scope constants: `ScopeEventsSubscribe`, `ScopeEventsPublish`, `ScopeStorage`,
+    `ScopeSpecLabel`.
+
 ## v0.0.11
 
 - **`TableData.Flush`.** Render a table full-height with no toolbar and no inner scroll box — it

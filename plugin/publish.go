@@ -97,3 +97,15 @@ func (p *Plugin) Alert(ctx context.Context, severity, title, detail, dedupeKey s
 	})
 	return p.Publish(ctx, Event{Kind: "alert", Data: data})
 }
+
+// ResolveAlert clears a previously-raised alert (matched by dedupeKey): hope surfaces
+// it as a "resolved" confirmation and drops the alert from any active view. Use it when
+// a monitored condition recovers. Requires events:publish.
+func (p *Plugin) ResolveAlert(ctx context.Context, title, dedupeKey string) error {
+	data, _ := json.Marshal(map[string]string{
+		"title":     title,
+		"dedupeKey": dedupeKey,
+		"resolved":  "true",
+	})
+	return p.Publish(ctx, Event{Kind: "alert", Data: data})
+}

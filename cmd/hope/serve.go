@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -75,6 +76,23 @@ func wsPathOr(p string) string {
 		return "/agent/connect"
 	}
 	return p
+}
+
+// hopeCallbackURL builds hope's own base URL as reachable by a co-located plugin over
+// the shared ink-plugins network: http://<hope-container-id>:<port>. self is hope's own
+// container id (docker DNS resolves it on the network, same as hope dials plugins by
+// their id); port comes from the server listen address. Empty self (hope not
+// containerized) yields "" — the reverse channel stays off since a plugin couldn't
+// resolve hope anyway.
+func hopeCallbackURL(self, serverAddr string) string {
+	if self == "" {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(serverAddr)
+	if err != nil || port == "" {
+		port = "8080"
+	}
+	return "http://" + self + ":" + port
 }
 
 // storeUpdCache adapts the state db to docker's UpdateCacheStore so the local
@@ -316,7 +334,11 @@ func runServe(configPath string) error {
 		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
 	}
 	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginLimits, eventBus)
-	pluginhost.SetCallbackURL(pluginsRouter, cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
+	// Reverse channel: a plugin reaches hope back at hope's OWN container id over the
+	// shared ink-plugins network — the same way hope dials plugins by their container
+	// id. Auto-derived from hope's self container + listen port; no config. Empty when
+	// hope isn't containerized (a plugin couldn't resolve it anyway).
+	pluginhost.SetCallbackURL(pluginsRouter, hopeCallbackURL(dock.SelfID(), cfg.Server.Addr))
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
 	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)

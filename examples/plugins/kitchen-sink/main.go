@@ -565,8 +565,8 @@ func main() {
 	// --- reverse channel demo: subscribe to fleet events, publish alerts, use durable
 	// storage, and act as an operator. Each capability is least-privilege: the operator
 	// consents to these scopes when enabling the plugin (events:subscribe is auto-
-	// declared by OnEvent). They no-op gracefully until hope has [plugins] callback_url
-	// configured. This is the end-to-end smoke test for the event bus. ---
+	// declared by OnEvent). They no-op gracefully when hope's reverse channel isn't
+	// reachable (a remote plugin). This is the end-to-end smoke test for the event bus. ---
 	p.RequirePermission(plugin.ScopeEventsPublish, "raise alerts you can see in hope")
 	p.RequirePermission(plugin.ScopeStorage, "remember how many events it has seen")
 	p.RequirePermission(plugin.ScopeSpecLabel, "tag its own stack's services on request")
