@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -374,6 +373,12 @@ func (h *Hub) handleReverse(s net.Conn) {
 	if line, err := readStreamLine(s); err != nil || strings.TrimSpace(line) != "REVERSE" {
 		return
 	}
+	// One HTTP exchange per stream: read the request, path-guard, proxy to hope's
+	// gateway, write the FRAMED response back, then close. We force Connection: close
+	// downstream, so the plugin's client closes and reopens (a fresh stream) per call —
+	// no keep-alive pipelining to juggle, and no half-open stream left blocking on a
+	// second request that never comes. Framing (not a raw io.Copy) is what lets a
+	// blocking caller like Storage read a clean response instead of hanging.
 	req, err := http.ReadRequest(bufio.NewReader(s))
 	if err != nil {
 		return
@@ -389,10 +394,16 @@ func (h *Hub) handleReverse(s net.Conn) {
 	}
 	defer up.Close()
 	req.RequestURI = "" // required to re-Write a server-parsed request as a client request
+	req.Close = true    // clean response boundary; plugin reopens a fresh stream per call
 	if err := req.Write(up); err != nil {
 		return
 	}
-	_, _ = io.Copy(s, up) // stream hope's response back to the plugin
+	resp, err := http.ReadResponse(bufio.NewReader(up), req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	_ = resp.Write(s) // framed response back to the plugin
 }
 
 // writeReverseStatus sends a minimal HTTP response over a raw stream (relay errors).
