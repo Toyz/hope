@@ -193,7 +193,7 @@ func registerOverview(p *plugin.Plugin) {
 	// catalogs (pg_database_size, pg_stat_activity, pg_stat_database) are cluster-wide, so
 	// this reads them from the pooled connection without connecting to the target DB — only
 	// the maintenance actions (analyzeDb/vacuumDb) need a connection to it.
-	p.View("databaseDetail", "Database", plugin.KV, func(ctx context.Context) (any, error) {
+	p.ComponentView("databaseDetail", "Database", func(ctx context.Context) (any, error) {
 		name, err := dbParam(ctx)
 		if err != nil {
 			return nil, err
@@ -202,34 +202,132 @@ func registerOverview(p *plugin.Plugin) {
 		if err != nil {
 			return nil, err
 		}
-		var size string
-		var conns, active int64
-		var current bool
+		var (
+			size, encoding                            string
+			connLimit                                 int64
+			xidAge                                    int64
+			commits, rollbacks, blksRead, blksHit     int64
+			tupIns, tupUpd, tupDel                     int64
+			tempFiles, tempBytes, deadlocks, conflicts int64
+			statsReset                                *time.Time
+			current                                   bool
+		)
 		if err := pool.QueryRow(ctx, `
-			select pg_size_pretty(pg_database_size($1)),
-			       (select count(*) from pg_stat_activity where datname = $1),
-			       (select count(*) from pg_stat_activity where datname = $1 and state = 'active'),
-			       $1 = current_database()
-			from pg_database where datname = $1`, name).Scan(&size, &conns, &active, &current); err != nil {
+			select pg_size_pretty(pg_database_size(d.datname)),
+			       pg_encoding_to_char(d.encoding),
+			       d.datconnlimit,
+			       age(d.datfrozenxid),
+			       coalesce(s.xact_commit,0), coalesce(s.xact_rollback,0),
+			       coalesce(s.blks_read,0), coalesce(s.blks_hit,0),
+			       coalesce(s.tup_inserted,0), coalesce(s.tup_updated,0), coalesce(s.tup_deleted,0),
+			       coalesce(s.temp_files,0), coalesce(s.temp_bytes,0),
+			       coalesce(s.deadlocks,0), coalesce(s.conflicts,0),
+			       s.stats_reset,
+			       d.datname = current_database()
+			from pg_database d
+			left join pg_stat_database s on s.datname = d.datname
+			where d.datname = $1`, name).Scan(
+			&size, &encoding, &connLimit, &xidAge,
+			&commits, &rollbacks, &blksRead, &blksHit,
+			&tupIns, &tupUpd, &tupDel,
+			&tempFiles, &tempBytes, &deadlocks, &conflicts,
+			&statsReset, &current); err != nil {
 			return nil, plugin.NewError(-32602, "database not found: "+name)
 		}
-		var hit *float64
-		_ = pool.QueryRow(ctx, `select sum(blks_hit)::float / nullif(sum(blks_hit) + sum(blks_read), 0)
-			from pg_stat_database where datname = $1`, name).Scan(&hit)
-		kv := map[string]any{
-			"database":    name,
-			"size":        size,
-			"connections": plugin.Number(conns, ""),
-			"active":      plugin.Number(active, ""),
+		// Connection state breakdown + the oldest open transaction (a long xact holds
+		// locks + blocks vacuum — a real thing to watch).
+		var conns, active, idle, idleTx int64
+		var longestTx float64
+		_ = pool.QueryRow(ctx, `
+			select count(*),
+			       count(*) filter (where state='active'),
+			       count(*) filter (where state='idle'),
+			       count(*) filter (where state='idle in transaction'),
+			       coalesce(extract(epoch from max(now()-xact_start)),0)
+			from pg_stat_activity where datname=$1`, name).Scan(&conns, &active, &idle, &idleTx, &longestTx)
+
+		hitPct := 100.0
+		if blksHit+blksRead > 0 {
+			hitPct = float64(blksHit) / float64(blksHit+blksRead) * 100
 		}
-		if hit != nil {
-			kv["cache hit"] = fmt.Sprintf("%.1f%%", *hit*100)
+		hitTone := plugin.ToneOK
+		if hitPct < 99 {
+			hitTone = plugin.ToneWarn
 		}
+		if hitPct < 90 {
+			hitTone = plugin.ToneBad
+		}
+		rbPct := 0.0
+		if commits+rollbacks > 0 {
+			rbPct = float64(rollbacks) / float64(commits+rollbacks) * 100
+		}
+		idleTxComp := plugin.Number(idleTx, "")
+		if idleTx > 0 {
+			idleTxComp = plugin.Badge(strconv.FormatInt(idleTx, 10), plugin.ToneWarn) // idle-in-tx blocks vacuum
+		}
+		connLimitStr := "unlimited"
+		if connLimit >= 0 {
+			connLimitStr = strconv.FormatInt(connLimit, 10)
+		}
+		statsSince := "—"
+		if statsReset != nil {
+			statsSince = statsReset.Format("2006-01-02 15:04")
+		}
+
+		// Degrade to a flat KV on an older hope with no component renderer.
+		if !plugin.Caps(ctx).Supports("component") {
+			return plugin.KVData{
+				"database": name, "size": size, "encoding": encoding,
+				"connections": conns, "active": active, "idle in tx": idleTx,
+				"cache hit": fmt.Sprintf("%.1f%%", hitPct), "deadlocks": deadlocks,
+				"rollback ratio": fmt.Sprintf("%.2f%%", rbPct), "longest tx": humanDur(longestTx),
+			}, nil
+		}
+
+		var status any = plugin.CText("—")
 		if current {
-			kv["status"] = plugin.Badge("connected", plugin.ToneInfo)
+			status = plugin.Badge("connected", plugin.ToneInfo)
 		}
-		return kv, nil
-	})
+		return plugin.Box(
+			plugin.CRow(
+				plugin.KeyVal("database", plugin.Badge(name, plugin.ToneInfo)),
+				plugin.KeyVal("size", plugin.CText(size)),
+				plugin.KeyVal("encoding", plugin.CText(encoding)),
+				plugin.KeyVal("status", status),
+			).Gapped(24),
+			plugin.Divider(),
+			plugin.Heading("Connections", 3),
+			plugin.CRow(
+				plugin.KeyVal("total", plugin.Number(conns, "")),
+				plugin.KeyVal("active", plugin.Number(active, "")),
+				plugin.KeyVal("idle", plugin.Number(idle, "")),
+				plugin.KeyVal("idle in tx", idleTxComp),
+				plugin.KeyVal("limit", plugin.CText(connLimitStr)),
+			).Gapped(24),
+			plugin.Divider(),
+			plugin.Heading("Performance", 3),
+			plugin.CRow(
+				plugin.KeyVal("cache hit", plugin.Badge(fmt.Sprintf("%.1f%%", hitPct), hitTone)),
+				plugin.KeyVal("disk reads", plugin.Number(blksRead, " blks")),
+				plugin.KeyVal("commits", plugin.Number(commits, "")),
+				plugin.KeyVal("rollback ratio", plugin.CText(fmt.Sprintf("%.2f%%", rbPct))),
+				plugin.KeyVal("deadlocks", plugin.Number(deadlocks, "")),
+			).Gapped(24),
+			plugin.CRow(
+				plugin.KeyVal("rows written", plugin.Number(tupIns+tupUpd+tupDel, "")),
+				plugin.KeyVal("temp files", plugin.Number(tempFiles, "")),
+				plugin.KeyVal("temp spilled", plugin.CText(humanBytes(tempBytes))),
+				plugin.KeyVal("conflicts", plugin.Number(conflicts, "")),
+			).Gapped(24),
+			plugin.Divider(),
+			plugin.Heading("Health", 3),
+			plugin.CRow(
+				plugin.KeyVal("longest tx", plugin.CText(humanDur(longestTx))),
+				plugin.KeyVal("xid age", plugin.Number(xidAge, "")),
+				plugin.KeyVal("stats since", plugin.CText(statsSince)),
+			).Gapped(24),
+		), nil
+	}, plugin.Refreshable(), plugin.RefreshEvery(15))
 
 	// Top tables by total size (heap + indexes + toast) — the bar chart that shows
 	// where disk goes.
@@ -1341,4 +1439,19 @@ func humanBytes(n int64) string {
 	}
 	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + units[exp]
+}
+
+// humanDur formats a duration in seconds compactly (used for the oldest open txn).
+func humanDur(secs float64) string {
+	if secs <= 0 {
+		return "—"
+	}
+	switch {
+	case secs < 60:
+		return fmt.Sprintf("%.0fs", secs)
+	case secs < 3600:
+		return fmt.Sprintf("%.0fm", secs/60)
+	default:
+		return fmt.Sprintf("%.1fh", secs/3600)
+	}
 }
