@@ -435,6 +435,100 @@ Standard JSON-RPC 2.0 error object:
 | -32603  | internal error       |
 | -32001  | unauthorized         |
 
+## The reverse channel (events, publish, storage, actions)
+
+Everything above is hope calling your plugin. The **reverse channel** is your plugin
+calling *back* into hope — to react to fleet events, publish its own events/alerts,
+persist config, and (as an operator) mutate its own stack. It is **least-privilege and
+opt-in**: your plugin gets nothing on this direction unless it (a) *declares* the scope
+it wants and (b) the operator *consents* when enabling it.
+
+### Permissions & consent
+
+Declare a scope with `RequirePermission` (or let a helper auto-declare it). It appears
+in `hope.schema` under `permissions: [{scope, reason}]`; when the operator enables the
+plugin, hope shows a consent prompt for each requested scope. The operator can revoke a
+grant anytime from the plugin inspector. Your per-plugin token proves *identity*; the
+granted scopes are what hope *authorizes* — a plugin can never widen its own access.
+
+| scope              | lets the plugin…                                             |
+|--------------------|-------------------------------------------------------------|
+| `events:subscribe` | receive fleet events via `OnEvent` (auto-declared by it)    |
+| `events:publish`   | publish events/alerts onto hope's bus                       |
+| `storage`          | read/write durable per-install key/value config             |
+| `spec:label`       | add a label to a service in its OWN stack (persists)        |
+
+A plugin may also ask for a scope at runtime with `RequestPermission(scope, reason)` —
+hope raises the same consent prompt; nothing is granted without the operator's click.
+
+### Turning it on (hope side)
+
+The reverse channel is **off by default**. Set `[plugins] callback_url` in hope's config
+to hope's own base URL as reachable by a plugin over the shared `ink-plugins` network
+(e.g. `http://hope:8080`). hope hands it to each plugin in `hope.init` along with the
+plugin's key. Without it, plugins never learn a callback URL and all reverse calls no-op
+(returning `ErrNoReverseChannel`) — so opening hope's first inbound-from-plugin surface
+is an explicit operator choice.
+
+### Subscribe — react to fleet events
+
+```go
+p.OnEvent(func(ctx context.Context, e plugin.Event) error {
+    // e.Kind: stack.deployed | container.state | image.update | agent.online | ...
+    return nil
+})
+```
+
+hope delivers each relevant event as a unary `hope.event` call to plugins holding
+`events:subscribe`, host-scoped and best-effort. Handlers should return quickly and be
+idempotent (an action you take may produce an event delivered back to you).
+
+### Publish — emit events & alerts
+
+```go
+p.Alert(ctx, "warn", "Low cache hit ratio", "91% (floor 95%)", "pg-cache-hit")
+p.ResolveAlert(ctx, "Low cache hit ratio", "pg-cache-hit") // clears it on recovery
+p.Publish(ctx, plugin.Event{Kind: "myevent", Data: raw})    // arbitrary event
+```
+
+hope **stamps the attribution itself** — `Source = plugin.<identity>` and the kind is
+namespaced `plugin.<identity>.<name>` — so a plugin can never spoof another's events or
+a core hope kind. Alerts surface as toasts + the alert-inbox bell; `dedupeKey` groups
+repeats and lets `ResolveAlert` clear them. Requires `events:publish`.
+
+### Storage — durable per-install config
+
+```go
+p.Storage().Set(ctx, "rules", myRules) // opaque JSON hope persists, namespaced to you
+var rules []Rule
+ok, _ := p.Storage().Get(ctx, "rules", &rules)
+p.Storage().Delete(ctx, "rules")
+keys, _ := p.Storage().List(ctx, "")
+```
+
+hope persists bytes it never interprets, keyed to your stable install identity (two
+installs of the same image are isolated; a `Forget` wipes it). It's for small config a
+stateless plugin has nowhere else to keep — e.g. the alert rules an operator defined.
+Requires `storage`.
+
+### Operate — mutate your own stack
+
+```go
+p.Hope().AddServiceLabel(ctx, "web", "prometheus.io/scrape", "true")
+```
+
+The operator/reconciler pattern: watch events with `OnEvent`, then act. hope mutates the
+service's **stored spec** and re-applies, so the change persists across redeploys (a
+live-container relabel would evaporate on the next recreate). Scoped to the plugin's own
+stack only, audited, and gated on `spec:label`.
+
+### End-to-end example
+
+`examples/plugins/hope-postgres` is the reference: the operator adds alert rules from the
+UI (metric + comparator + threshold), the rules persist in `p.Storage`, and a background
+loop evaluates them and `p.Alert`s on breach. `examples/plugins/kitchen-sink` exercises
+every reverse verb as a smoke test.
+
 ## Protocol version
 
 hope announces the protocol version it speaks on every call via the
