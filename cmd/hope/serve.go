@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -357,6 +358,20 @@ func runServe(configPath string) error {
 	// id. Auto-derived from hope's self container + listen port; no config. Empty when
 	// hope isn't containerized (a plugin couldn't resolve it anyway).
 	pluginhost.SetCallbackURL(pluginsRouter, hopeCallbackURL(dock.SelfID(), cfg.Server.Addr))
+	// Agent-hosted plugins get a reverse-channel URL pointing at the agent's own
+	// container id (relayed through the tunnel), resolved per host from the live
+	// registry. Returns "" for the local daemon / an unknown host, so co-located
+	// plugins fall back to hope's own callback. See docs/reverse-over-agent.md.
+	pluginhost.SetAgentCallback(pluginsRouter, func(hostID string) string {
+		if hubReg == nil {
+			return ""
+		}
+		h := hubReg.Host(hostID)
+		if h == nil || h.Info.ContainerID == "" {
+			return ""
+		}
+		return "http://" + h.Info.ContainerID + ":" + strconv.Itoa(agent.ReversePort)
+	})
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
 	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)

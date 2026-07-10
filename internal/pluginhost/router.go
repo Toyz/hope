@@ -30,7 +30,12 @@ type PluginsRouter struct {
 	autoReapprove bool             // trust schema/image changes (dev): re-record fingerprint instead of disabling
 	limits        Limits           // operator-tuned per-plugin safety caps
 	bus           *events.Bus      // nil-safe: publishes plugin.changed to the global feed
-	callbackURL   string           // hope's base URL reachable by a plugin (reverse channel); empty = off
+	callbackURL   string           // hope's base URL reachable by a CO-LOCATED plugin (reverse channel); empty = off
+	// agentCallback resolves the reverse-channel base URL for a plugin on the given
+	// host when that host is a remote AGENT (http://<agent-container-id>:<reversePort>,
+	// relayed through the tunnel). Returns "" for the local daemon or an unknown host,
+	// in which case the co-located callbackURL is used. nil = agent reverse channel off.
+	agentCallback func(hostID string) string
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -76,6 +81,23 @@ func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, en
 // package function, not a method — see the note on StartEventFanout (an exported
 // non-RPC method would panic under gw.Register's reflection).
 func SetCallbackURL(r *PluginsRouter, u string) { r.callbackURL = u }
+
+// SetAgentCallback wires the per-host resolver for an AGENT-hosted plugin's
+// reverse-channel base URL (relayed through the tunnel). A package function for the
+// same reflection reason as SetCallbackURL. nil leaves agent-hosted plugins without
+// a reverse channel (co-located ones still use SetCallbackURL).
+func SetAgentCallback(r *PluginsRouter, fn func(hostID string) string) { r.agentCallback = fn }
+
+// callbackFor returns the reverse-channel base URL to hand a plugin on hostID: the
+// agent-relayed URL when the host is a reachable agent, else hope's own co-located URL.
+func (r *PluginsRouter) callbackFor(hostID string) string {
+	if r.agentCallback != nil {
+		if u := r.agentCallback(hostID); u != "" {
+			return u
+		}
+	}
+	return r.callbackURL
+}
 
 // Catalog returns the installable first-party plugins (built-ins merged with any
 // remote manifest entries). Empty when no catalog is wired.

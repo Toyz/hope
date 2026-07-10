@@ -41,11 +41,11 @@ const capStreamTypes = "streamtypes"
 // Back-compatible: any peer that omits it leaves the reverse channel co-located-only.
 const capReverse = "reverse"
 
-// reversePort is the port the agent listens on (inside its container) for a
+// ReversePort is the port the agent listens on (inside its container) for a
 // co-located plugin's reverse-channel HTTP, reachable by the agent's container id
 // once hope attaches the agent to the ink-plugins network. Shared by the agent
 // listener and the callback URL hope hands an agent-hosted plugin.
-const reversePort = 8790
+const ReversePort = 8790
 
 // Logger is the small logging surface the agent/hub need (hope's logger fits).
 type Logger interface {

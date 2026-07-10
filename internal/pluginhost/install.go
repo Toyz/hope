@@ -498,8 +498,8 @@ func (r *PluginsRouter) initPlugin(ctx context.Context, ep *endpoint, rec *store
 	// and who it is. The callback URL is auto-derived from hope's container id; it's
 	// empty only when hope isn't containerized, in which case the plugin never learns a
 	// URL and its Publish/Storage stay no-ops (reverse channel off).
-	if r.callbackURL != "" {
-		params["hopeBaseURL"] = r.callbackURL
+	if cb := r.callbackFor(rec.Host); cb != "" {
+		params["hopeBaseURL"] = cb
 		params["pluginKey"] = rec.Key
 	}
 	if _, err := ep.callRPC(ctx, "hope.init", params); err != nil {
