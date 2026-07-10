@@ -29,6 +29,12 @@ type Widget = Surface & { host?: string; stack?: string; icon?: string };
   .wcard:hover { border-color: var(--line2); }
   .wtitle { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line); color: var(--hi); font: 600 12px/1.2 var(--mono); }
   .wtitle .wsub { margin-left: auto; color: var(--dim); font: 10px/1 var(--mono); }
+  /* host tag in the fleet ("all") view so a widget's origin host is obvious */
+  .wtitle .whost { color: var(--upd); font: 9.5px/1.6 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+    border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 1px 6px; }
+  /* stack the widget belongs to (when it's part of one) */
+  .wtitle .wstack { color: var(--dim); font: 9.5px/1.6 var(--mono); letter-spacing: .04em;
+    border: 1px solid var(--line2); padding: 1px 6px; }
   /* Trim the surface's own outer padding inside the compact widget body. */
   .wbody { min-width: 0; padding: 4px 2px; }
 `)
@@ -95,6 +101,8 @@ export class HopePluginWidgets extends LoomElement {
                 <hope-plugin-icon plugin={w.key} name={w.icon || "plugin"} size={14}></hope-plugin-icon>
                 {w.title || w.name}
                 <span class="wsub">{w.name}</span>
+                {!this.host && w.host ? <span class="whost">{w.host}</span> : null}
+                {w.stack ? <span class="wstack">{w.stack}</span> : null}
               </div>
               <div class="wbody"><hope-plugin-surface surface={w}></hope-plugin-surface></div>
             </div>
