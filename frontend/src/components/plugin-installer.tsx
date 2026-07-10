@@ -10,6 +10,7 @@ import { HopeTransport } from "../transport";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { toggleIn } from "../util";
+import { scopeLabel } from "../scope-labels";
 import { OpenInstaller, PluginsChanged, Refreshing, TopologyChanged, withRefresh } from "../events";
 import type { CatalogEntry, CatalogEnvField, CatalogVolume, VolumeChoice, InstallParams, NetworkInfo, VolumeInfo, StackSummary, HostView, OpFrame } from "../contracts";
 import { theme } from "../styles";
@@ -23,17 +24,6 @@ interface InstForm {
   env: Record<string, string>;
   settings: Record<string, string>;
   vols: Record<string, VolumeChoice>; // keyed by mount target
-}
-
-// Human label for a reverse-channel scope shown on the marketplace disclosure.
-const PERM_LABELS: Record<string, string> = {
-  "events:subscribe": "React to fleet events",
-  "events:publish": "Publish events / alerts to hope",
-  storage: "Store its config in hope",
-  "spec:label": "Add labels to its own stack's services",
-};
-function permScopeLabel(scope: string): string {
-  return PERM_LABELS[scope] || scope;
 }
 
 @component("hope-plugin-installer")
@@ -498,7 +488,7 @@ export class HopePluginInstaller extends LoomElement {
             {(c.permissions || []).map((p) => (
               <div class="dperm">
                 <loom-icon name="lock" size={13}></loom-icon>
-                <span><b>{permScopeLabel(p.scope)}</b>{p.reason ? ` — ${p.reason}` : ""}</span>
+                <span><b>{scopeLabel(p.scope)}</b>{p.reason ? ` — ${p.reason}` : ""}</span>
               </div>
             ))}
             <div class="dfhint">You'll grant or deny each of these when you enable it — least privilege, nothing by default.</div>

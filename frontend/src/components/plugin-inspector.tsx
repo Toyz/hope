@@ -18,22 +18,8 @@ import { capabilities } from "../caps";
 import { withHost } from "../host-url";
 import type { PluginView, PluginConfig, OpFrame } from "../contracts";
 import { theme } from "../styles";
+import { scopeLabel, SCOPE_ORDER } from "../scope-labels";
 
-// Short label for a reverse-capability scope (kept in sync with the Go scope
-// constants). Falls back to the raw scope for a future/unknown one.
-const SCOPE_LABELS: Record<string, string> = {
-  "events:subscribe": "receive fleet events",
-  "events:publish": "publish events / alerts",
-  storage: "store its config in hope",
-  "spec:label": "edit its stack's service labels",
-};
-function scopeLabel(scope: string): string {
-  return SCOPE_LABELS[scope] || scope;
-}
-
-// Canonical order so a scope keeps its position when granted/revoked (rendering
-// grants and pending as separate lists made them jump around on toggle).
-const SCOPE_ORDER = ["events:subscribe", "events:publish", "storage", "spec:label"];
 function orderedScopes(...lists: (string[] | undefined)[]): string[] {
   const seen = new Set<string>();
   for (const l of lists) for (const s of l ?? []) seen.add(s);
