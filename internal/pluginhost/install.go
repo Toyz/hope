@@ -495,8 +495,9 @@ func (r *PluginsRouter) initPlugin(ctx context.Context, ep *endpoint, rec *store
 		},
 	}
 	// Reverse channel: tell the plugin how to call BACK into hope (publish / storage)
-	// and who it is. Only when a callback URL is configured — otherwise the plugin
-	// never learns a URL and its Publish/Storage stay no-ops (reverse channel off).
+	// and who it is. The callback URL is auto-derived from hope's container id; it's
+	// empty only when hope isn't containerized, in which case the plugin never learns a
+	// URL and its Publish/Storage stay no-ops (reverse channel off).
 	if r.callbackURL != "" {
 		params["hopeBaseURL"] = r.callbackURL
 		params["pluginKey"] = rec.Key

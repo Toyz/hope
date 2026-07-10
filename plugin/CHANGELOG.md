@@ -9,8 +9,9 @@ breaking change to an existing wire shape (still `1`).
 
 - **The reverse channel — plugins call back into hope.** A new, opt-in, least-privilege
   plugin->hope direction (see the [protocol doc](../docs/plugin-protocol.md#the-reverse-channel-events-publish-storage-actions)).
-  All additive; a plugin that uses none of it behaves exactly as before, and every verb
-  no-ops with `ErrNoReverseChannel` until the operator sets `[plugins] callback_url`.
+  All additive; a plugin that uses none of it behaves exactly as before. hope auto-derives
+  its callback URL from its own container id (no config); a verb no-ops with
+  `ErrNoReverseChannel` for a remote/non-co-located plugin that can't reach hope.
   - **Subscribe:** `p.OnEvent(fn)` receives fleet events (stack/container/image/agent/…).
     Auto-declares the `events:subscribe` permission.
   - **Publish:** `p.Publish(ctx, Event)`, plus `p.Alert(sev,title,detail,dedupeKey)` and

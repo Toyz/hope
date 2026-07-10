@@ -461,14 +461,19 @@ granted scopes are what hope *authorizes* — a plugin can never widen its own a
 A plugin may also ask for a scope at runtime with `RequestPermission(scope, reason)` —
 hope raises the same consent prompt; nothing is granted without the operator's click.
 
-### Turning it on (hope side)
+### How the plugin reaches hope
 
-The reverse channel is **off by default**. Set `[plugins] callback_url` in hope's config
-to hope's own base URL as reachable by a plugin over the shared `ink-plugins` network
-(e.g. `http://hope:8080`). hope hands it to each plugin in `hope.init` along with the
-plugin's key. Without it, plugins never learn a callback URL and all reverse calls no-op
-(returning `ErrNoReverseChannel`) — so opening hope's first inbound-from-plugin surface
-is an explicit operator choice.
+No configuration. hope reaches your plugin by its **container id** over the shared
+`ink-plugins` network; the reverse works the same way — hope derives its own callback
+URL from its container id + listen port (`http://<hope-container-id>:<port>`) and hands
+it to each plugin in `hope.init` along with the plugin's key. Docker's embedded DNS
+resolves it on `ink-plugins`, symmetric with how hope dials you.
+
+This means the reverse channel is for **co-located plugins** (same host as hope, on
+`ink-plugins`) — the common case. A remote plugin reached over the agent tunnel can't
+resolve hope's container from another daemon, so its reverse calls no-op with
+`ErrNoReverseChannel` (as does any plugin when hope isn't containerized). Design your
+plugin to degrade gracefully: the SDK returns that error and the plugin keeps running.
 
 ### Subscribe — react to fleet events
 

@@ -45,13 +45,6 @@ type PluginsConfig struct {
 	// the new fingerprint and keeps it enabled. For DEV loops where you iterate on your
 	// OWN plugin and re-approving on every redeploy is pure friction. Leave off in prod.
 	AutoReapprove bool `mapstructure:"auto_reapprove"`
-	// CallbackURL is hope's own base URL as REACHABLE BY A PLUGIN over the shared
-	// ink-plugins network (e.g. "http://hope:8080"). hope hands it to a plugin in the
-	// hope.init handshake so the plugin can call BACK into hope (publish events onto
-	// the bus, use p.Storage) via /rpc/_plugin_*. Empty = the reverse channel is off:
-	// hope never sends a callback URL, so a plugin's Publish/Storage stay no-ops. This
-	// is opt-in because it opens hope's first inbound-from-plugin surface.
-	CallbackURL string `mapstructure:"callback_url"`
 	// Catalog configures the plugin marketplace: the built-in first-party plugins are
 	// always installable; a remote manifest URL extends/overrides them.
 	Catalog PluginCatalogConfig `mapstructure:"catalog"`
