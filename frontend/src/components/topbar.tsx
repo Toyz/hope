@@ -8,6 +8,7 @@ import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
 import { withHost } from "../host-url";
 import { PaletteToggle, PageCrumbs, pluginCrumbs } from "../events";
+import "./alerts-bell"; // registers <hope-alerts-bell>
 import { modLabel } from "../platform";
 import { theme } from "../styles";
 
@@ -110,6 +111,7 @@ export class HopeTopbar extends LoomElement {
           <span class="q">Jump to host, stack, container…</span>
           <span class="k">{modLabel("K")}</span>
         </div>
+        <hope-alerts-bell></hope-alerts-bell>
         <hope-refresh></hope-refresh>
         <button class="btn" onClick={() => this.auth.logout()}><loom-icon name="logout" size={12}></loom-icon> exit</button>
       </>
