@@ -414,7 +414,15 @@ func (r *PluginsRouter) reconfigure(ctx context.Context, key string, env map[str
 	}
 	svc, ok := spec.ServiceByName(rec.Service)
 	if !ok {
-		return fmt.Errorf("service %q not found in the stored stack", rec.Service)
+		have := make([]string, 0, len(spec.Services))
+		for _, s := range spec.Services {
+			have = append(have, s.Name)
+		}
+		// Name the host/project we loaded and the services we DID find — this mismatch
+		// means the record's compose service name diverged from the stored spec (e.g.
+		// the plugin was merged into a stack whose spec wasn't updated), and the actual
+		// names make that obvious instead of a dead end.
+		return fmt.Errorf("service %q not found in the stored stack for %s/%s (has: %s)", rec.Service, rec.Host, rec.Project, strings.Join(have, ", "))
 	}
 	// Apply env edits: blank = keep existing; never drop the trust token.
 	if svc.Env == nil {
