@@ -12,6 +12,7 @@ import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
 import { containerPath } from "../host-url";
 import { networkFlags } from "../format";
+import { removeResource } from "../resource-actions";
 import { UNGROUPED } from "../const";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
@@ -105,22 +106,10 @@ export default class NetworkDetailModal extends LoomElement {
   private removeNet = async () => {
     const n = this.info;
     if (!n) return;
-    const ok = await this.confirm.ask({
-      title: "remove network",
-      danger: true,
-      confirmLabel: "Remove",
-      message: `Remove the ${n.name} network.`,
-      stats: [{ label: "network", value: n.name }, ...(this.host ? [{ label: "host", value: this.host }] : [])],
-    });
-    if (!ok) return;
-    try {
-      await this.rpc.callOn(this.host, "System", "removeNetwork", [n.id]);
-      this.toast.ok(`removed ${n.name}`);
-      this.onChange?.();
-      this.close();
-    } catch (err: any) {
-      this.toast.error(`remove ${n.name} — ${err?.message ?? "failed"}`);
-    }
+    await removeResource(
+      { confirm: this.confirm, rpc: this.rpc, toast: this.toast, onDone: () => this.onChange?.(), close: () => this.close(), setBusy: () => {} },
+      { kind: "network", name: n.name, host: this.host, method: "removeNetwork", args: [n.id], message: `Remove the ${n.name} network.` },
+    );
   };
 
   update() {

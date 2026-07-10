@@ -13,6 +13,7 @@ import { NetworkInspectorTarget } from "../events";
 import { containerPath } from "../host-url";
 import { UNGROUPED } from "../const";
 import { shortId, networkFlags } from "../format";
+import { removeResource } from "../resource-actions";
 import type { NetworkInfo, ResourceUser } from "../contracts";
 import { theme } from "../styles";
 
@@ -92,25 +93,10 @@ export class HopeNetworkInspector extends LoomElement {
   private removeNet = async () => {
     const n = this.net;
     if (!n || this.busy) return;
-    const ok = await this.confirm.ask({
-      title: "remove network",
-      danger: true,
-      confirmLabel: "Remove",
-      message: `Remove the ${n.name} network.`,
-      stats: [{ label: "network", value: n.name }, ...(this.host ? [{ label: "host", value: this.host }] : [])],
-    });
-    if (!ok) return;
-    this.busy = true;
-    try {
-      await this.rpc.callOn(this.host, "System", "removeNetwork", [n.id]);
-      this.toast.ok(`removed ${n.name}`);
-      this.insp.onChange?.();
-      this.insp.close();
-    } catch (e: any) {
-      this.toast.error(`remove — ${e?.message ?? "failed"}`);
-    } finally {
-      this.busy = false;
-    }
+    await removeResource(
+      { confirm: this.confirm, rpc: this.rpc, toast: this.toast, onDone: () => this.insp.onChange?.(), close: () => this.insp.close(), setBusy: (b) => (this.busy = b) },
+      { kind: "network", name: n.name, host: this.host, method: "removeNetwork", args: [n.id], message: `Remove the ${n.name} network.` },
+    );
   };
 
   update() {

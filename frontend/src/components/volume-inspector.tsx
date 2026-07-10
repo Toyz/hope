@@ -14,6 +14,7 @@ import { VolumeInspectorTarget } from "../events";
 import { containerPath } from "../host-url";
 import { UNGROUPED } from "../const";
 import { bytes } from "../format";
+import { removeResource } from "../resource-actions";
 import type { VolumeInfo, ResourceUser } from "../contracts";
 import { theme } from "../styles";
 
@@ -100,25 +101,10 @@ export class HopeVolumeInspector extends LoomElement {
   private removeVol = async () => {
     const v = this.vol;
     if (!v || this.busy) return;
-    const ok = await this.confirm.ask({
-      title: "remove volume",
-      danger: true,
-      confirmLabel: "Remove",
-      message: `Remove volume "${v.name}"? Its data is deleted.`,
-      stats: [{ label: "volume", value: v.name }, ...(this.host ? [{ label: "host", value: this.host }] : []), { label: "frees", value: bytes(v.size) }],
-    });
-    if (!ok) return;
-    this.busy = true;
-    try {
-      await this.rpc.callOn(this.host, "System", "removeVolume", [v.name]);
-      this.toast.ok(`removed ${v.name}`);
-      this.insp.onChange?.();
-      this.insp.close();
-    } catch (e: any) {
-      this.toast.error(`remove — ${e?.message ?? "failed"}`);
-    } finally {
-      this.busy = false;
-    }
+    await removeResource(
+      { confirm: this.confirm, rpc: this.rpc, toast: this.toast, onDone: () => this.insp.onChange?.(), close: () => this.insp.close(), setBusy: (b) => (this.busy = b) },
+      { kind: "volume", name: v.name, host: this.host, method: "removeVolume", args: [v.name], message: `Remove volume "${v.name}"? Its data is deleted.`, stats: [{ label: "frees", value: bytes(v.size) }] },
+    );
   };
 
   update() {
