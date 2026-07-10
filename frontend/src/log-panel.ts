@@ -8,7 +8,7 @@
 import { app, bus } from "@toyz/loom";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { LogPanelTarget } from "./events";
-import { withHost } from "./host-url";
+import { stackPath } from "./host-url";
 
 export class LogPanel {
   host = "";
@@ -49,7 +49,7 @@ export class LogPanel {
     // no container). The inspector's route-driven state clears, and this same-stack
     // nav is explicitly kept open by the RouteChanged guard above.
     const r = this.router();
-    if (r && this.project) r.navigate(withHost(host, `/stack/${encodeURIComponent(this.project)}`));
+    if (r && this.project) r.navigate(stackPath(host, this.project));
     bus.emit(new LogPanelTarget(host, title, method, args));
   }
 

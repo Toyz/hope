@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { PaletteToggle } from "../events";
-import { withHost } from "../host-url";
+import { withHost, stackPath, containerPath } from "../host-url";
 import { UNGROUPED } from "../const";
 import { signalModal } from "../modal";
 import type { HostView, StackSummary } from "../contracts";
@@ -135,8 +135,8 @@ export class HopePalette extends LoomElement {
     );
     for (const { host, stacks } of per) {
       for (const s of stacks) {
-        if (s.project !== UNGROUPED) push("stack", s.project, "box", withHost(host, `/stack/${encodeURIComponent(s.project)}`), host);
-        for (const c of s.containers || []) push("container", c.service || c.name, "terminal", withHost(host, `/stack/${encodeURIComponent(s.project)}/${encodeURIComponent(c.id)}`), `${s.project === UNGROUPED ? "loose" : s.project} · ${host}`);
+        if (s.project !== UNGROUPED) push("stack", s.project, "box", stackPath(host, s.project), host);
+        for (const c of s.containers || []) push("container", c.service || c.name, "terminal", containerPath(host, s.project, c.id), `${s.project === UNGROUPED ? "loose" : s.project} · ${host}`);
       }
     }
 

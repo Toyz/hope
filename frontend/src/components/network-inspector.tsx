@@ -10,7 +10,7 @@ import { NetworkInspector } from "../network-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
 import { NetworkInspectorTarget } from "../events";
-import { withHost } from "../host-url";
+import { containerPath } from "../host-url";
 import { UNGROUPED } from "../const";
 import { shortId, networkFlags } from "../format";
 import type { NetworkInfo, ResourceUser } from "../contracts";
@@ -86,7 +86,7 @@ export class HopeNetworkInspector extends LoomElement {
 
   private gotoContainer(u: ResourceUser) {
     this.insp.close();
-    app.get(LoomRouter).navigate(withHost(this.host, `/stack/${encodeURIComponent(u.project || UNGROUPED)}/${encodeURIComponent(u.id)}`));
+    app.get(LoomRouter).navigate(containerPath(this.host, u.project || UNGROUPED, u.id));
   }
 
   private removeNet = async () => {

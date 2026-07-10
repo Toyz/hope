@@ -15,7 +15,7 @@ import { ToastService } from "../toast";
 import { ProcService } from "../proc";
 import { ImageInspectorTarget, withRefresh } from "../events";
 import { redactCmd } from "../redact";
-import { withHost } from "../host-url";
+import { containerPath } from "../host-url";
 import { UNGROUPED } from "../const";
 import { bytes, shortId, ageUnix as age } from "../format";
 import type { ImageInfo, ImageLayer, ImageUser, OpFrame } from "../contracts";
@@ -143,7 +143,7 @@ export class HopeImageInspector extends LoomElement {
   private gotoContainer(u: ImageUser) {
     this.insp.close();
     const project = u.project || UNGROUPED;
-    app.get(LoomRouter).navigate(withHost(this.host, `/stack/${encodeURIComponent(project)}/${encodeURIComponent(u.id)}`));
+    app.get(LoomRouter).navigate(containerPath(this.host, project, u.id));
   }
 
   private removeImage = async () => {

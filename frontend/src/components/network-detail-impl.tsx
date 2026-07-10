@@ -10,7 +10,7 @@ import { LoomRouter } from "@toyz/loom/router";
 import { theme } from "../styles";
 import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
-import { withHost } from "../host-url";
+import { containerPath } from "../host-url";
 import { networkFlags } from "../format";
 import { UNGROUPED } from "../const";
 import { ConfirmService } from "../confirm";
@@ -99,7 +99,7 @@ export default class NetworkDetailModal extends LoomElement {
   private gotoContainer = (u: { id: string; project: string }) => {
     const host = this.host || this.hostCtx.token;
     this.close();
-    this.router.navigate(withHost(host, `/stack/${encodeURIComponent(u.project || UNGROUPED)}/${encodeURIComponent(u.id)}`));
+    this.router.navigate(containerPath(host, u.project || UNGROUPED, u.id));
   };
 
   private removeNet = async () => {

@@ -10,7 +10,7 @@ import { HopeTransport } from "../transport";
 import { ConnectorInspector } from "../connector-inspector";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
-import { withHost } from "../host-url";
+import { stackPath, containerPath } from "../host-url";
 import { HostChanged, Refreshing, withRefresh, TunnelsChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
@@ -336,10 +336,10 @@ export class TunnelsPage extends LoomElement {
     const cid = this.containerIdFor(t, host);
     if (cid) {
       const proj = t.project || this.stacksFor(host).find((s) => s.containers.some((c) => c.id === cid))?.project || UNGROUPED;
-      this.router.navigate(withHost(host, `/stack/${encodeURIComponent(proj)}/${encodeURIComponent(cid)}`));
+      this.router.navigate(containerPath(host, proj, cid));
       return;
     }
-    if (t.project) this.router.navigate(withHost(host, `/stack/${encodeURIComponent(t.project)}`));
+    if (t.project) this.router.navigate(stackPath(host, t.project));
   };
 
   // Resolve a route to a concrete container id: the backend-provided origin id if

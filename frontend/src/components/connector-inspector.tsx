@@ -14,7 +14,7 @@ import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { PromptService } from "../prompt";
 import { ConnectorInspectorTarget } from "../events";
-import { withHost } from "../host-url";
+import { stackPath, containerPath } from "../host-url";
 import type { ConnectorView, TunnelView, OpResult, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
@@ -120,8 +120,8 @@ export class HopeConnectorInspector extends LoomElement {
   private openTarget(t: TunnelView) {
     const r = app.get(LoomRouter);
     this.insp.close();
-    if (t.container_id && t.project) { r.navigate(withHost(this.host, `/stack/${encodeURIComponent(t.project)}/${encodeURIComponent(t.container_id)}`)); return; }
-    if (t.project) { r.navigate(withHost(this.host, `/stack/${encodeURIComponent(t.project)}`)); return; }
+    if (t.container_id && t.project) { r.navigate(containerPath(this.host, t.project, t.container_id)); return; }
+    if (t.project) { r.navigate(stackPath(this.host, t.project)); return; }
   }
 
   // Jump to a network the connector is attached to — hands the docked slot over to

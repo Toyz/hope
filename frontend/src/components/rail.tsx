@@ -8,7 +8,7 @@ import { persist } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
-import { withHost } from "../host-url";
+import { withHost, stackPath, containerPath } from "../host-url";
 import { toggleIn } from "../util";
 import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable } from "../events";
 import { capabilities } from "../caps";
@@ -375,7 +375,7 @@ export class HopeRail extends LoomElement {
     const on = sel.host === hostId && sel.project === s.project;
     return (
       <>
-        <div class={"node h3" + (on ? " sel" : "")} onClick={() => this.router.navigate(withHost(hostId, `/stack/${encodeURIComponent(s.project)}`))}>
+        <div class={"node h3" + (on ? " sel" : "")} onClick={() => this.router.navigate(stackPath(hostId, s.project))}>
           <span class={"caret" + (open ? " open" : "")} onClick={(e: Event) => this.toggleStack(key, e)}><loom-icon name="chevron-right" size={11}></loom-icon></span>
           <span class={"dot " + stackTone(s, outProjects.has(s.project))}></span>
           <span class="label">{s.project}</span>
@@ -396,7 +396,7 @@ export class HopeRail extends LoomElement {
       if (!bySvc.has(svc)) { bySvc.set(svc, []); svcOrder.push(svc); }
       bySvc.get(svc)!.push(c);
     }
-    const cnav = (c: ContainerSummary) => this.router.navigate(withHost(hostId, `/stack/${encodeURIComponent(s.project)}/${encodeURIComponent(c.id)}`));
+    const cnav = (c: ContainerSummary) => this.router.navigate(containerPath(hostId, s.project, c.id));
     return svcOrder.map((svc) => {
       const reps = bySvc.get(svc)!;
       if (reps.length === 1) {

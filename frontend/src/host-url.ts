@@ -36,6 +36,18 @@ export function withHost(host: string, barePath: string): string {
   return segs.join("/");
 }
 
+// stackPath / containerPath build the hosted route to a stack (or one container in
+// it), URL-encoding the segments. Every inspector, the rail, the palette, tunnels,
+// and the dashboard navigated to these by hand-writing the same
+// withHost(host, `/stack/${encodeURIComponent(project)}[/${encodeURIComponent(id)}]`)
+// — this is that, once. Pass the caller's own UNGROUPED fallback in `project`.
+export function stackPath(host: string, project: string): string {
+  return withHost(host, `/stack/${encodeURIComponent(project)}`);
+}
+export function containerPath(host: string, project: string, id: string): string {
+  return withHost(host, `/stack/${encodeURIComponent(project)}/${encodeURIComponent(id)}`);
+}
+
 // stripHost removes the host segment from a hosted path, yielding the bare page
 // path. "/stack/local/foo" -> "/stack/foo"; "/images/local" -> "/images";
 // "/host/local" -> "/". The inverse of withHost.

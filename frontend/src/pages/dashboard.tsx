@@ -12,7 +12,7 @@ import { HopeTransport } from "../transport";
 import { consumeOpStream } from "../stream-op";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
-import { withHost } from "../host-url";
+import { stackPath } from "../host-url";
 import { HostChanged, UpdatesApplied, withRefresh } from "../events";
 import { UNGROUPED } from "../const";
 import { ProcService } from "../proc";
@@ -413,7 +413,7 @@ export class DashboardPage extends LoomElement {
   // Open one of a host's stacks from the fleet overview — the host rides in the
   // target URL, so the stack page loads (and acts) against exactly that host.
   private goCross = (host: string, project: string) => {
-    this.router.navigate(withHost(host, `/stack/${encodeURIComponent(project)}`));
+    this.router.navigate(stackPath(host, project));
   };
 
   // Force an image-freshness recrawl on every host (fleet "check" button), then
@@ -737,7 +737,7 @@ export class DashboardPage extends LoomElement {
   }
 
   private go(p: string) {
-    this.router.navigate(withHost(this.hostCtx.token, `/stack/${encodeURIComponent(p)}`));
+    this.router.navigate(stackPath(this.hostCtx.token, p));
   }
 
 
