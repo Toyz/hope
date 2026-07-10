@@ -91,9 +91,11 @@ type PluginLimitsConfig struct {
 }
 
 // StoreConfig points at hope's optional embedded state db (bbolt). Empty Path =
-// disabled: state isn't retained across a restart and everything still works.
-// Mount it (e.g. "/data/hope.db") to persist the agent roster, freshness cache,
-// deploy specs, and UI-added registry credentials in one file. Secret-bearing
+// disabled: the agent roster, freshness cache, deploy specs, and registry creds
+// simply aren't retained across a restart. NOTE: plugin storage, permission grants,
+// and settings REQUIRE it — with no store those reverse-channel features hard-fail
+// (KV returns 503) rather than degrade, so mount it if you use plugins that persist.
+// Mount it (e.g. "/data/hope.db") to keep all of the above in one file. Secret-bearing
 // (registry creds are stored encrypted with token_secret) — written 0600.
 type StoreConfig struct {
 	Path string `mapstructure:"path"`

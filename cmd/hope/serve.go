@@ -396,6 +396,12 @@ func runServe(configPath string) error {
 	}
 	if cfg.Plugins.Enabled {
 		lg.Info("container plugins enabled")
+		// Plugin storage, permission grants, and settings all persist in the state db.
+		// Without it those reverse-channel features hard-fail (KV returns 503) and grants
+		// don't stick across a restart — a silent papercut if the operator didn't mount it.
+		if !st.Enabled() {
+			lg.Warn("plugins enabled but no state db (store.path unset) — plugin storage, grants, and settings will NOT persist; mount one (e.g. store.path=/data/hope.db) to enable them")
+		}
 		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
 		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
 		pluginhost.StartEventFanout(ctx, pluginsRouter)
