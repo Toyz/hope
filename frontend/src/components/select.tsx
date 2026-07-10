@@ -59,10 +59,16 @@ export class HopeSelect extends LoomElement {
 
   private openMenu(seed = "") {
     this.query = seed;
-    // Flip up when the trigger sits low enough that a downward menu would clip below
-    // the viewport (or a containing modal's bottom).
+    // Flip up when a downward menu would clip below the viewport (or a modal's bottom)
+    // AND there's more room above. Estimate the menu height from the option count so a
+    // small (e.g. 2-option) menu still flips instead of assuming a tall one.
+    const rows = Math.min(this.options.length, 6);
+    const est = Math.min(MENU_EST, rows * 40 + (this.options.length > 6 ? 42 : 0) + 8);
     const r = this.triggerEl?.getBoundingClientRect();
-    this.dropUp = !!r && r.bottom + MENU_EST > window.innerHeight - 12 && r.top - MENU_EST > 12;
+    if (r) {
+      const roomBelow = window.innerHeight - r.bottom;
+      this.dropUp = roomBelow < est + 12 && r.top > roomBelow; // won't fit below, more room above
+    }
     this.open = true;
     // Focus the filter box (if this list is searchable) so typing continues there.
     setTimeout(() => this.searchEl?.focus(), 0);

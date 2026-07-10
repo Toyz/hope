@@ -31,6 +31,17 @@ function scopeLabel(scope: string): string {
   return SCOPE_LABELS[scope] || scope;
 }
 
+// Canonical order so a scope keeps its position when granted/revoked (rendering
+// grants and pending as separate lists made them jump around on toggle).
+const SCOPE_ORDER = ["events:subscribe", "events:publish", "storage", "spec:label"];
+function orderedScopes(...lists: (string[] | undefined)[]): string[] {
+  const seen = new Set<string>();
+  for (const l of lists) for (const s of l ?? []) seen.add(s);
+  const known = SCOPE_ORDER.filter((s) => seen.has(s));
+  const extra = [...seen].filter((s) => !SCOPE_ORDER.includes(s)); // future scopes, appended
+  return [...known, ...extra];
+}
+
 // A plugin's operator-managed setting descriptor (subset of hope.schema.settings).
 interface PluginSetting {
   key: string;
@@ -88,6 +99,12 @@ interface PluginManifest {
   .ctitle { display: flex; align-items: center; justify-content: space-between; }
   .ctitle .edit { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
   .ctitle .edit:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
+  /* permission grant toggle — hope's standard switch */
+  .tog { display: inline-flex; width: 34px; height: 18px; border: 1px solid var(--line2); background: var(--ink); position: relative; flex: none; cursor: pointer; transition: background .12s, border-color .12s; }
+  .tog::after { content: ""; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; background: var(--dim); transition: transform .12s, background .12s; }
+  .tog.on { border-color: var(--upd); background: color-mix(in srgb, var(--upd) 22%, var(--ink)); }
+  .tog.on::after { transform: translateX(16px); background: var(--upd); }
+  .tog.busy { opacity: .5; pointer-events: none; }
   .retry { margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line2); color: var(--mid); cursor: pointer; font: 11px/1.4 var(--mono); }
   .retry:hover { color: var(--upd); }
 `)
@@ -344,26 +361,24 @@ export class HopePluginInspector extends LoomElement {
                 {v.stale ? <span class="pill bad">changed</span> : null}
               </span></span></div>
 
-              {v.trusted && ((v.grants?.length ?? 0) + (v.pending?.length ?? 0) > 0) ? (
-                <>
-                  <div class="ctitle sep">permissions</div>
-                  {(v.pending ?? []).map((sc) => (
-                    <div class="row">
-                      <span class="k">{scopeLabel(sc)}</span>
-                      <span class="v">
-                        <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, true)}>allow</button>
-                        <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, false)}>deny</button>
-                      </span>
-                    </div>
-                  ))}
-                  {(v.grants ?? []).map((sc) => (
-                    <div class="row">
-                      <span class="k">{scopeLabel(sc)}</span>
-                      <span class="v"><span class="pill ok">granted</span> <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, false)}>revoke</button></span>
-                    </div>
-                  ))}
-                </>
-              ) : null}
+              {(() => {
+                const scopes = orderedScopes(v.grants, v.pending, v.denied);
+                if (!v.trusted || scopes.length === 0) return null;
+                return (
+                  <>
+                    <div class="ctitle sep">permissions</div>
+                    {scopes.map((sc) => {
+                      const on = (v.grants ?? []).includes(sc);
+                      return (
+                        <div class="row">
+                          <span class="k">{scopeLabel(sc)}</span>
+                          <span class="v"><span class={"tog" + (on ? " on" : "") + (this.busy ? " busy" : "")} title={on ? "granted — click to revoke" : "click to allow"} onClick={() => this.decideScope(sc, !on)}></span></span>
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </div>
 
             <div class="col">
