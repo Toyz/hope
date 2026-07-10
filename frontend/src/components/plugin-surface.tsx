@@ -353,7 +353,12 @@ export class HopePluginSurface extends LoomElement {
 
   // The host bumps nonce when this surface is shown again (tab re-entry) — refetch
   // the views so a stale/failed load self-heals, without touching live streams.
-  @watch("reloadTick") onReload() {
+  @watch("reloadTick") onReload() { this.refetchViews(); }
+
+  // refetchViews reloads every non-static view leaf — used on tab re-entry (nonce
+  // bump) and after an action runs, so a table reflects a mutation (e.g. an
+  // added/removed alert rule) without a page reload.
+  private refetchViews() {
     const s = this.surface;
     if (!s) return;
     for (const ref of this.leafRefs(s.node)) {
@@ -548,6 +553,9 @@ export class HopePluginSurface extends LoomElement {
     const s = this.surface;
     if (!s) return;
     await runPluginAction(this.deps(), s.key, a, undefined, this.surface?.param);
+    // An action often mutates state a view reads (add/remove an alert rule, etc.);
+    // refetch so the table reflects it immediately instead of after a page reload.
+    this.refetchViews();
   };
 
   // ── rendering ──
