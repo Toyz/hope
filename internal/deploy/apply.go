@@ -196,13 +196,17 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, addi
 		}
 	}
 
-	// Persist the spec only for a full deploy. In additive mode the spec is a fragment
-	// (just the plugin) — saving it would overwrite the real stack's stored spec, so a
-	// later full ApplyStack would prune the stack's own services. Don't.
-	if !additive {
-		if err := e.store.Save(e.hostID(ctx), project, spec); err != nil {
-			emit("warning: could not persist stack spec: " + err.Error())
+	// Persist the spec. A full deploy saves it wholesale. In additive mode the spec is
+	// a fragment (just the plugin) — overwriting would drop the stack's own services,
+	// but skipping entirely leaves the merged-in service absent from the stored spec,
+	// so it can't be reconfigured AND a later full ApplyStack would prune it. So MERGE
+	// the fragment into the existing stored spec instead (upsert by name), keeping both.
+	if additive {
+		if err := e.mergeStoredSpec(ctx, project, spec); err != nil {
+			emit("warning: could not merge stack spec: " + err.Error())
 		}
+	} else if err := e.store.Save(e.hostID(ctx), project, spec); err != nil {
+		emit("warning: could not persist stack spec: " + err.Error())
 	}
 	emit("stack " + project + " applied")
 	e.publishApplied(ctx, project)
@@ -347,6 +351,47 @@ func withProject(user map[string]string, project string) map[string]string {
 	out := map[string]string{docker.LabelProject: project, docker.LabelManaged: "1"}
 	maps.Copy(out, user)
 	return out
+}
+
+// mergeStoredSpec folds an additive fragment (e.g. a plugin merged into an existing
+// stack) into the project's stored spec: upsert the fragment's services / networks /
+// volumes by name, keeping the stack's own. This makes a merged-in service part of
+// the persisted spec — so it's reconfigurable and NOT pruned on a later full deploy —
+// without the fragment overwriting the whole stack. With no stored spec yet (the
+// stack isn't hope-managed) there's nothing to merge into, so it's left untouched
+// rather than fabricating a partial spec a full deploy would then prune against.
+func (e *Engine) mergeStoredSpec(ctx context.Context, project string, frag *stackspec.StackSpec) error {
+	host := e.hostID(ctx)
+	base, err := e.store.Load(host, project)
+	if err != nil {
+		return err
+	}
+	if base == nil {
+		return nil
+	}
+	for _, s := range frag.Services {
+		base.Services = upsertBy(base.Services, s, func(x stackspec.ContainerSpec) string { return x.Name })
+	}
+	for _, n := range frag.Networks {
+		base.Networks = upsertBy(base.Networks, n, func(x stackspec.NetworkSpec) string { return x.Name })
+	}
+	for _, v := range frag.Volumes {
+		base.Volumes = upsertBy(base.Volumes, v, func(x stackspec.VolumeSpec) string { return x.Name })
+	}
+	return e.store.Save(host, project, base)
+}
+
+// upsertBy replaces the element of list with the same key(item) as item, or appends
+// it — a by-name merge for the spec's service / network / volume lists.
+func upsertBy[T any](list []T, item T, key func(T) string) []T {
+	k := key(item)
+	for i := range list {
+		if key(list[i]) == k {
+			list[i] = item
+			return list
+		}
+	}
+	return append(list, item)
 }
 
 // containerName is the docker name for a service's (single) container.
