@@ -16,17 +16,10 @@ export interface ToastProgress {
   clear(): void; // remove with no final message
 }
 
-export class ToastService {
-  private host: Host | null = null;
+import { lazyHost } from "./lazy-host";
 
-  private getHost(): Host {
-    if (!this.host) {
-      const el = document.createElement("hope-toast");
-      document.body.appendChild(el);
-      this.host = el as unknown as Host;
-    }
-    return this.host;
-  }
+export class ToastService {
+  private getHost = lazyHost<Host>("hope-toast");
 
   show(msg: string, kind = "") {
     this.getHost().show(msg, kind);

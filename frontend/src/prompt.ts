@@ -3,6 +3,7 @@
 // `await prompt.ask({...})`; it resolves the field values, or null on cancel.
 // Reusable: add fields to the `fields` array, no new component needed.
 import type { Option } from "./contracts";
+import { lazyHost } from "./lazy-host";
 export type PromptOption = Option;
 
 export type PromptField = {
@@ -34,16 +35,7 @@ export interface PromptOpts {
 }
 
 export class PromptService {
-  private host: { show(o: PromptOpts): Promise<Record<string, string> | null> } | null = null;
-
-  private getHost() {
-    if (!this.host) {
-      const el = document.createElement("hope-prompt");
-      document.body.appendChild(el);
-      this.host = el as unknown as { show(o: PromptOpts): Promise<Record<string, string> | null> };
-    }
-    return this.host;
-  }
+  private getHost = lazyHost<{ show(o: PromptOpts): Promise<Record<string, string> | null> }>("hope-prompt");
 
   /** Resolves the field values keyed by field.key, or null if cancelled. */
   ask(o: PromptOpts): Promise<Record<string, string> | null> {

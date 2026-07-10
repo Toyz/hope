@@ -132,3 +132,79 @@ export function ago(iso: string): string {
   if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
   return `${Math.floor(s / 31536000)}y`;
 }
+
+// ageUnix — like ago() but from a UNIX-SECONDS timestamp and with no "just now"
+// (shows minutes at the low end): "5m"/"3h"/"2d"/"3mo"/"1y", "—" if unset. Shared
+// by the image inspector and images list, which had byte-identical copies.
+export function ageUnix(unix: number): string {
+  if (!unix) return "—";
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
+  const d = Math.floor(s / 86400);
+  if (d >= 1) return d >= 365 ? `${Math.floor(d / 365)}y` : d >= 30 ? `${Math.floor(d / 30)}mo` : `${d}d`;
+  const h = Math.floor(s / 3600);
+  if (h >= 1) return `${h}h`;
+  return `${Math.floor(s / 60)}m`;
+}
+
+// kvParse / kvSerialize — the shared env-var text<->rows codec (split on the first
+// "=", skip blank/`#` lines). The KEY is trimmed; the VALUE is preserved verbatim
+// so meaningful leading/trailing spaces in a value survive a round-trip.
+export interface KvPair { k: string; v: string }
+export function kvParse(s: string): KvPair[] {
+  const out: KvPair[] = [];
+  for (const line of (s || "").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const i = t.indexOf("=");
+    if (i < 0) out.push({ k: t, v: "" });
+    else out.push({ k: t.slice(0, i).trim(), v: t.slice(i + 1) });
+  }
+  return out;
+}
+export function kvSerialize(rows: KvPair[]): string {
+  return rows.filter((r) => r.k.trim()).map((r) => `${r.k.trim()}=${r.v}`).join("\n");
+}
+
+// ansiToSegments — the inverse of stripAnsi: parse ANSI SGR escapes into styled
+// text segments so colored logger output can render in color when the viewer opts
+// in. Handles the common 8/16 foreground + background + bold/reset codes; unknown
+// codes are ignored. Each segment is plain text plus an inline style string ("" =
+// default). Colors track the theme's log palette.
+export interface AnsiSeg { text: string; style: string }
+// eslint-disable-next-line no-control-regex
+const SGR = /\x1b\[([0-9;]*)m/g;
+const ANSI_FG: Record<number, string> = {
+  30: "#3b3f46", 31: "#f7768e", 32: "#9ece6a", 33: "#e0af68", 34: "#7aa2f7", 35: "#bb9af7", 36: "#7dcfff", 37: "#c0caf5",
+  90: "#5c6370", 91: "#ff7a93", 92: "#b9f27c", 93: "#ff9e64", 94: "#7da6ff", 95: "#c8a2ff", 96: "#a4dbff", 97: "#ffffff",
+};
+const ANSI_BG: Record<number, string> = {
+  40: "#3b3f46", 41: "#f7768e", 42: "#9ece6a", 43: "#e0af68", 44: "#7aa2f7", 45: "#bb9af7", 46: "#7dcfff", 47: "#c0caf5",
+};
+export function ansiToSegments(s: string): AnsiSeg[] {
+  const out: AnsiSeg[] = [];
+  let fg = "", bg = "", bold = false;
+  const push = (text: string) => {
+    if (!text) return;
+    const style = [fg && `color:${fg}`, bg && `background:${bg}`, bold && "font-weight:600"].filter(Boolean).join(";");
+    out.push({ text, style });
+  };
+  let last = 0;
+  let m: RegExpExecArray | null;
+  SGR.lastIndex = 0;
+  while ((m = SGR.exec(s))) {
+    push(s.slice(last, m.index));
+    last = SGR.lastIndex;
+    const codes = m[1] === "" ? [0] : m[1].split(";").map(Number);
+    for (const c of codes) {
+      if (c === 0) { fg = ""; bg = ""; bold = false; }
+      else if (c === 1) bold = true;
+      else if (c === 22) bold = false;
+      else if (c === 39) fg = "";
+      else if (c === 49) bg = "";
+      else if (ANSI_FG[c]) fg = ANSI_FG[c];
+      else if (ANSI_BG[c]) bg = ANSI_BG[c];
+    }
+  }
+  push(s.slice(last));
+  return out;
+}

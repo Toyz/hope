@@ -10,6 +10,7 @@
 // store re-fetches when either changes — no manual event.
 import { LoomElement, reactive, mount, unmount, on, watch, app } from "@toyz/loom";
 import { signalModal } from "../modal";
+import { toggleIn } from "../util";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { AuthStore } from "../auth-store";
@@ -79,7 +80,7 @@ export abstract class ResourcePage<T extends { used_by: ResourceUser[] }> extend
 
   toggleSel = (k: string, e: Event) => {
     e.stopPropagation();
-    this.selected = this.selected.includes(k) ? this.selected.filter((x) => x !== k) : [...this.selected, k];
+    this.selected = toggleIn(this.selected, k);
   };
 
   selectAllVisible = (e?: Event) => {

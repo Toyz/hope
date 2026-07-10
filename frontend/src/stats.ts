@@ -3,7 +3,7 @@
 // inspector (and the container page until it's retired) instead of duplicated.
 import { bytes } from "./format";
 
-const mb = (b: number) => (b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : Math.round(b / 1048576) + " MB");
+const mb = bytes; // memory readouts share the canonical base-1024 formatter
 
 export interface Stat {
   cpu: string;     // "12.3%"

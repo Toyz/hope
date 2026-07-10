@@ -13,7 +13,7 @@ import { ImageInspector } from "../image-inspector";
 import { ImageInspectorTarget } from "../events";
 import { System } from "../contracts";
 import type { ImageInfo, OpFrame, FleetImagesHost } from "../contracts";
-import { bytes, shortId } from "../format";
+import { bytes, shortId, ageUnix as age } from "../format";
 import { theme } from "../styles";
 
 type Filter = "all" | "used" | "unused" | "dangling";
@@ -657,12 +657,3 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
   }
 }
 
-function age(unix: number): string {
-  if (!unix) return "—";
-  const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
-  const d = Math.floor(s / 86400);
-  if (d >= 1) return d >= 365 ? `${Math.floor(d / 365)}y` : d >= 30 ? `${Math.floor(d / 30)}mo` : `${d}d`;
-  const h = Math.floor(s / 3600);
-  if (h >= 1) return `${h}h`;
-  return `${Math.floor(s / 60)}m`;
-}

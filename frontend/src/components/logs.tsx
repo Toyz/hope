@@ -10,6 +10,7 @@ import { LogPanel } from "../log-panel";
 import { LogPanelTarget } from "../events";
 import type { LogFrame } from "../contracts";
 import { parseLogLine, stripAnsi } from "../format";
+import { toggleIn } from "../util";
 import { theme } from "../styles";
 
 interface LogLine { source: string; ts: string; msg: string; kind: string; }
@@ -138,7 +139,7 @@ export class HopeLogs extends LoomElement {
 
   private onScroll = () => { const el = this.bodyEl; if (el) this.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
   private scrollTail() { if (!this.pinned) return; requestAnimationFrame(() => { const el = this.bodyEl; if (el) el.scrollTop = el.scrollHeight; }); }
-  private toggleSrc(s: string) { this.hiddenSrc = this.hiddenSrc.includes(s) ? this.hiddenSrc.filter((x) => x !== s) : [...this.hiddenSrc, s]; }
+  private toggleSrc(s: string) { this.hiddenSrc = toggleIn(this.hiddenSrc, s); }
 
   update() {
     const q = this.q.trim().toLowerCase();

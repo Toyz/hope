@@ -5,8 +5,9 @@
 // on `value`; every edit emits a "change" CustomEvent with the serialized string.
 import { LoomElement, component, styles, css, reactive, watch, mount } from "@toyz/loom";
 import { theme } from "../styles";
+import { kvParse as parse, kvSerialize as serialize, type KvPair } from "../format";
 
-type Pair = { k: string; v: string };
+type Pair = KvPair;
 
 @component("hope-kv-editor")
 @styles(theme, css`
@@ -103,20 +104,4 @@ export class KvEditor extends LoomElement {
       </div>
     );
   }
-}
-
-function parse(s: string): Pair[] {
-  const out: Pair[] = [];
-  for (const line of (s || "").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 0) out.push({ k: t, v: "" });
-    else out.push({ k: t.slice(0, i).trim(), v: t.slice(i + 1).trim() });
-  }
-  return out;
-}
-
-function serialize(rows: Pair[]): string {
-  return rows.filter((r) => r.k.trim()).map((r) => `${r.k.trim()}=${r.v.trim()}`).join("\n");
 }

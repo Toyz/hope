@@ -9,6 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
+import { toggleIn } from "../util";
 import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
@@ -245,19 +246,19 @@ export class HopeRail extends LoomElement {
 
   private toggleHost(id: string, e: Event) {
     e.stopPropagation();
-    this.openHosts = this.openHosts.includes(id) ? this.openHosts.filter((h) => h !== id) : [...this.openHosts, id];
+    this.openHosts = toggleIn(this.openHosts, id);
   }
   private toggleStack(key: string, e: Event) {
     e.stopPropagation();
-    this.openStacks = this.openStacks.includes(key) ? this.openStacks.filter((k) => k !== key) : [...this.openStacks, key];
+    this.openStacks = toggleIn(this.openStacks, key);
   }
   private toggleSvc(key: string, e: Event) {
     e.stopPropagation();
-    this.openSvcs = this.openSvcs.includes(key) ? this.openSvcs.filter((k) => k !== key) : [...this.openSvcs, key];
+    this.openSvcs = toggleIn(this.openSvcs, key);
   }
   private togglePages(id: string, e: Event) {
     e.stopPropagation();
-    this.openPages = this.openPages.includes(id) ? this.openPages.filter((k) => k !== id) : [...this.openPages, id];
+    this.openPages = toggleIn(this.openPages, id);
   }
 
   // When the URL is a plugin page (/plugin/:key/:path), the host/project/service

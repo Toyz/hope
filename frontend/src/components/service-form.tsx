@@ -8,6 +8,7 @@
 // via getSpec(). That avoids a per-keystroke round-trip through the parent.
 import { LoomElement, component, styles, css, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
+import { kvParse as textToRows, kvSerialize as rowsToText } from "../format";
 import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option, HealthSpec } from "../contracts";
 
 interface PortRow { host: string; container: string; proto: string; }
@@ -422,18 +423,3 @@ export class HopeServiceForm extends LoomElement {
   }
 }
 
-// Bridge the EnvRow[] state to <hope-kv-editor>'s KEY=VALUE string (env + labels).
-function rowsToText(rows: { k: string; v: string }[]): string {
-  return rows.filter((r) => r.k.trim()).map((r) => `${r.k.trim()}=${r.v}`).join("\n");
-}
-function textToRows(s: string): { k: string; v: string }[] {
-  const out: { k: string; v: string }[] = [];
-  for (const line of (s || "").split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 0) out.push({ k: t, v: "" });
-    else out.push({ k: t.slice(0, i).trim(), v: t.slice(i + 1) });
-  }
-  return out;
-}

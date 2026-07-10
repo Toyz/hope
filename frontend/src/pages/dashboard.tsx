@@ -21,6 +21,8 @@ import { System, Stacks } from "../contracts";
 import "../components/plugin-widgets"; // registers <hope-plugin-widgets> (self-hides when none)
 import type { StackSummary, UpdatesResult, DiskResult, FleetHost, OpFrame } from "../contracts";
 import { stackSeverity, severityRank, severityMark, severityTone, healthLabel, type Severity } from "../styles";
+import { bytes } from "../format";
+import { toggleIn } from "../util";
 
 interface Ranked extends StackSummary {
   sev: Severity;
@@ -777,7 +779,7 @@ export class DashboardPage extends LoomElement {
     this.updModalOpen = true;
   };
   private toggleUpd = (id: string) => {
-    this.updSel = this.updSel.includes(id) ? this.updSel.filter((k) => k !== id) : [...this.updSel, id];
+    this.updSel = toggleIn(this.updSel, id);
   };
   // Toggle a whole set of ids (a stack or a host): if all on, clear them; else add all.
   private toggleUpdSet = (ids: string[]) => {
@@ -1062,10 +1064,7 @@ export class DashboardPage extends LoomElement {
   }
 }
 
-// Bytes → a compact GiB/MiB label for the host memory readout.
+// Bytes → the canonical base-1024 label for the host memory readout ("—" if none).
 function gb(b: number): string {
-  if (!b || b <= 0) return "—";
-  const g = b / 1073741824;
-  if (g >= 1) return g.toFixed(g >= 100 ? 0 : 1) + " GiB";
-  return Math.round(b / 1048576) + " MiB";
+  return b > 0 ? bytes(b) : "—";
 }

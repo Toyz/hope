@@ -23,7 +23,8 @@ import { Inspector } from "../inspector";
 import { LogPanel } from "../log-panel";
 import { withHost } from "../host-url";
 import "../components/plugin-widgets"; // <hope-plugin-widgets stack=…> — plugin widgets for this stack (self-hides when none)
-import { innerPort } from "../format";
+import { innerPort, bytes } from "../format";
+import { toggleIn } from "../util";
 import { UNGROUPED } from "../const";
 import { stripAnsi } from "../format";
 
@@ -759,7 +760,7 @@ export class StackPage extends LoomElement {
   };
 
   private opToggle = (service: string) => {
-    this.opExcluded = this.opExcluded.includes(service) ? this.opExcluded.filter((s) => s !== service) : [...this.opExcluded, service];
+    this.opExcluded = toggleIn(this.opExcluded, service);
   };
 
   // Run the picked lifecycle op on the selected services. Whole stack -> the
@@ -778,7 +779,7 @@ export class StackPage extends LoomElement {
 
   // Toggle a whole service in/out of the redeploy.
   private rdToggle = (service: string) => {
-    this.rdExcluded = this.rdExcluded.includes(service) ? this.rdExcluded.filter((s) => s !== service) : [...this.rdExcluded, service];
+    this.rdExcluded = toggleIn(this.rdExcluded, service);
   };
 
   private rdRun = () => {
@@ -1612,7 +1613,7 @@ export class StackPage extends LoomElement {
   }
 
   private stopToggle = (service: string) => {
-    this.stopExcluded = this.stopExcluded.includes(service) ? this.stopExcluded.filter((s) => s !== service) : [...this.stopExcluded, service];
+    this.stopExcluded = toggleIn(this.stopExcluded, service);
   };
 
   // Stop (or stop-and-remove) the picked containers, one at a time, streaming
@@ -1704,7 +1705,7 @@ export class StackPage extends LoomElement {
   }
 
   private pullToggle = (service: string) => {
-    this.pullExcluded = this.pullExcluded.includes(service) ? this.pullExcluded.filter((s) => s !== service) : [...this.pullExcluded, service];
+    this.pullExcluded = toggleIn(this.pullExcluded, service);
   };
 
   // Other connected hosts this stack can be cloned onto (never the source host).
@@ -1735,7 +1736,7 @@ export class StackPage extends LoomElement {
     }
   };
   private cloneToggle = (id: string) => {
-    this.cloneSel = this.cloneSel.includes(id) ? this.cloneSel.filter((x) => x !== id) : [...this.cloneSel, id];
+    this.cloneSel = toggleIn(this.cloneSel, id);
   };
 
   // Clone this stack onto the selected hosts: use the spec fetched on open, drop
@@ -1864,11 +1865,7 @@ export class StackPage extends LoomElement {
   }
 }
 
-// Human-readable bytes for the snapshot columns.
+// Human-readable bytes for the snapshot columns — the canonical base-1024 formatter.
 function mb(b: number): string {
-  if (!b) return "0 MB";
-  const gb = b / 1073741824;
-  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 1) + " GB";
-  const m = b / 1048576;
-  return m.toFixed(m >= 10 ? 0 : 1) + " MB";
+  return bytes(b);
 }

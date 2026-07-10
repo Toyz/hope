@@ -9,6 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
+import { toggleIn } from "../util";
 import { OpenInstaller, PluginsChanged, Refreshing, TopologyChanged, withRefresh } from "../events";
 import type { CatalogEntry, CatalogEnvField, CatalogVolume, VolumeChoice, InstallParams, NetworkInfo, VolumeInfo, StackSummary, HostView, OpFrame } from "../contracts";
 import { theme } from "../styles";
@@ -249,7 +250,7 @@ export class HopePluginInstaller extends LoomElement {
   private entry(id: string): CatalogEntry | undefined { return this.catalog.find((c) => c.id === id); }
 
   private toggleSelect = (id: string) => {
-    this.selected = this.selected.includes(id) ? this.selected.filter((x) => x !== id) : [...this.selected, id];
+    this.selected = toggleIn(this.selected, id);
   };
 
   // "Install" on a card -> just that plugin, straight to config.
@@ -305,7 +306,7 @@ export class HopePluginInstaller extends LoomElement {
     return `${svc}-${slug}`;
   }
   private toggleNet = (name: string) => {
-    this.pickNets = this.pickNets.includes(name) ? this.pickNets.filter((n) => n !== name) : [...this.pickNets, name];
+    this.pickNets = toggleIn(this.pickNets, name);
   };
 
   // The docker networks that belong to a compose stack (its <project>_* nets, e.g.

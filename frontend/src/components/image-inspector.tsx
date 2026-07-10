@@ -16,7 +16,7 @@ import { ImageInspectorTarget, withRefresh } from "../events";
 import { redactCmd } from "../redact";
 import { withHost } from "../host-url";
 import { UNGROUPED } from "../const";
-import { bytes, shortId } from "../format";
+import { bytes, shortId, ageUnix as age } from "../format";
 import type { ImageInfo, ImageLayer, ImageUser, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
@@ -317,12 +317,3 @@ function shortSha(sha: string): string {
   return m ? `sha256:${m[1]}` : sha;
 }
 
-function age(unix: number): string {
-  if (!unix) return "—";
-  const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
-  const d = Math.floor(s / 86400);
-  if (d >= 1) return d >= 365 ? `${Math.floor(d / 365)}y` : d >= 30 ? `${Math.floor(d / 30)}mo` : `${d}d`;
-  const h = Math.floor(s / 3600);
-  if (h >= 1) return `${h}h`;
-  return `${Math.floor(s / 60)}m`;
-}
