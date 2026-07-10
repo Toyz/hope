@@ -32,6 +32,7 @@ const (
 	KindImageUpdate      Kind = "image.update"  // a freshness verdict flipped to outdated
 	KindImageCurrent     Kind = "image.current" // ...or back to current
 	KindPluginChanged    Kind = "plugin.changed"
+	KindPermissionReq    Kind = "permission.requested" // a plugin wants a scope; the UI prompts for consent
 	KindTunnelChanged    Kind = "tunnel.changed"
 	KindAgentOnline      Kind = "agent.online"
 	KindAgentOffline     Kind = "agent.offline"

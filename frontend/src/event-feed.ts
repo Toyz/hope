@@ -21,6 +21,7 @@ import {
   UpdateAvailable,
   TunnelsChanged,
   AgentStatusChanged,
+  PermissionRequested,
 } from "./events";
 
 // One server frame off the feed. Everything but kind is optional (see the Go
@@ -31,6 +32,7 @@ interface Frame {
   host?: string;
   project?: string;
   ids?: string[];
+  data?: Record<string, string>; // kind-specific payload (e.g. permission.requested)
 }
 
 const BACKOFF_BASE = 500;
@@ -118,6 +120,11 @@ export class EventFeed {
       case "plugin.changed":
         bus.emit(new PluginsChanged());
         return;
+      case "permission.requested": {
+        const d = f.data ?? {};
+        bus.emit(new PermissionRequested(d.key ?? "", d.name ?? "", host, d.scope ?? "", d.reason ?? ""));
+        return;
+      }
       case "tunnel.changed":
         bus.emit(new TunnelsChanged(host));
         return;

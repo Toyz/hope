@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
 	"github.com/toyz/hope/internal/store"
@@ -61,17 +63,70 @@ func (r *PluginsRouter) enableRecord(ctx context.Context, key, catalogID string)
 		EnabledAt:   time.Now(),
 		CatalogID:   catalogID,
 	}
-	// Preserve prior settings + catalog id on a re-enable.
+	// Preserve prior settings + catalog id + permission decisions on a re-enable.
+	var prior *store.PluginRecord
 	if existing, _ := r.store.Plugin(key); existing != nil {
+		prior = existing
 		rec.Settings = existing.Settings
 		if catalogID == "" {
 			rec.CatalogID = existing.CatalogID
 		}
 	}
+	// Reconcile the plugin's DECLARED permissions against prior consent decisions:
+	// keep prior grants/denials, and queue any newly-declared scope as pending
+	// (awaiting the operator's consent). Nothing is granted here — enabling is not
+	// consent; the operator answers the prompt raised below.
+	pend := reconcilePerms(&rec, raw, prior)
 	if err := r.store.PutPlugin(rec); err != nil {
 		return nil, nil, nil, rpc.Internal("persist approval: %v", err)
 	}
+	// Raise a consent prompt for each newly-pending scope (the UI pops a modal).
+	for _, pr := range pend {
+		r.bus.Publish(events.Event{Kind: events.KindPermissionReq, Host: host, Data: permissionReqData(key, rec.Name, pr.scope, pr.reason)})
+	}
 	return ep, raw, &rec, nil
+}
+
+// pendingPerm is a scope awaiting consent, with the reason to show the operator.
+type pendingPerm struct{ scope, reason string }
+
+// reconcilePerms folds the plugin's declared permissions (from its raw hope.schema)
+// into rec's Grants/Pending/Denied, preserving prior decisions. Grants and Denied
+// carry over from prior; a declared scope that is neither granted nor denied becomes
+// Pending. Returns the scopes that are newly pending (to raise consent prompts for).
+func reconcilePerms(rec *store.PluginRecord, raw json.RawMessage, prior *store.PluginRecord) []pendingPerm {
+	var sch struct {
+		Permissions []struct {
+			Scope  string `json:"scope"`
+			Reason string `json:"reason"`
+		} `json:"permissions"`
+	}
+	_ = json.Unmarshal(raw, &sch)
+	if prior != nil {
+		rec.Grants = prior.Grants
+		rec.Denied = prior.Denied
+	}
+	var pending []string
+	var fresh []pendingPerm
+	for _, p := range sch.Permissions {
+		if p.Scope == "" || slices.Contains(rec.Grants, p.Scope) || slices.Contains(rec.Denied, p.Scope) {
+			continue // already decided
+		}
+		if slices.Contains(pending, p.Scope) {
+			continue // declared twice
+		}
+		pending = append(pending, p.Scope)
+		fresh = append(fresh, pendingPerm{p.Scope, p.Reason})
+	}
+	rec.Pending = pending
+	return fresh
+}
+
+// permissionReqData is the payload on a permission.requested event: which plugin,
+// which scope, and why (shown on the consent modal).
+func permissionReqData(key, name, scope, reason string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"key": key, "name": name, "scope": scope, "reason": reason})
+	return b
 }
 
 // InstallParams is one install run: deploy 1..n catalog plugins into a stack on a host,

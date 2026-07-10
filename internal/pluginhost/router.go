@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -351,6 +352,115 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	}
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
+}
+
+// GrantParams targets a permission scope on a plugin for a consent decision.
+type GrantParams struct {
+	Key     string `sov:"key,0,required" json:"key"`
+	Scope   string `sov:"scope,1,required" json:"scope"`
+	DontAsk bool   `sov:"dont_ask,2" json:"dont_ask"` // Deny only: never re-prompt this scope
+}
+
+func (p *GrantParams) valid() bool { return p != nil && p.Key != "" && p.Scope != "" }
+
+// Grant records the operator's consent to a plugin's requested scope: it moves the
+// scope from pending to granted (clearing any prior denial), so hope's reverse
+// capabilities gated on that scope begin working for the plugin.
+func (r *PluginsRouter) Grant(ctx *rpc.Context, p *GrantParams) (any, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key and scope are required")
+	}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil {
+		return nil, rpc.BadRequest("plugin not found")
+	}
+	rec.Pending = removeStr(rec.Pending, p.Scope)
+	rec.Denied = removeStr(rec.Denied, p.Scope)
+	if !slices.Contains(rec.Grants, p.Scope) {
+		rec.Grants = append(rec.Grants, p.Scope)
+	}
+	if err := r.store.PutPlugin(*rec); err != nil {
+		return nil, rpc.Internal("persist: %v", err)
+	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "granted")})
+	return map[string]any{"ok": true}, nil
+}
+
+// Deny rejects (or revokes) a plugin's scope: it clears the grant and any pending
+// prompt. With DontAsk set, the scope is remembered as denied so re-enabling or a
+// runtime request never re-prompts. Doubles as the inspector's "revoke".
+func (r *PluginsRouter) Deny(ctx *rpc.Context, p *GrantParams) (any, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key and scope are required")
+	}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil {
+		return map[string]any{"ok": true}, nil // nothing to deny
+	}
+	rec.Pending = removeStr(rec.Pending, p.Scope)
+	rec.Grants = removeStr(rec.Grants, p.Scope) // revoke if it was granted
+	if p.DontAsk && !slices.Contains(rec.Denied, p.Scope) {
+		rec.Denied = append(rec.Denied, p.Scope)
+	}
+	if err := r.store.PutPlugin(*rec); err != nil {
+		return nil, rpc.Internal("persist: %v", err)
+	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "denied")})
+	return map[string]any{"ok": true}, nil
+}
+
+// ConsentPrompt is one pending permission request the UI renders (a plugin wants a
+// scope the operator hasn't decided). Reason isn't persisted — the modal shows the
+// scope's own label; the live permission.requested event carries the rich reason.
+type ConsentPrompt struct {
+	Key   string `json:"key"`
+	Name  string `json:"name"`
+	Host  string `json:"host"`
+	Scope string `json:"scope"`
+}
+
+// PendingConsents lists every enabled plugin's undecided permission requests, so the
+// UI can render the consent queue on load (the live feed drives new ones after).
+func (r *PluginsRouter) PendingConsents(ctx *rpc.Context) ([]ConsentPrompt, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	recs, err := r.store.Plugins()
+	if err != nil {
+		return nil, rpc.Internal("read approvals: %v", err)
+	}
+	out := []ConsentPrompt{}
+	for _, rec := range recs {
+		if !rec.Enabled {
+			continue
+		}
+		for _, sc := range rec.Pending {
+			out = append(out, ConsentPrompt{Key: rec.Key, Name: rec.Name, Host: rec.Host, Scope: sc})
+		}
+	}
+	return out, nil
+}
+
+// removeStr returns ss without the first occurrence of s (order-preserving).
+func removeStr(ss []string, s string) []string {
+	for i, x := range ss {
+		if x == s {
+			return append(ss[:i:i], ss[i+1:]...)
+		}
+	}
+	return ss
 }
 
 // PluginManifest is what the UI needs to render an enabled plugin: its capability

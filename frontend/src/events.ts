@@ -242,3 +242,19 @@ export class AgentStatusChanged extends LoomEvent {
     super();
   }
 }
+
+// Fired when a plugin requests a permission scope the operator hasn't decided
+// (declared at enable, or a runtime request). The consent modal (<hope-consent>,
+// owned by hope-app) prompts the operator to Allow/Deny. Android-style: the request
+// is surfaced live via the event bus, so it appears even in another tab.
+export class PermissionRequested extends LoomEvent {
+  constructor(
+    public key: string,
+    public name: string,
+    public host: string,
+    public scope: string,
+    public reason: string,
+  ) {
+    super();
+  }
+}

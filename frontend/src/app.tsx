@@ -14,6 +14,7 @@ import { RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "./auth-store";
 import { HopeTransport } from "./transport";
 import { EventFeed } from "./event-feed";
+import "./components/consent-modal"; // registers <hope-consent>
 import { theme } from "./styles";
 import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget, PluginInspectorTarget } from "./events";
 
@@ -179,6 +180,7 @@ export class HopeApp extends LoomElement {
           ) : null}
         </div>
         <hope-palette></hope-palette>
+        <hope-consent></hope-consent>
       </div>
     );
   }
