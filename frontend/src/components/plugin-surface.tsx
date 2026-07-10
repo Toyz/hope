@@ -1487,6 +1487,11 @@ export class HopePluginSurface extends LoomElement {
           return this.cellStr(cell.value);
       }
     }
+    // A Comp used in a value slot (e.g. plugin.CText passed to KeyVal) — render the
+    // primitive rather than JSON-dumping it. A typed Cell (.type) is handled above.
+    if (cell && typeof cell === "object" && typeof cell.kind === "string") {
+      return this.renderComponent(cell, "kv");
+    }
     return this.cellStr(cell);
   }
 
