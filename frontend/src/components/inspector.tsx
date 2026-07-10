@@ -24,11 +24,9 @@ import { InspectorTarget, PluginsChanged, withRefresh } from "../events";
 import { promptAddRoute } from "../add-route";
 import { redactInspect, redactCmd } from "../redact";
 import { parseStats } from "../stats";
-import { shortId, uptime, flatten, friendlyTime, parseLogLine } from "../format";
+import { shortId, uptime, flatten, friendlyTime, parseLogLine, stripAnsi } from "../format";
 import type { LogFrame, TopResult, TunnelView } from "../contracts";
 import { theme } from "../styles";
-
-const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 type Tab = "info" | "logs" | "processes" | "mounts" | "env" | "networks" | "labels" | "inspect" | `plugin:${string}`;
 const TABS: Tab[] = ["info", "logs", "processes", "mounts", "env", "networks", "labels", "inspect"];
 
@@ -474,7 +472,7 @@ export class HopeInspector extends LoomElement {
       try {
         for await (const f of this.rpc.streamWithSignal<LogFrame>("Stream", "logs", [this.id], ac.signal, this.host)) {
           if (f.type === "ping") continue;
-          const next = this.lines.concat(strip(f.data).replace(/\n$/, ""));
+          const next = this.lines.concat(stripAnsi(f.data).replace(/\n$/, ""));
           this.lines = next.length > 500 ? next.slice(next.length - 500) : next;
           this.scrollLogs();
         }

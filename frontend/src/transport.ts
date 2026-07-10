@@ -143,17 +143,7 @@ export class HopeTransport extends RpcTransport {
       try { const f = JSON.parse(s) as { alias: string; result: any }; settle(f.alias, f.result); } catch { /* skip a malformed line */ }
     };
     try {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) { feed(buffer.slice(0, nl)); buffer = buffer.slice(nl + 1); }
-      }
-      feed(buffer); // trailing line without a newline
+      for await (const line of this.ndjsonLines(res.body)) feed(line);
     } catch {
       /* mid-stream drop — unsettled calls fall through to the direct fallback below */
     }
@@ -251,11 +241,20 @@ export class HopeTransport extends RpcTransport {
       throw new RpcError(`stream ${router}.${method}: ${res.status}`, res.status, router, method);
     }
 
-    const reader = res.body.getReader();
+    for await (const line of this.ndjsonLines(res.body)) yield JSON.parse(line) as T;
+  }
+
+  // ndjsonLines is the single NDJSON line-framer behind streamWithSignal, events,
+  // and the batch stream — previously three copies, and the two generator copies
+  // silently dropped a final frame with no trailing newline that the batch copy
+  // kept. Yields each non-empty, trimmed line INCLUDING that trailing frame, and
+  // cancels the reader on return/throw so an abort tears the stream down.
+  private async *ndjsonLines(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+    const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     try {
-      while (true) {
+      for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -263,9 +262,11 @@ export class HopeTransport extends RpcTransport {
         while ((nl = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, nl).trim();
           buffer = buffer.slice(nl + 1);
-          if (line) yield JSON.parse(line) as T;
+          if (line) yield line;
         }
       }
+      const last = buffer.trim();
+      if (last) yield last;
     } finally {
       reader.cancel().catch(() => {});
     }
@@ -287,24 +288,7 @@ export class HopeTransport extends RpcTransport {
     if (!res.ok || !res.body) {
       throw new RpcError(`event feed: ${res.status}`, res.status, "_events", "");
     }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (line) yield JSON.parse(line);
-        }
-      }
-    } finally {
-      reader.cancel().catch(() => {});
-    }
+    for await (const line of this.ndjsonLines(res.body)) yield JSON.parse(line);
   }
 
   // trySso attempts the Cloudflare Access exchange (POST /rpc/Auth/sso). Returns

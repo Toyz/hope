@@ -9,12 +9,10 @@ import { HopeTransport } from "../transport";
 import { LogPanel } from "../log-panel";
 import { LogPanelTarget } from "../events";
 import type { LogFrame } from "../contracts";
-import { parseLogLine } from "../format";
+import { parseLogLine, stripAnsi } from "../format";
 import { theme } from "../styles";
 
 interface LogLine { source: string; ts: string; msg: string; kind: string; }
-
-const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 @component("hope-logs")
 @styles(theme, css`
@@ -113,7 +111,7 @@ export class HopeLogs extends LoomElement {
           if (f.type === "ping") continue;
           const src = f.source || "";
           if (src && !this.sources.includes(src) && !this.newSrcs.includes(src)) this.newSrcs.push(src);
-          const { ts, msg } = parseLogLine(strip(f.data));
+          const { ts, msg } = parseLogLine(stripAnsi(f.data));
           this.buf.push({ source: src, ts, msg, kind: f.type });
           this.scheduleFlush();
         }
