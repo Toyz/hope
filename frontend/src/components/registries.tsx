@@ -106,7 +106,7 @@ const KNOWN_REGISTRIES: KnownRegistry[] = [
 
   /* add-registry modal — same chrome as the app's other modals */
   .rmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: rfade .12s ease both; }
+    background: var(--scrim); backdrop-filter: blur(3px); animation: rfade .12s ease both; }
   @keyframes rfade { from { opacity: 0; } to { opacity: 1; } }
   .rbox { width: 560px; max-width: 100%; max-height: 90vh; display: flex; flex-direction: column;
     background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);

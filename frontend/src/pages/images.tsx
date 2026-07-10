@@ -119,7 +119,7 @@ type Filter = "all" | "used" | "unused" | "dangling";
 
   /* registries manager modal — hosts the shared <hope-registries> component */
   .regsheet { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+    background: var(--scrim); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   .regsheetbox { width: 720px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd); }
   .regsheethd { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line);
     font: 600 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--hi); }

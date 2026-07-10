@@ -28,6 +28,9 @@ export const theme = css`
     --bad: #EC5C5C;      /* down / loop */
     --upd: #4E9BD9;      /* image update available */
 
+    --on-accent: #06080d;              /* text/icon on a solid accent fill (button, chip) */
+    --scrim: rgba(4, 6, 10, .66);      /* modal/overlay backdrop */
+
     /* status glyphs (SVG masks, tinted by background-color) */
     --mk-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%23000'/%3E%3C/svg%3E");
     --mk-ring: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='7.5' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E");

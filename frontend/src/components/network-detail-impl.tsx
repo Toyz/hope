@@ -22,7 +22,7 @@ import type { NetworkDetailOpts } from "./network-detail";
 @styles(theme, css`
   :host { display: contents; }
   .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+    background: var(--scrim); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   .dbox { width: 600px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); }
   .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }

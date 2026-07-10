@@ -42,11 +42,11 @@ import { theme } from "../styles";
   .danger:hover { border-color: var(--bad); }
   .warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
   .warn .wipe { background: var(--warn); }
-  .warn:hover, .warn:hover .inner loom-icon { color: #06080d; }
+  .warn:hover, .warn:hover .inner loom-icon { color: var(--on-accent); }
   .warn:hover { border-color: var(--warn); }
   .primary { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line)); }
   .primary .wipe { background: var(--upd); }
-  .primary:hover, .primary:hover .inner loom-icon { color: #06080d; }
+  .primary:hover, .primary:hover .inner loom-icon { color: var(--on-accent); }
   .primary:hover { border-color: var(--upd); }
 
   /* idle icon matches the button's tone (the base rule pins it to var(--dim),
@@ -57,14 +57,14 @@ import { theme } from "../styles";
 
   /* solid: filled by default (primary CTAs). No wipe — brightness on hover. */
   .solid .wipe { display: none; }
-  .solid.primary { background: var(--upd); color: #06080d; border-color: var(--upd); }
-  .solid.primary .inner loom-icon { color: #06080d; }
+  .solid.primary { background: var(--upd); color: var(--on-accent); border-color: var(--upd); }
+  .solid.primary .inner loom-icon { color: var(--on-accent); }
   .solid.primary:hover { background: color-mix(in srgb, var(--upd) 86%, #fff); }
   .solid.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
   .solid.danger .inner loom-icon { color: #fff; }
   .solid.danger:hover { background: color-mix(in srgb, var(--bad) 86%, #fff); }
-  .solid.warn { background: var(--warn); color: #06080d; border-color: var(--warn); }
-  .solid.warn .inner loom-icon { color: #06080d; }
+  .solid.warn { background: var(--warn); color: var(--on-accent); border-color: var(--warn); }
+  .solid.warn .inner loom-icon { color: var(--on-accent); }
   .solid.warn:hover { background: color-mix(in srgb, var(--warn) 86%, #fff); }
 
   .sm { padding: 6px 10px; font-size: 10px; letter-spacing: .1em; }

@@ -172,7 +172,7 @@ function aggMark(items: ContainerSummary[]): string {
   .tchip:hover { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: var(--ok); }
   /* clean detail modal (mirrors the images/networks view) for public routes */
   .dmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); }
+    background: var(--scrim); backdrop-filter: blur(3px); }
   .dbox { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--ok); }
   .dhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
   .dhead .dt { font: 600 13px/1.2 var(--mono); letter-spacing: .04em; color: var(--hi); }
@@ -244,7 +244,7 @@ function aggMark(items: ContainerSummary[]): string {
 
   /* advanced redeploy dialog */
   .rdmodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+    background: var(--scrim); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   .rdbox { width: 480px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--warn);
     display: flex; flex-direction: column; max-height: calc(100vh - 40px); }
   .rdhead { display: flex; align-items: center; gap: 10px; padding: 15px 18px 0; }
@@ -275,13 +275,13 @@ function aggMark(items: ContainerSummary[]): string {
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .rdacts .rdnote { font: 11px/1 var(--mono); color: var(--dim); }
   .rdacts .grow { flex: 1; }
-  .tbtn.warnbtn { color: #06080d; border-color: var(--warn); background: color-mix(in srgb, var(--warn) 85%, #000); }
+  .tbtn.warnbtn { color: var(--on-accent); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 85%, #000); }
   .tbtn.warnbtn:hover { background: var(--warn); }
   .tbtn.warnbtn:disabled { opacity: .4; cursor: not-allowed; }
   .tbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .tbtn.danger:hover { color: #fff; background: var(--bad); border-color: var(--bad); }
   .tbtn.danger:disabled { opacity: .4; cursor: not-allowed; color: var(--bad); background: transparent; }
-  .tbtn.updbtn { color: #06080d; border-color: var(--upd); background: color-mix(in srgb, var(--upd) 85%, #000); }
+  .tbtn.updbtn { color: var(--on-accent); border-color: var(--upd); background: color-mix(in srgb, var(--upd) 85%, #000); }
   .tbtn.updbtn:hover { background: var(--upd); }
   .tbtn.updbtn:disabled { opacity: .4; cursor: not-allowed; }
   .loosetag { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);

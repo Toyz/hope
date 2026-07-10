@@ -72,7 +72,7 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .setup .note b { color: var(--warn); font-weight: 600; }
 
   .amodal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: rgba(4, 6, 10, .66); backdrop-filter: blur(3px); animation: afade .12s ease both; }
+    background: var(--scrim); backdrop-filter: blur(3px); animation: afade .12s ease both; }
   @keyframes afade { from { opacity: 0; } to { opacity: 1; } }
   .abox { width: 620px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2); border-top: 2px solid var(--upd);
     animation: apop .14s cubic-bezier(.2, .8, .3, 1) both; }
@@ -102,7 +102,7 @@ const shaShort = (s: string) => (s && s.length > 12 ? s.slice(0, 12) : s || "—
   .abox .hint b { color: var(--warn); font-weight: 600; }
   .abox .aft { display: flex; justify-content: flex-end; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
-  .abox .btn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: #06080d;
+  .abox .btn { font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--on-accent);
     background: var(--upd); border: 1px solid var(--upd); padding: 10px 18px; cursor: pointer; }
   .abox .btn:hover { background: color-mix(in srgb, var(--upd) 88%, #fff); }
 `)
