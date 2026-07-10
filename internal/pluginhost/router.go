@@ -314,8 +314,16 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if !r.store.Enabled() {
 		return nil, rpc.BadRequest("enabling a plugin needs the state store mounted ([store] path) to persist the approval + token")
 	}
-	if _, _, _, err := r.enableRecord(ctx, p.Key, ""); err != nil {
+	ep, _, rec, err := r.enableRecord(ctx, p.Key, "")
+	if err != nil {
 		return nil, err
+	}
+	// Re-run the hope.init handshake on enable — a deliberate operator action — so the
+	// plugin (re)receives its settings AND the reverse-channel callback URL even when
+	// its container hasn't restarted (the container-id guard alone would skip it, so an
+	// enable/disable wouldn't deliver a newly-available callback URL). Best-effort.
+	if ep != nil && rec != nil {
+		r.initPlugin(ctx, ep, rec, func(string) {})
 	}
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "enabled")})
 	return map[string]any{"ok": true}, nil

@@ -4,6 +4,9 @@
 // chosen value) and reflects the choice on its own `value`.
 import { LoomElement, component, styles, css, reactive, on } from "@toyz/loom";
 import { query } from "@toyz/loom/element";
+
+// Estimated menu height for the flip-up decision (search box + up to a few rows).
+const MENU_EST = 260;
 import { theme } from "../styles";
 
 import type { Option } from "../contracts";
@@ -21,8 +24,11 @@ export type SelectOption = Option;
   .trigger .lbl.ph { color: var(--dim); }
   .trigger loom-icon { color: var(--dim); flex: none; transition: transform .12s ease; }
   .trigger.open loom-icon { transform: rotate(180deg); }
-  .menu { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 50;
-    max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line2); }
+  .menu { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 1200;
+    max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line2);
+    box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  /* Flip above the trigger when there isn't room below (e.g. a field near a modal's bottom). */
+  .menu.up { top: auto; bottom: calc(100% + 3px); }
   .msearch { position: sticky; top: 0; width: 100%; box-sizing: border-box; background: var(--ink);
     border: 0; border-bottom: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); padding: 10px 12px; }
   .msearch::placeholder { color: var(--dim); }
@@ -39,8 +45,10 @@ export class HopeSelect extends LoomElement {
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
   @reactive accessor open = false;
+  @reactive accessor dropUp = false; // open above the trigger when there's no room below
   @reactive accessor query = "";
   @query(".msearch") accessor searchEl!: HTMLInputElement | null;
+  @query(".trigger") accessor triggerEl!: HTMLElement | null;
 
   // Clicks on the trigger/options stopPropagation, so any click that reaches the
   // document is outside this dropdown — close it. Auto-unbinds on disconnect.
@@ -51,6 +59,10 @@ export class HopeSelect extends LoomElement {
 
   private openMenu(seed = "") {
     this.query = seed;
+    // Flip up when the trigger sits low enough that a downward menu would clip below
+    // the viewport (or a containing modal's bottom).
+    const r = this.triggerEl?.getBoundingClientRect();
+    this.dropUp = !!r && r.bottom + MENU_EST > window.innerHeight - 12 && r.top - MENU_EST > 12;
     this.open = true;
     // Focus the filter box (if this list is searchable) so typing continues there.
     setTimeout(() => this.searchEl?.focus(), 0);
@@ -93,7 +105,7 @@ export class HopeSelect extends LoomElement {
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
-          <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
+          <div class={"menu" + (this.dropUp ? " up" : "")} onClick={(e: Event) => e.stopPropagation()}>
             {this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
