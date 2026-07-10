@@ -36,6 +36,10 @@ type PluginsRouter struct {
 	// relayed through the tunnel). Returns "" for the local daemon or an unknown host,
 	// in which case the co-located callbackURL is used. nil = agent reverse channel off.
 	agentCallback func(hostID string) string
+	// agentAttach connects the agent's own container to ink-plugins on its host so a
+	// co-located plugin can resolve the agent by container id (the reverse-channel
+	// target). No-op for the local daemon / unknown host. nil = not wired.
+	agentAttach func(ctx context.Context, hostID string)
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -87,6 +91,11 @@ func SetCallbackURL(r *PluginsRouter, u string) { r.callbackURL = u }
 // same reflection reason as SetCallbackURL. nil leaves agent-hosted plugins without
 // a reverse channel (co-located ones still use SetCallbackURL).
 func SetAgentCallback(r *PluginsRouter, fn func(hostID string) string) { r.agentCallback = fn }
+
+// SetAgentAttach wires the hook that joins an agent's container to ink-plugins so a
+// plugin on that agent host can reach the reverse-channel relay by the agent's
+// container id. Package function for the same reflection reason as SetCallbackURL.
+func SetAgentAttach(r *PluginsRouter, fn func(ctx context.Context, hostID string)) { r.agentAttach = fn }
 
 // callbackFor returns the reverse-channel base URL to hand a plugin on hostID: the
 // agent-relayed URL when the host is a reachable agent, else hope's own co-located URL.

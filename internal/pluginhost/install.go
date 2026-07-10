@@ -498,6 +498,12 @@ func (r *PluginsRouter) initPlugin(ctx context.Context, ep *endpoint, rec *store
 	// and who it is. The callback URL is auto-derived from hope's container id; it's
 	// empty only when hope isn't containerized, in which case the plugin never learns a
 	// URL and its Publish/Storage stay no-ops (reverse channel off).
+	// For an agent-hosted plugin, make sure the agent is on ink-plugins so the plugin
+	// can resolve it by container id (the reverse-channel target). Best-effort, no-op
+	// for the local daemon.
+	if r.agentAttach != nil {
+		r.agentAttach(ctx, rec.Host)
+	}
 	if cb := r.callbackFor(rec.Host); cb != "" {
 		params["hopeBaseURL"] = cb
 		params["pluginKey"] = rec.Key

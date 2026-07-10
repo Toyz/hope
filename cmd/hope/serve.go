@@ -372,6 +372,21 @@ func runServe(configPath string) error {
 		}
 		return "http://" + h.Info.ContainerID + ":" + strconv.Itoa(agent.ReversePort)
 	})
+	// Attach the agent's own container to ink-plugins on its host (creating the network
+	// first if the host has none yet) so an agent-hosted plugin can resolve the agent by
+	// container id and reach the reverse-channel relay. Best-effort; no-op for local.
+	pluginhost.SetAgentAttach(pluginsRouter, func(ctx context.Context, hostID string) {
+		if hubReg == nil {
+			return
+		}
+		h := hubReg.Host(hostID)
+		cli := hubReg.Get(hostID)
+		if h == nil || cli == nil || h.Info.ContainerID == "" {
+			return
+		}
+		_ = cli.EnsurePluginNetwork(ctx)
+		_ = cli.AttachNetwork(ctx, h.Info.ContainerID, docker.PluginNetwork, nil)
+	})
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
 	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
