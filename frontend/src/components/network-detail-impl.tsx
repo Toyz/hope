@@ -41,6 +41,9 @@ import type { NetworkDetailOpts } from "./network-detail";
   .dk { flex: 0 0 84px; font: 600 10px/1.8 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .dv { flex: 1; min-width: 0; font: 12.5px/1.6 var(--mono); color: var(--hi); display: flex; flex-wrap: wrap; align-items: center; }
   .dv .dim { color: var(--dim); }
+  .dv .flags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .dv .tag { padding: 2px 8px; border: 1px solid var(--line2); color: var(--mid);
+    font: 10px/1.6 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
   .ub { display: inline-block; font: 12px/1 var(--mono); color: var(--mid); border: 1px solid var(--line); padding: 5px 8px; margin: 0 6px 6px 0; cursor: pointer; }
   .ub:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ub .ubp { color: var(--dim); }
@@ -123,7 +126,7 @@ export default class NetworkDetailModal extends LoomElement {
   update() {
     if (!this.open) return <div></div>;
     const n = this.info;
-    const flags = networkFlags(n).join(" · ");
+    const flags = networkFlags(n);
     return (
       <div class="dmodal" onClick={this.close}>
         <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>
@@ -149,7 +152,7 @@ export default class NetworkDetailModal extends LoomElement {
                 <div class="drow"><span class="dk">id</span><span class="dv">{n.id.slice(0, 12)}</span></div>
                 {n.subnet ? <div class="drow"><span class="dk">subnet</span><span class="dv">{n.subnet}</span></div> : null}
                 {n.gateway ? <div class="drow"><span class="dk">gateway</span><span class="dv">{n.gateway}</span></div> : null}
-                <div class="drow"><span class="dk">flags</span><span class="dv">{flags || <span class="dim">none</span>}</span></div>
+                <div class="drow"><span class="dk">flags</span><span class="dv">{flags.length ? <span class="flags">{flags.map((f) => <span class="tag">{f}</span>)}</span> : <span class="dim">none</span>}</span></div>
                 {n.options && Object.keys(n.options).length ? (
                   <div class="drow top"><span class="dk">options</span><span class="dv"><hope-kvlist data={n.options}></hope-kvlist></span></div>
                 ) : null}
