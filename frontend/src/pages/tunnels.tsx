@@ -14,6 +14,7 @@ import { stackPath, containerPath } from "../host-url";
 import { HostChanged, Refreshing, withRefresh, TunnelsChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
+import { splitHost } from "../util";
 import { ConfirmService } from "../confirm";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
@@ -479,11 +480,7 @@ export class TunnelsPage extends LoomElement {
 
   // Split a hostname into subdomain + a known zone (domain), for prefilling.
   private splitHost(host: string): { sub: string; domain: string } {
-    for (const z of this.zones) {
-      if (host === z.name) return { sub: "", domain: z.name };
-      if (host.endsWith("." + z.name)) return { sub: host.slice(0, -(z.name.length + 1)), domain: z.name };
-    }
-    return { sub: "", domain: "" };
+    return splitHost(host, this.zones.map((z) => z.name));
   }
 
 

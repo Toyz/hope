@@ -9,6 +9,7 @@
 import { LoomElement, component, styles, css, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
 import { kvParse as textToRows, kvSerialize as rowsToText } from "../format";
+import { splitHost } from "../util";
 import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option, HealthSpec } from "../contracts";
 
 interface PortRow { host: string; container: string; proto: string; }
@@ -229,11 +230,7 @@ export class HopeServiceForm extends LoomElement {
   // splitHost breaks a hostname into subdomain + a known zone (domain). Falls
   // back to (sub="", domain="") for a free-text host when no zone matches.
   private splitHost(host: string): { sub: string; domain: string } {
-    for (const z of this.zones) {
-      if (host === z) return { sub: "", domain: z };
-      if (host.endsWith("." + z)) return { sub: host.slice(0, -(z.length + 1)), domain: z };
-    }
-    return { sub: "", domain: "" };
+    return splitHost(host, this.zones);
   }
   // tunHost composes a route's hostname: subdomain|domain when zones exist (blank
   // sub = root domain), else the free-text hostname field.

@@ -24,7 +24,7 @@ import { LogPanel } from "../log-panel";
 import { withHost } from "../host-url";
 import "../components/plugin-widgets"; // <hope-plugin-widgets stack=…> — plugin widgets for this stack (self-hides when none)
 import { innerPort, bytes } from "../format";
-import { toggleIn } from "../util";
+import { toggleIn, splitHost } from "../util";
 import { consumeOpStream } from "../stream-op";
 import { UNGROUPED } from "../const";
 import { stripAnsi } from "../format";
@@ -609,11 +609,7 @@ export class StackPage extends LoomElement {
   };
 
   private splitHost(host: string): { sub: string; domain: string } {
-    for (const z of this.tunnelZones) {
-      if (host === z.name) return { sub: "", domain: z.name };
-      if (host.endsWith("." + z.name)) return { sub: host.slice(0, -(z.name.length + 1)), domain: z.name };
-    }
-    return { sub: "", domain: "" };
+    return splitHost(host, this.tunnelZones.map((z) => z.name));
   }
 
   // Modal: all public routes for a service + the connector serving them.
