@@ -323,6 +323,9 @@ func runServe(configPath string) error {
 	}
 	if cfg.Plugins.Enabled {
 		lg.Info("container plugins enabled")
+		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
+		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
+		pluginsRouter.StartEventFanout(ctx)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is
