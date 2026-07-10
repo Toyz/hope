@@ -9,6 +9,7 @@ import { rpc, mutate } from "@toyz/loom-rpc";
 import type { RpcMutator } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
@@ -815,11 +816,7 @@ export class DashboardPage extends LoomElement {
     await this.proc.run(`update ${jobs.length} item${jobs.length === 1 ? "" : "s"}`, async (emit, signal) => {
       for (const j of jobs) {
         emit(`── ${j.label} ──`);
-        let jok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", j.method, [j.arg, "true", "false"], signal, j.host || undefined)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) { jok = false; emit("failed: " + (f.error ?? "")); }
-        }
+        const jok = await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", j.method, [j.arg, "true", "false"], signal, j.host || undefined), emit);
         if (!jok) { ok = false; continue; }
         // The redeploy pulled latest, so these are current now — patch the rail's
         // dots in place per host+stack (a whole-stack redeploy clears the project;

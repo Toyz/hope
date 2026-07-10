@@ -7,6 +7,7 @@
 import { LoomElement, component, styles, css, reactive, on, bus } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { ProcService } from "../proc";
 import { ToastService } from "../toast";
 import { toggleIn } from "../util";
@@ -376,10 +377,7 @@ export class HopePluginInstaller extends LoomElement {
     };
     let ok = false;
     await this.proc.run("install " + project, async (emit, signal) => {
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "installPlugin", [JSON.stringify(params)], signal, this.host)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { emit("failed: " + (f.error ?? "")); return false; }
-      }
+      if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "installPlugin", [JSON.stringify(params)], signal, this.host), emit))) return false;
       ok = true;
       return true;
     });

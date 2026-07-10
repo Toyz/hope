@@ -8,6 +8,7 @@ import { clipboard } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { route, LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { AuthStore } from "../auth-store";
 import { ProcService } from "../proc";
 import { PromptService } from "../prompt";
@@ -306,12 +307,7 @@ export class DeployPage extends LoomElement {
     if (!this.ensureTargetHost()) return;
     let success = false;
     await this.proc.run((this.editing ? "apply " : "deploy ") + spec.name, async (emit, signal) => {
-      let ok = true;
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
-      }
-      if (!ok) return false;
+      if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal), emit))) return false;
       await this.applyRoutes(spec, emit);
       success = true;
       return true;
@@ -365,11 +361,7 @@ export class DeployPage extends LoomElement {
           emit("route teardown failed: " + (e?.message || "error"));
         }
       }
-      let dok = true;
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [project, "true"], signal)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
-      }
+      const dok = await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [project, "true"], signal), emit);
       success = dok;
       return dok;
     });
@@ -384,11 +376,7 @@ export class DeployPage extends LoomElement {
     if (!this.ensureTargetHost()) return;
     let success = false;
     await this.proc.run("deploy " + spec.name, async (emit, signal) => {
-      let ok = true;
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "deployContainer", [JSON.stringify(spec)], signal)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
-      }
+      const ok = await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "deployContainer", [JSON.stringify(spec)], signal), emit);
       success = ok;
       return ok;
     });

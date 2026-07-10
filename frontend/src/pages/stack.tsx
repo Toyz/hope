@@ -25,6 +25,7 @@ import { withHost } from "../host-url";
 import "../components/plugin-widgets"; // <hope-plugin-widgets stack=…> — plugin widgets for this stack (self-hides when none)
 import { innerPort, bytes } from "../format";
 import { toggleIn } from "../util";
+import { consumeOpStream } from "../stream-op";
 import { UNGROUPED } from "../const";
 import { stripAnsi } from "../format";
 
@@ -923,15 +924,7 @@ export class StackPage extends LoomElement {
   // is restarting", not a failure — poll until it's back instead of crying EOF.
   private pipeOp = async (emit: (l: string) => void, signal: AbortSignal, method: string, args: string[]): Promise<boolean> => {
     try {
-      let ok = true;
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) {
-          ok = false;
-          emit("failed: " + (f.error ?? ""));
-        }
-      }
-      return ok;
+      return await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal), emit);
     } catch (e: any) {
       if (signal.aborted) throw e;
       emit("connection lost — the host is restarting itself (self-update). reconnecting…");
@@ -1101,12 +1094,7 @@ export class StackPage extends LoomElement {
           const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
           const bad = mutate(spec);
           if (bad) { emit("failed: " + bad); return false; }
-          let ok = true;
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal)) {
-            if (f.type === "log" && f.data) emit(f.data);
-            else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
-          }
-          if (!ok) return false;
+          if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal), emit))) return false;
           if (after) await after(emit);
           return true;
         } catch (e: any) {
@@ -1149,11 +1137,7 @@ export class StackPage extends LoomElement {
               emit("route teardown failed: " + (e?.message || "error"));
             }
           }
-          let dok = true;
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal)) {
-            if (f.type === "log" && f.data) emit(f.data);
-            else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
-          }
+          const dok = await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal), emit);
           success = dok;
           return dok;
         } catch (e: any) {
@@ -1753,12 +1737,7 @@ export class StackPage extends LoomElement {
       let ok = true;
       for (const host of targets) {
         emit(`── ${host} ──`);
-        let sok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [body], signal, host)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) { sok = false; emit("failed: " + (f.error ?? "")); }
-        }
-        if (!sok) ok = false;
+        if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [body], signal, host), emit))) ok = false;
       }
       emit("done");
       return ok;

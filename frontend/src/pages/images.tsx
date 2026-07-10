@@ -9,6 +9,7 @@ import { rpc } from "@toyz/loom-rpc";
 import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { ImageInspector } from "../image-inspector";
 import { ImageInspectorTarget } from "../events";
 import { System } from "../contracts";
@@ -282,16 +283,8 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
   };
 
   // Consume a redeploy stream into the proc dialog (shared by the cleanup ops).
-  private async pipeStream(emit: (l: string) => void, signal: AbortSignal, method: string, args: string[], host?: string): Promise<boolean> {
-    let ok = true;
-    for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal, host)) {
-      if (f.type === "log" && f.data) emit("  " + f.data);
-      else if (f.type === "done" && !f.ok) {
-        ok = false;
-        emit("  failed: " + (f.error ?? ""));
-      }
-    }
-    return ok;
+  private pipeStream(emit: (l: string) => void, signal: AbortSignal, method: string, args: string[], host?: string): Promise<boolean> {
+    return consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", method, args, signal, host), emit, { prefix: "  " });
   }
 
 
@@ -326,10 +319,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
       for (const h of hosts) {
         emit(`> ${h.id}`);
         try {
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal, h.id)) {
-            if (f.type === "log" && f.data) emit("  " + f.data);
-            else if (f.type === "done" && !f.ok) { okv = false; emit("  failed: " + (f.error ?? "")); }
-          }
+          if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "pruneImages", [String(all)], signal, h.id), emit, { prefix: "  " }))) okv = false;
         } catch (e: any) {
           okv = false;
           emit("  " + (e?.message ?? "failed"));

@@ -8,6 +8,7 @@ import { LoomElement, component, styles, css, reactive, mount, unmount, on, app 
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { ImageInspector } from "../image-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
@@ -178,10 +179,7 @@ export class HopeImageInspector extends LoomElement {
         let ok = true;
         for (const u of i.used_by) {
           emit(`redeploying ${u.service || u.name || shortId(u.id)}…`);
-          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [u.id], signal, this.host)) {
-            if (f.type === "log" && f.data) emit(f.data);
-            else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
-          }
+          if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "redeploy", [u.id], signal, this.host), emit))) ok = false;
         }
         emit("done");
         return ok;

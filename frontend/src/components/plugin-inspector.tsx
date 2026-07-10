@@ -8,6 +8,7 @@ import { LoomElement, component, styles, css, reactive, mount, on, app, bus } fr
 import { inject } from "@toyz/loom/di";
 import { LoomRouter } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
+import { consumeOpStream } from "../stream-op";
 import { PluginInspector } from "../plugin-inspector";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
@@ -185,10 +186,7 @@ export class HopePluginInspector extends LoomElement {
     if (!v) return;
     let ok = false;
     await this.proc.run("reconfigure " + (this.view?.service || this.key), async (emit, signal) => {
-      for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "reconfigurePlugin", [this.key, JSON.stringify(v)], signal, this.host)) {
-        if (f.type === "log" && f.data) emit(f.data);
-        else if (f.type === "done" && !f.ok) { emit("failed: " + (f.error ?? "")); return false; }
-      }
+      if (!(await consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "reconfigurePlugin", [this.key, JSON.stringify(v)], signal, this.host), emit))) return false;
       ok = true;
       return true;
     });
