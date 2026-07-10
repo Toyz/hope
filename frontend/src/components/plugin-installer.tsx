@@ -24,6 +24,17 @@ interface InstForm {
   vols: Record<string, VolumeChoice>; // keyed by mount target
 }
 
+// Human label for a reverse-channel scope shown on the marketplace disclosure.
+const PERM_LABELS: Record<string, string> = {
+  "events:subscribe": "React to fleet events",
+  "events:publish": "Publish events / alerts to hope",
+  storage: "Store its config in hope",
+  "spec:label": "Add labels to its own stack's services",
+};
+function permScopeLabel(scope: string): string {
+  return PERM_LABELS[scope] || scope;
+}
+
 @component("hope-plugin-installer")
 @styles(theme, css`
   :host { display: contents; }
@@ -83,6 +94,10 @@ interface InstForm {
   .dfmeta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; color: var(--dim); font: 11px/1.5 var(--mono); }
   .dfmeta code { color: var(--mid); }
   .dfhint { color: var(--dim); font: 11px/1.5 var(--mono); margin-top: 4px; }
+  .dperm-intro { margin-bottom: 8px !important; }
+  .dperm { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; color: var(--hi); font: 13px/1.5 var(--sans); }
+  .dperm loom-icon { color: var(--upd); flex: none; margin-top: 2px; }
+  .dperm b { color: var(--upd); font-weight: 600; }
   .dvol, .dset { display: flex; align-items: center; gap: 8px; color: var(--mid); font: 12px/1.7 var(--mono); }
   .dvol loom-icon { color: var(--dim); flex: none; }
   .dvol code, .dset code { color: var(--hi); }
@@ -447,7 +462,7 @@ export class HopePluginInstaller extends LoomElement {
   // hasDetail reports whether an entry carries enough beyond title+image to be worth a
   // "more info" view — so the Details affordance stays optional (bare entries omit it).
   private hasDetail(c: CatalogEntry): boolean {
-    return !!(c.description || (c.env || []).length || (c.volumes || []).length || (c.settings || []).length);
+    return !!(c.description || (c.env || []).length || (c.volumes || []).length || (c.settings || []).length || (c.permissions || []).length);
   }
 
   // detailView renders one entry's full info: description + what it needs (env, storage,
@@ -472,6 +487,20 @@ export class HopePluginInstaller extends LoomElement {
           <div class="dsec">
             <span class="dlbl">Overview</span>
             <p class="ddesc">{c.description}</p>
+          </div>
+        ) : null}
+
+        {(c.permissions || []).length ? (
+          <div class="dsec">
+            <span class="dlbl">Permissions</span>
+            <p class="ddesc dperm-intro">This plugin will ask to:</p>
+            {(c.permissions || []).map((p) => (
+              <div class="dperm">
+                <loom-icon name="lock" size={13}></loom-icon>
+                <span><b>{permScopeLabel(p.scope)}</b>{p.reason ? ` — ${p.reason}` : ""}</span>
+              </div>
+            ))}
+            <div class="dfhint">You'll grant or deny each of these when you enable it — least privilege, nothing by default.</div>
           </div>
         ) : null}
 

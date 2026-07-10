@@ -398,6 +398,7 @@ export interface CatalogEntry {
   volumes?: CatalogVolume[];
   settings?: { key: string; value: string }[];
   labels?: Record<string, string>;
+  permissions?: { scope: string; reason?: string }[]; // reverse-channel scopes the plugin requests
   source?: string; // "builtin" | repo name
 }
 

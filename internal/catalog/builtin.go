@@ -25,6 +25,10 @@ func Builtins() []CatalogEntry {
 				},
 			},
 			Settings: []SettingSeed{{Key: "page_size", Value: "50"}},
+			Permissions: []CatalogPermission{
+				{Scope: "events:publish", Reason: "raise the Postgres health alerts you define"},
+				{Scope: "storage", Reason: "save your alert rules"},
+			},
 		},
 		{
 			ID:          "hope-redis",

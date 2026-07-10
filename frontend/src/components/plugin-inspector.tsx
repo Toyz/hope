@@ -79,7 +79,7 @@ interface PluginManifest {
   .col:last-child { border-right: 0; }
   .ctitle { padding: 13px 15px 9px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
   .ctitle.sep { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 13px; }
-  .row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 5px 15px; font: 12px/1.5 var(--mono); align-items: baseline; }
+  .row { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 14px; padding: 6px 16px; font: 12px/1.5 var(--mono); align-items: baseline; }
   .row .k { color: var(--dim); }
   .row .v { color: var(--hi); min-width: 0; word-break: break-all; font-variant-numeric: tabular-nums; }
   .row .v.dim { color: var(--dim); }

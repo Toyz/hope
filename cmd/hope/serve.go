@@ -351,10 +351,13 @@ func runServe(configPath string) error {
 		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
 		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
 		pluginhost.StartEventFanout(ctx, pluginsRouter)
-		// Reap orphaned plugin records: the bus fast path (stack.destroyed) + a periodic
-		// reconcile backstop (identity absent on a reachable host) for out-of-band removals.
+		// Reap orphaned plugin records ONLY on the definitive signal: stack.destroyed
+		// (an intentional whole-stack teardown). Mere absence is ambiguous — a plugin
+		// that's rebooting/being reinstalled is briefly absent but NOT removed, and
+		// reaping its record on absence would wipe its settings/storage/grants (a
+		// data-loss bug). So the absence-based reconcile backstop is intentionally NOT
+		// run; a stale orphaned record is far preferable to eating a live plugin's config.
 		pluginhost.StartRecordGC(ctx, pluginsRouter)
-		pluginhost.StartRecordReconcile(ctx, pluginsRouter, 5*time.Minute)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is
@@ -375,7 +378,7 @@ func runServe(configPath string) error {
 
 	// Global event feed: one long-lived NDJSON stream of state-change events (the
 	// bus fanned out to the UI). Registered beside the other stream handlers.
-	gw.MustUse(events.NewHandler(eventBus))
+	gw.MustUse(events.NewHandler(eventBus, tokens))
 
 	// Headless API: when keys are configured, enable sov's introspection endpoint
 	// (/rpc/_introspect) and the interactive explorer UI (/rpc/_explorer/). Off by

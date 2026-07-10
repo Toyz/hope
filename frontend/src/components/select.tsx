@@ -24,11 +24,11 @@ export type SelectOption = Option;
   .trigger .lbl.ph { color: var(--dim); }
   .trigger loom-icon { color: var(--dim); flex: none; transition: transform .12s ease; }
   .trigger.open loom-icon { transform: rotate(180deg); }
-  .menu { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 1200;
-    max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line2);
-    box-shadow: 0 8px 24px rgba(0,0,0,.45); }
-  /* Flip above the trigger when there isn't room below (e.g. a field near a modal's bottom). */
-  .menu.up { top: auto; bottom: calc(100% + 3px); }
+  /* The menu is a popover: it renders in the browser's top layer, so it escapes the
+     modal's clip / stacking / shadow-DOM boundaries entirely. Positioned with fixed
+     coords set in JS (see positionMenu). */
+  .menu { position: fixed; margin: 0; inset: auto; padding: 0; border: 1px solid var(--line2);
+    max-height: 260px; overflow: auto; background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
   .msearch { position: sticky; top: 0; width: 100%; box-sizing: border-box; background: var(--ink);
     border: 0; border-bottom: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); padding: 10px 12px; }
   .msearch::placeholder { color: var(--dim); }
@@ -45,38 +45,61 @@ export class HopeSelect extends LoomElement {
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
   @reactive accessor open = false;
-  @reactive accessor dropUp = false; // open above the trigger when there's no room below
   @reactive accessor query = "";
   @query(".msearch") accessor searchEl!: HTMLInputElement | null;
   @query(".trigger") accessor triggerEl!: HTMLElement | null;
+  @query(".menu") accessor menuEl!: HTMLElement | null;
 
   // Clicks on the trigger/options stopPropagation, so any click that reaches the
   // document is outside this dropdown — close it. Auto-unbinds on disconnect.
   @on(document, "click")
   onDoc() {
-    if (this.open) this.open = false;
+    this.close();
   }
 
   private openMenu(seed = "") {
     this.query = seed;
-    // Flip up when a downward menu would clip below the viewport (or a modal's bottom)
-    // AND there's more room above. Estimate the menu height from the option count so a
-    // small (e.g. 2-option) menu still flips instead of assuming a tall one.
+    this.open = true;
+    // The menu is a top-layer popover positioned to the trigger; do it after render so
+    // the element exists, then reveal it. Focus the filter box if searchable.
+    requestAnimationFrame(() => {
+      const m = this.menuEl as any;
+      m?.setAttribute?.("popover", "manual"); // top layer — set here (loom JSX types omit it)
+      this.positionMenu();
+      m?.showPopover?.();
+      this.searchEl?.focus();
+    });
+  }
+
+  // positionMenu pins the top-layer menu to the trigger with fixed coords, flipping
+  // above when there isn't room below. Runs on open (and could re-run on scroll/resize).
+  private positionMenu() {
+    const t = this.triggerEl?.getBoundingClientRect();
+    const m = this.menuEl;
+    if (!t || !m) return;
+    m.style.left = t.left + "px";
+    m.style.minWidth = t.width + "px";
     const rows = Math.min(this.options.length, 6);
     const est = Math.min(MENU_EST, rows * 40 + (this.options.length > 6 ? 42 : 0) + 8);
-    const r = this.triggerEl?.getBoundingClientRect();
-    if (r) {
-      const roomBelow = window.innerHeight - r.bottom;
-      this.dropUp = roomBelow < est + 12 && r.top > roomBelow; // won't fit below, more room above
+    const roomBelow = window.innerHeight - t.bottom;
+    if (roomBelow < est + 12 && t.top > roomBelow) {
+      m.style.bottom = window.innerHeight - t.top + 3 + "px";
+      m.style.top = "auto";
+    } else {
+      m.style.top = t.bottom + 3 + "px";
+      m.style.bottom = "auto";
     }
-    this.open = true;
-    // Focus the filter box (if this list is searchable) so typing continues there.
-    setTimeout(() => this.searchEl?.focus(), 0);
+  }
+
+  private close() {
+    if (!this.open) return;
+    (this.menuEl as any)?.hidePopover?.();
+    this.open = false;
   }
 
   private toggle = (e: Event) => {
     e.stopPropagation();
-    if (this.open) this.open = false;
+    if (this.open) this.close();
     else this.openMenu();
   };
 
@@ -96,7 +119,7 @@ export class HopeSelect extends LoomElement {
   private pick = (v: string, e: Event) => {
     e.stopPropagation();
     this.value = v;
-    this.open = false;
+    this.close();
     this.dispatchEvent(new CustomEvent("select", { detail: v, bubbles: true, composed: true }));
   };
 
@@ -111,7 +134,7 @@ export class HopeSelect extends LoomElement {
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
-          <div class={"menu" + (this.dropUp ? " up" : "")} onClick={(e: Event) => e.stopPropagation()}>
+          <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
             {this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}

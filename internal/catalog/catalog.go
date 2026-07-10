@@ -65,7 +65,19 @@ type CatalogEntry struct {
 	Volumes     []VolumeMount     `json:"volumes,omitempty"`
 	Settings    []SettingSeed     `json:"settings,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"` // extra static container labels
-	Source      string            `json:"source,omitempty"` // "builtin" | "remote" (filled at merge)
+	// Permissions the plugin will request (its reverse-channel scopes) — declared here
+	// so the marketplace can DISCLOSE them before install and the operator accepts at
+	// install time. Should match the plugin's own RequirePermission; the authoritative
+	// gate remains the per-scope consent at enable, this is the up-front accept.
+	Permissions []CatalogPermission `json:"permissions,omitempty"`
+	Source      string              `json:"source,omitempty"` // "builtin" | "remote" (filled at merge)
+}
+
+// CatalogPermission is one reverse-capability scope a catalog plugin requests, with a
+// human reason shown on the marketplace consent screen.
+type CatalogPermission struct {
+	Scope  string `json:"scope"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Manifest is the remote catalog document: a versioned list of entries. Version lets a

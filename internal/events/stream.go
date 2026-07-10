@@ -9,6 +9,7 @@ import (
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/auth"
 )
 
 // pathEvents is the single global event feed. Underscore prefix marks it a
@@ -21,10 +22,12 @@ const pathEvents = "/rpc/_events"
 const keepAlive = 15 * time.Second
 
 // Handler serves the NDJSON event feed off a Bus. It is a sov RouteHandler
-// registered via gw.MustUse; the gateway's edge auth populates req.User before it
-// runs, so it gates on an authenticated subject (operator-only) like batchstream.
+// registered via gw.MustUse. A RouteHandler does NOT get req.User populated by the
+// gateway's auth chain (that's set for RPC-dispatched calls), so — like logstream —
+// it verifies the operator's bearer token directly via the TokenManager.
 type Handler struct {
-	bus *Bus
+	bus    *Bus
+	tokens *auth.TokenManager
 }
 
 // Compile-time proof of the hooks bound.
@@ -34,8 +37,9 @@ var (
 	_ gateway.RouteHandler = (*Handler)(nil)
 )
 
-// NewHandler returns the event-feed route handler for the given bus.
-func NewHandler(bus *Bus) *Handler { return &Handler{bus: bus} }
+// NewHandler returns the event-feed route handler for the given bus + token manager
+// (used to authenticate the operator's bearer on each connection).
+func NewHandler(bus *Bus, tokens *auth.TokenManager) *Handler { return &Handler{bus: bus, tokens: tokens} }
 
 func (h *Handler) PluginName() string { return "events" }
 
@@ -60,7 +64,7 @@ func (h *Handler) ServeRoute(ctx context.Context, req *gateway.Request) *gateway
 	if req.Method != http.MethodPost {
 		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusMethodNotAllowed, Code: "BAD_REQUEST", Message: "method not allowed"})
 	}
-	if !hasSubject(req) {
+	if !h.authenticated(req) {
 		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "authentication required"})
 	}
 	var body subscribeBody
@@ -100,15 +104,16 @@ func (h *Handler) ServeRoute(ctx context.Context, req *gateway.Request) *gateway
 	}
 }
 
-// hasSubject reports whether the request carries an authenticated subject, set by
-// the gateway's edge auth middleware. Mirrors internal/batchstream: req.User is a
-// subject string or *gateway.Claims; an anonymous request leaves it nil.
-func hasSubject(req *gateway.Request) bool {
-	switch u := req.User.(type) {
-	case string:
-		return u != ""
-	case *gateway.Claims:
-		return u != nil && u.Subject != ""
+// authenticated verifies the operator's bearer token directly (a RouteHandler doesn't
+// receive req.User from the gateway auth chain). Mirrors logstream.authenticate.
+func (h *Handler) authenticated(req *gateway.Request) bool {
+	if h.tokens == nil {
+		return false
 	}
-	return false
+	tok, err := auth.Bearer(req.Header.Get("Authorization"))
+	if err != nil {
+		return false
+	}
+	_, _, err = h.tokens.Verify(tok)
+	return err == nil
 }
