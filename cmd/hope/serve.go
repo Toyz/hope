@@ -307,16 +307,19 @@ func runServe(configPath string) error {
 	}
 	pluginCatalog := catalog.New(catalogSources, cfg.Plugins.Catalog.Refresh, pluginCatalogCache)
 	pluginCatalog.Start(ctx)
-	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginhost.Limits{
+	pluginLimits := pluginhost.Limits{
 		MaxConcurrentCalls:   cfg.Plugins.Limits.MaxConcurrentCalls,
 		MaxConcurrentStreams: cfg.Plugins.Limits.MaxConcurrentStreams,
 		CallRatePerSec:       cfg.Plugins.Limits.CallRatePerSec,
 		CallBurst:            cfg.Plugins.Limits.CallBurst,
 		MaxFrameBytes:        cfg.Plugins.Limits.MaxFrameBytes,
 		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
-	}, eventBus)
+	}
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginLimits, eventBus)
+	pluginsRouter.SetCallbackURL(cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
 	gw.Register(pluginsRouter)
-	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
+	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
+	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, pluginLimits)) // plugin->hope reverse channel (publish)
 	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)

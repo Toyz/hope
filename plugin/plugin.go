@@ -95,6 +95,13 @@ type Plugin struct {
 	onEvent func(ctx context.Context, e Event) error
 	perms   []Permission
 
+	// Reverse channel, delivered by hope.init: hopeURL is hope's base URL reachable
+	// by this plugin, pluginKey is this install's stable identity. Both empty until
+	// hope.init delivers them (needs a callback URL configured on hope) — Publish and
+	// Storage are no-ops until then. Guarded by mu.
+	hopeURL   string
+	pluginKey string
+
 	// auth: token is the configured shared secret (HOPE_PLUGIN_TOKEN or Token()).
 	// When empty, the plugin trusts-on-first-use — it pins the first bearer hope
 	// presents and rejects mismatches after (see authorize in jsonrpc.go).

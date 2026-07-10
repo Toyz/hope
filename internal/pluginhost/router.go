@@ -30,6 +30,7 @@ type PluginsRouter struct {
 	autoReapprove bool             // trust schema/image changes (dev): re-record fingerprint instead of disabling
 	limits        Limits           // operator-tuned per-plugin safety caps
 	bus           *events.Bus      // nil-safe: publishes plugin.changed to the global feed
+	callbackURL   string           // hope's base URL reachable by a plugin (reverse channel); empty = off
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -64,6 +65,10 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits, bus *events.Bus) *PluginsRouter {
 	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults(), bus: bus}
 }
+
+// SetCallbackURL sets hope's plugin-reachable base URL, handed to plugins in hope.init
+// so they can call back (publish / storage). Empty leaves the reverse channel off.
+func (r *PluginsRouter) SetCallbackURL(u string) { r.callbackURL = u }
 
 // Catalog returns the installable first-party plugins (built-ins merged with any
 // remote manifest entries). Empty when no catalog is wired.

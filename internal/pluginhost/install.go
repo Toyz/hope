@@ -494,6 +494,13 @@ func (r *PluginsRouter) initPlugin(ctx context.Context, ep *endpoint, rec *store
 			"features":   splitCSV(capFeatures),
 		},
 	}
+	// Reverse channel: tell the plugin how to call BACK into hope (publish / storage)
+	// and who it is. Only when a callback URL is configured — otherwise the plugin
+	// never learns a URL and its Publish/Storage stay no-ops (reverse channel off).
+	if r.callbackURL != "" {
+		params["hopeBaseURL"] = r.callbackURL
+		params["pluginKey"] = rec.Key
+	}
 	if _, err := ep.callRPC(ctx, "hope.init", params); err != nil {
 		// Older plugin (no hope.init) or a transient error — fall back to hope.settings.
 		if _, serr := ep.callRPC(ctx, "hope.settings", map[string]any{"values": rec.Settings}); serr != nil {

@@ -8,9 +8,13 @@ import (
 	"github.com/toyz/hope/internal/store"
 )
 
-// scopeEventsSubscribe mirrors the SDK's ScopeEventsSubscribe (plugin/schema.go).
-// Kept as a local literal so hope's main module doesn't import the plugin module.
-const scopeEventsSubscribe = "events:subscribe"
+// Permission scopes (mirror the SDK's Scope* constants in plugin/schema.go). Kept as
+// local literals so hope's main module doesn't import the plugin module.
+const (
+	scopeEventsSubscribe = "events:subscribe"
+	scopeEventsPublish   = "events:publish"
+	scopeStorage         = "storage"
+)
 
 const (
 	fanoutTimeout = 2 * time.Second // per hope.event push
