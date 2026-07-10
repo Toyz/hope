@@ -26,6 +26,7 @@ import (
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
 )
@@ -70,6 +71,7 @@ type Plugin struct {
 	hosts  *hosts.Set
 	tokens *auth.TokenManager
 	deploy *deploy.Engine
+	bus    *events.Bus // nil-safe: publishes redeploy/pull outcomes to the global feed
 }
 
 // dock is the docker client for the currently-active host.
@@ -85,8 +87,8 @@ var (
 
 // New returns the logstream plugin (active-host aware). eng drives the streaming
 // deploy operations (apply/deploy/destroy).
-func New(hs *hosts.Set, tm *auth.TokenManager, eng *deploy.Engine) *Plugin {
-	return &Plugin{hosts: hs, tokens: tm, deploy: eng}
+func New(hs *hosts.Set, tm *auth.TokenManager, eng *deploy.Engine, bus *events.Bus) *Plugin {
+	return &Plugin{hosts: hs, tokens: tm, deploy: eng, bus: bus}
 }
 
 // PluginName surfaces in /rpc/_introspect.plugins[].
@@ -170,7 +172,13 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		id := args[0]
 		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+			err := p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit)
+			if err == nil {
+				p.bus.Publish(events.Event{Kind: events.KindStackRedeployed, Host: p.hosts.ActiveIDFor(ctx), IDs: []string{id}})
+			}
+			return err
+		})
 
 	case pathRedeployStack:
 		if len(args) == 0 {
@@ -179,14 +187,26 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		project := args[0]
 		pull := !(len(args) > 1 && args[1] == "false")
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RedeployProject(ctx, project, pull, force, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+			err := p.dock(ctx).RedeployProject(ctx, project, pull, force, emit)
+			if err == nil {
+				p.bus.Publish(events.Event{Kind: events.KindStackRedeployed, Host: p.hosts.ActiveIDFor(ctx), Project: project})
+			}
+			return err
+		})
 
 	case pathPull:
 		if len(args) == 0 {
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		ids := append([]string(nil), args...)
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).PullContainers(ctx, ids, emit) })
+		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+			err := p.dock(ctx).PullContainers(ctx, ids, emit)
+			if err == nil {
+				p.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: p.hosts.ActiveIDFor(ctx), IDs: ids})
+			}
+			return err
+		})
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"

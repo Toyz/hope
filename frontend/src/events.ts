@@ -202,3 +202,43 @@ export class ModalToggle extends LoomEvent {
     super();
   }
 }
+
+// --- Server-originated events (re-emitted by EventFeed from the /rpc/_events
+// feed). These carry SERVER truth pushed from the daemon, so a change made in
+// another tab / by another operator / by the daemon itself updates this tab live.
+// They deliberately reuse the existing in-place-patch events above where possible
+// (TopologyChanged/TopologyRemoved/UpdatesApplied/PluginsChanged); the classes
+// below are the few new shapes the feed needs. ---
+
+// Fired when a container's lifecycle state changed on the server (start/stop/
+// restart/kill). host + optional container ids scope it; a page showing those
+// containers can refetch their status.
+export class ContainerStateChanged extends LoomEvent {
+  constructor(public host: string, public ids?: string[]) {
+    super();
+  }
+}
+
+// Fired when a new image update became available on the server (the freshness
+// crawler flipped a verdict to outdated). Inverse of UpdatesApplied.
+export class UpdateAvailable extends LoomEvent {
+  constructor(public host: string, public ids?: string[]) {
+    super();
+  }
+}
+
+// Fired when a host's tunnel routes changed on the server (connector/route add or
+// remove), so a tunnels view can refetch.
+export class TunnelsChanged extends LoomEvent {
+  constructor(public host: string) {
+    super();
+  }
+}
+
+// Fired when an agent host connected or disconnected, so fleet views reflect it
+// live without waiting for a manual refresh.
+export class AgentStatusChanged extends LoomEvent {
+  constructor(public host: string, public online: boolean) {
+    super();
+  }
+}

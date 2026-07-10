@@ -11,6 +11,7 @@ import (
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/store"
 )
@@ -27,6 +28,7 @@ type PluginsRouter struct {
 	enabled       bool             // [plugins] enabled capability gate
 	autoReapprove bool             // trust schema/image changes (dev): re-record fingerprint instead of disabling
 	limits        Limits           // operator-tuned per-plugin safety caps
+	bus           *events.Bus      // nil-safe: publishes plugin.changed to the global feed
 
 	mu       sync.Mutex
 	cache    []Discovered
@@ -58,8 +60,8 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 // (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
 // when false every method reports the feature is off. sov derives the wire name
 // "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults()}
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits, bus *events.Bus) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults(), bus: bus}
 }
 
 // Catalog returns the installable first-party plugins (built-ins merged with any
@@ -266,6 +268,14 @@ type TargetParams struct {
 
 func (p *TargetParams) valid() bool { return p != nil && p.Key != "" }
 
+// pluginChangeData is the optional payload on a plugin.changed event: which plugin
+// and what happened. The frontend's PluginsChanged carries no payload (it just
+// refetches), so this is only for future/plugin consumers.
+func pluginChangeData(key, action string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"key": key, "action": action})
+	return b
+}
+
 // Enable trusts a discovered plugin: it mints a per-plugin bearer token, captures
 // the fingerprint of the representative container, and persists the approval keyed
 // by the stable identity. Requires the store mounted.
@@ -282,6 +292,7 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if _, _, _, err := r.enableRecord(ctx, p.Key, ""); err != nil {
 		return nil, err
 	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "enabled")})
 	return map[string]any{"ok": true}, nil
 }
 
@@ -305,6 +316,7 @@ func (r *PluginsRouter) Disable(ctx *rpc.Context, p *TargetParams) (any, error) 
 		return nil, rpc.Internal("persist: %v", err)
 	}
 	r.detachPluginNet(ctx, p.Key) // stop sharing hope's network
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "disabled")})
 	return map[string]any{"ok": true}, nil
 }
 
@@ -337,6 +349,7 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if err := r.store.DeletePlugin(p.Key); err != nil {
 		return nil, rpc.Internal("forget: %v", err)
 	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
 }
 

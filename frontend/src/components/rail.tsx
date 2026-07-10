@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -216,6 +216,11 @@ export class HopeRail extends LoomElement {
   // a page reload. Install is rare + user-initiated, so a refetch here is fine (unlike delete).
   @on(TopologyChanged)
   private onTopologyChanged() { void this.load(); }
+
+  // An agent host connected or disconnected (pushed from the server feed) — refetch
+  // the fleet so the host appears/disappears in the rail live, no manual refresh.
+  @on(AgentStatusChanged)
+  private onAgentStatus() { void this.load(); }
 
   @on(TopologyRemoved)
   private onTopologyRemoved(e: TopologyRemoved) {

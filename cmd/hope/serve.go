@@ -27,6 +27,7 @@ import (
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hostguard"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
@@ -254,8 +255,16 @@ func runServe(configPath string) error {
 	// Deploy engine + spec store (write path: build/deploy/edit stacks, create
 	// networks/volumes). Specs live in the state db; no store mounted = not
 	// retained across a recreate (deploy still works; re-import to edit).
+	// Global event bus: producers across the daemon publish state-change events and
+	// the /rpc/_events feed streams them to the UI so the rail/pages update live
+	// (no manual refresh). Constructed here, injected into the producers below.
+	eventBus := events.New()
+	if hub != nil {
+		hub.SetBus(eventBus) // agent online/offline -> live feed
+	}
+
 	deployStore := deploy.NewStore(st)
-	deployEngine := deploy.NewEngine(hostSet, deployStore)
+	deployEngine := deploy.NewEngine(hostSet, deployStore, eventBus)
 
 	// Front the listener with the agent WebSocket endpoint when the hub is on,
 	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
@@ -278,7 +287,7 @@ func runServe(configPath string) error {
 	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
-	gw.Register(containers.NewContainersRouter(hostSet))
+	gw.Register(containers.NewContainersRouter(hostSet, eventBus))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
@@ -305,7 +314,7 @@ func runServe(configPath string) error {
 		CallBurst:            cfg.Plugins.Limits.CallBurst,
 		MaxFrameBytes:        cfg.Plugins.Limits.MaxFrameBytes,
 		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
-	})
+	}, eventBus)
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
 	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
@@ -330,7 +339,11 @@ func runServe(configPath string) error {
 	gw.MustUse(hosttarget.New())
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(hostSet, tokens, deployEngine))
+	gw.MustUse(logstream.New(hostSet, tokens, deployEngine, eventBus))
+
+	// Global event feed: one long-lived NDJSON stream of state-change events (the
+	// bus fanned out to the UI). Registered beside the other stream handlers.
+	gw.MustUse(events.NewHandler(eventBus))
 
 	// Headless API: when keys are configured, enable sov's introspection endpoint
 	// (/rpc/_introspect) and the interactive explorer UI (/rpc/_explorer/). Off by

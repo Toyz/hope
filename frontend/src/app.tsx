@@ -7,11 +7,13 @@
 //
 // The root also owns body-scroll locking: any modal emits ModalToggle on the bus
 // (see signalModal), and hope-app ref-counts the open ones here.
-import { LoomElement, component, styles, reactive, on, persist } from "@toyz/loom";
+import { LoomElement, component, styles, reactive, on, persist, mount, unmount } from "@toyz/loom";
 import { css } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { RouteChanged } from "@toyz/loom/router";
 import { AuthStore } from "./auth-store";
+import { HopeTransport } from "./transport";
+import { EventFeed } from "./event-feed";
 import { theme } from "./styles";
 import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget, PluginInspectorTarget } from "./events";
 
@@ -45,6 +47,7 @@ import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, Vol
 `)
 export class HopeApp extends LoomElement {
   @inject(AuthStore) accessor auth!: AuthStore;
+  @inject(HopeTransport) accessor rpc!: HopeTransport;
   @reactive accessor path = location.pathname;
   @reactive accessor inspOpen = false;
   @reactive accessor logsOpen = false;
@@ -62,6 +65,14 @@ export class HopeApp extends LoomElement {
 
   @on(RouteChanged)
   private onRoute(e: RouteChanged) { this.path = e.path; }
+
+  // The one app-lifetime subscription to the server event feed: it re-emits server
+  // changes onto the loom bus so the rail/pages update live. Started once here (the
+  // always-mounted root); it idles until a token exists, so starting pre-login is
+  // fine.
+  private feed?: EventFeed;
+  @mount private startFeed() { this.feed = new EventFeed(this.rpc, this.auth); this.feed.start(); }
+  @unmount private stopFeed() { this.feed?.stop(); }
 
   // The docked bottom slot holds either the container inspector or the
   // multi-source log viewer — opening one supersedes the other.
