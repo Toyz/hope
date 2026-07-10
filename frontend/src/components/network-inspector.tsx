@@ -12,7 +12,7 @@ import { ToastService } from "../toast";
 import { NetworkInspectorTarget } from "../events";
 import { withHost } from "../host-url";
 import { UNGROUPED } from "../const";
-import { shortId } from "../format";
+import { shortId, networkFlags } from "../format";
 import type { NetworkInfo, ResourceUser } from "../contracts";
 import { theme } from "../styles";
 
@@ -117,7 +117,7 @@ export class HopeNetworkInspector extends LoomElement {
     if (!this.ref) return <div class="empty">Select a network.</div>;
     const n = this.net;
     const attached = !!n && n.used_by.length > 0;
-    const flags = n ? [n.internal ? "internal" : "", n.ipv6 ? "ipv6" : "", n.attachable ? "attachable" : ""].filter(Boolean) : [];
+    const flags = networkFlags(n);
     return (
       <>
         <div class="bar">

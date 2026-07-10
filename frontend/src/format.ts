@@ -146,6 +146,14 @@ export function ageUnix(unix: number): string {
   return `${Math.floor(s / 60)}m`;
 }
 
+// networkFlags — the display flags for a docker network (internal / ipv6 /
+// attachable), derived identically by the network inspector and the network detail
+// modal. Join the result for a single-line label.
+export function networkFlags(n: { internal?: boolean; ipv6?: boolean; attachable?: boolean } | null | undefined): string[] {
+  if (!n) return [];
+  return [n.internal ? "internal" : "", n.ipv6 ? "ipv6" : "", n.attachable ? "attachable" : ""].filter(Boolean);
+}
+
 // kvParse / kvSerialize — the shared env-var text<->rows codec (split on the first
 // "=", skip blank/`#` lines). The KEY is trimmed; the VALUE is preserved verbatim
 // so meaningful leading/trailing spaces in a value survive a round-trip.

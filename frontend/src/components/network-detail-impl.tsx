@@ -11,6 +11,7 @@ import { theme } from "../styles";
 import { HopeTransport } from "../transport";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
+import { networkFlags } from "../format";
 import { UNGROUPED } from "../const";
 import { ConfirmService } from "../confirm";
 import { ToastService } from "../toast";
@@ -122,7 +123,7 @@ export default class NetworkDetailModal extends LoomElement {
   update() {
     if (!this.open) return <div></div>;
     const n = this.info;
-    const flags = n ? [n.internal ? "internal" : "", n.ipv6 ? "ipv6" : "", n.attachable ? "attachable" : ""].filter(Boolean).join(" · ") : "";
+    const flags = networkFlags(n).join(" · ");
     return (
       <div class="dmodal" onClick={this.close}>
         <div class="dbox" onClick={(e: Event) => e.stopPropagation()}>

@@ -44,6 +44,15 @@ function ctrTone(state: string, hasUpd: boolean): string {
   if (state === "restarting") return "bad";
   return "off";
 }
+// Worst-of tone for a replica group from its running/total counts (adds the "off"
+// and "upd" states a whole-stack severity doesn't carry). One place instead of the
+// expression that was hand-inlined at the group node.
+function toneFromCounts(running: number, total: number, restarting: boolean, hasUpd: boolean): string {
+  if (restarting) return "bad";
+  if (running === 0) return "off";
+  if (running === total) return hasUpd ? "upd" : "ok";
+  return "warn";
+}
 
 @component("hope-rail")
 @styles(theme, css`
@@ -415,7 +424,7 @@ export class HopeRail extends LoomElement {
       const rOpen = this.openSvcs.includes(key);
       const running = reps.filter((c) => c.state === "running").length;
       const anyUpd = reps.some((c) => outIds.has(c.id));
-      const worst = reps.some((c) => c.state === "restarting") ? "bad" : running === reps.length ? (anyUpd ? "upd" : "ok") : running === 0 ? "off" : "warn";
+      const worst = toneFromCounts(running, reps.length, reps.some((c) => c.state === "restarting"), anyUpd);
       // Mark the group with the same active style as everything else when the
       // active container is one of its replicas (so it's consistent, not a bespoke
       // bar-only variant).
