@@ -295,6 +295,16 @@ func (c *Client) ContainerImage(ctx context.Context, id string) (string, error) 
 	return info.Config.Image, nil
 }
 
+// ContainerName returns a container's friendly name (leading slash trimmed), for
+// user-facing notifications. Best-effort — callers fall back to the short id.
+func (c *Client) ContainerName(ctx context.Context, id string) (string, error) {
+	info, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", id, err)
+	}
+	return strings.TrimPrefix(info.Name, "/"), nil
+}
+
 // Recreate rebuilds a container in place so it picks up a freshly pulled image,
 // preserving its config, host config, name, labels (so it stays grouped in its
 // compose project), and network attachments. This is the API-only equivalent of

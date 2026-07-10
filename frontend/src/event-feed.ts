@@ -110,9 +110,11 @@ export class EventFeed {
       case "container.removed":
         bus.emit(new TopologyRemoved(host, undefined, f.ids));
         return;
-      case "container.state":
-        bus.emit(new ContainerStateChanged(host, f.ids));
+      case "container.state": {
+        const d = f.data ?? {};
+        bus.emit(new ContainerStateChanged(host, f.ids, d.action ?? "", d.name ?? ""));
         return;
+      }
       case "image.update":
         bus.emit(new UpdateAvailable(host, f.ids));
         return;

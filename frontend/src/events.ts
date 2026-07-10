@@ -214,7 +214,7 @@ export class ModalToggle extends LoomEvent {
 // restart/kill). host + optional container ids scope it; a page showing those
 // containers can refetch their status.
 export class ContainerStateChanged extends LoomEvent {
-  constructor(public host: string, public ids?: string[]) {
+  constructor(public host: string, public ids?: string[], public action = "", public name = "") {
     super();
   }
 }

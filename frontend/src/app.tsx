@@ -17,7 +17,7 @@ import { ToastService } from "./toast";
 import { EventFeed } from "./event-feed";
 import "./components/consent-modal"; // registers <hope-consent>
 import { theme } from "./styles";
-import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget, PluginInspectorTarget, PluginAlert } from "./events";
+import { ModalToggle, InspectorTarget, LogPanelTarget, ImageInspectorTarget, VolumeInspectorTarget, NetworkInspectorTarget, ConnectorInspectorTarget, PluginInspectorTarget, PluginAlert, ContainerStateChanged } from "./events";
 
 @component("hope-app")
 @styles(theme, css`
@@ -97,6 +97,15 @@ export class HopeApp extends LoomElement {
     const msg = e.detail ? `${label} — ${e.detail}` : label;
     const tone = /crit|error|high|fatal/i.test(e.severity) ? "bad" : /warn|med/i.test(e.severity) ? "warn" : "ok";
     this.toast.show(msg, tone);
+  }
+
+  // Confirm a container lifecycle op (start/stop/restart/kill) with a toast when the
+  // server reports it done — the action is initiated elsewhere (rail, stack page,
+  // context menu) and otherwise completes silently. Server-attributed via the bus, so
+  // every surface gets the same feedback and other operators' actions show too.
+  @on(ContainerStateChanged)
+  private onContainerState(e: ContainerStateChanged) {
+    if (e.action && e.name) this.toast.ok(`${e.action} ${e.name}`);
   }
 
   // The docked bottom slot holds either the container inspector or the

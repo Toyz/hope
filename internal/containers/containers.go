@@ -4,6 +4,7 @@ package containers
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/Toyz/sov/rpc"
@@ -74,28 +75,28 @@ func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.Conta
 
 // Start starts a stopped container.
 func (r *ContainersRouter) Start(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Start)
+	return r.act(ctx, p, events.KindContainerState, "started", r.dock(ctx).Start)
 }
 
 // Stop stops a running container.
 func (r *ContainersRouter) Stop(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Stop)
+	return r.act(ctx, p, events.KindContainerState, "stopped", r.dock(ctx).Stop)
 }
 
 // Restart restarts a container.
 func (r *ContainersRouter) Restart(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Restart)
+	return r.act(ctx, p, events.KindContainerState, "restarted", r.dock(ctx).Restart)
 }
 
 // Kill sends SIGKILL to a container.
 func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Kill)
+	return r.act(ctx, p, events.KindContainerState, "killed", r.dock(ctx).Kill)
 }
 
 // Remove stops and deletes a container (for loose/ungrouped containers compose
 // can't manage).
 func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, events.KindContainerRemoved, r.dock(ctx).Remove)
+	return r.act(ctx, p, events.KindContainerRemoved, "removed", r.dock(ctx).Remove)
 }
 
 // Pull pulls the latest image for this one container (not the whole stack).
@@ -140,13 +141,34 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, 
 	return &CtrResult{OK: true}, nil
 }
 
-func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, kind events.Kind, fn func(context.Context, string) error) (*CtrResult, error) {
+func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, kind events.Kind, action string, fn func(context.Context, string) error) (*CtrResult, error) {
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}
 	if err := fn(ctx, p.ID); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
-	r.bus.Publish(events.Event{Kind: kind, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
+	// A friendly name for the completion notice; fall back to the short id if the
+	// inspect fails (e.g. the container is already gone after a remove).
+	name := shortID(p.ID)
+	if n, err := r.dock(ctx).ContainerName(ctx, p.ID); err == nil && n != "" {
+		name = n
+	}
+	r.bus.Publish(events.Event{Kind: kind, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}, Data: ctrActionData(action, name)})
 	return &CtrResult{OK: true}, nil
+}
+
+// ctrActionData is the container.state/removed payload the UI turns into a
+// completion toast: what happened ("restarted") to which container ("web").
+func ctrActionData(action, name string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"action": action, "name": name})
+	return b
+}
+
+// shortID trims a container id to the 12-char form docker shows.
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
