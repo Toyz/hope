@@ -103,6 +103,27 @@ func (c *Client) ProjectUpdates(ctx context.Context, project string) ([]ImageUpd
 	}
 	wg.Wait()
 
+	// Merge the fresh verdicts into the shared cache (copy-on-write) so the rail's
+	// AllUpdates reads them, and fire the hook if any ref newly flipped to
+	// "outdated" — otherwise a user's per-stack check would update this page but
+	// leave the rail (which reads the cache + listens for image.update) stale.
+	c.updMu.Lock()
+	flipped := false
+	next := make(map[string]refStatus, len(c.updByRef)+len(byRef))
+	maps.Copy(next, c.updByRef)
+	for ref, r := range byRef {
+		if r.status == "outdated" && next[ref].status != "outdated" {
+			flipped = true
+		}
+		next[ref] = refStatus{status: r.status, detail: r.detail}
+	}
+	c.updByRef = next
+	c.updMu.Unlock()
+	c.saveUpdateCache()
+	if flipped && c.updHook != nil {
+		c.updHook()
+	}
+
 	out := make([]ImageUpdate, 0, len(list))
 	for _, ct := range list {
 		r := byRef[ct.Image]
@@ -309,12 +330,19 @@ func (c *Client) RefreshImageStatus(ctx context.Context, ref string) {
 	// under RLock then reads it UNLOCKED, so the published map must be immutable —
 	// mutating it in place here would be a concurrent map read+write (a fatal,
 	// process-killing runtime error). Rebuild + reassign, like the crawler does.
+	// Detect a fresh flip to "outdated" so a user-triggered per-image/per-stack
+	// check publishes image.update too (not just the background crawl) — otherwise
+	// the rail never learns an update appeared until the next full crawl.
+	flipped := st == "outdated" && c.updByRef[ref].status != "outdated"
 	next := make(map[string]refStatus, len(c.updByRef)+1)
 	maps.Copy(next, c.updByRef)
 	next[ref] = refStatus{status: st, detail: detail}
 	c.updByRef = next
 	c.updMu.Unlock()
 	c.saveUpdateCache()
+	if flipped && c.updHook != nil {
+		c.updHook()
+	}
 }
 
 // RefreshProjectStatus re-checks every distinct image ref in a project and
