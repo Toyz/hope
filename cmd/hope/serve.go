@@ -168,11 +168,17 @@ func runServe(configPath string) error {
 	// enables the WebSocket endpoint on hope's main port (no extra port — it
 	// rides 443 through Cloudflare); an optional raw TCP listener serves agents
 	// on a trusted LAN/overlay.
+	// Global event bus: producers publish state-change events; the /rpc/_events feed
+	// streams them to the UI (live rail/pages). Built before the hub + crawlers so the
+	// agent-connect and update-crawler hooks can publish onto it.
+	eventBus := events.New()
+
 	var hub *agent.Hub
 	var hubReg *agent.Registry
 	if cfg.Agent.Token != "" {
 		hub = agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
 		hubReg = hub.Registry()
+		hub.SetBus(eventBus) // agent online/offline -> live feed
 		// Give every connected agent the same background jobs as the local
 		// daemon — registry creds + update/disk crawlers — scoped to its
 		// connection (sctx is cancelled when it drops). The freshness cache is
@@ -181,6 +187,7 @@ func runServe(configPath string) error {
 			d := host.Docker
 			applyRegistries(d) // config + db creds — hope auths registries for every agent
 			if cfg.Updates.Enabled {
+				d.SetUpdateHook(func() { eventBus.Publish(events.Event{Kind: events.KindImageUpdate, Host: host.ID}) })
 				d.StartUpdateCrawler(sctx, cfg.Updates.Interval, "")
 			}
 			d.StartDiskCrawler(sctx, time.Hour)
@@ -236,6 +243,7 @@ func runServe(configPath string) error {
 			if st.Enabled() {
 				dock.SetUpdateCache(storeUpdCache{st}, "local")
 			}
+			dock.SetUpdateHook(func() { eventBus.Publish(events.Event{Kind: events.KindImageUpdate, Host: hosts.LocalID}) })
 			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, "")
 			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "persisted", st.Enabled())
 		}
@@ -255,14 +263,6 @@ func runServe(configPath string) error {
 	// Deploy engine + spec store (write path: build/deploy/edit stacks, create
 	// networks/volumes). Specs live in the state db; no store mounted = not
 	// retained across a recreate (deploy still works; re-import to edit).
-	// Global event bus: producers across the daemon publish state-change events and
-	// the /rpc/_events feed streams them to the UI so the rail/pages update live
-	// (no manual refresh). Constructed here, injected into the producers below.
-	eventBus := events.New()
-	if hub != nil {
-		hub.SetBus(eventBus) // agent online/offline -> live feed
-	}
-
 	deployStore := deploy.NewStore(st)
 	deployEngine := deploy.NewEngine(hostSet, deployStore, eventBus)
 

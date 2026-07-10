@@ -9,7 +9,7 @@ import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost } from "../host-url";
-import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable } from "../events";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -221,6 +221,11 @@ export class HopeRail extends LoomElement {
   // the fleet so the host appears/disappears in the rail live, no manual refresh.
   @on(AgentStatusChanged)
   private onAgentStatus() { void this.load(); }
+
+  // The freshness crawler flipped a ref to outdated (a new image update appeared on
+  // the server) — refetch so the rail's "outdated" dots show it without a manual check.
+  @on(UpdateAvailable)
+  private onUpdateAvailable() { void this.load(); }
 
   @on(TopologyRemoved)
   private onTopologyRemoved(e: TopologyRemoved) {
