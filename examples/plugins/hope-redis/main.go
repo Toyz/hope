@@ -453,7 +453,7 @@ func registerLayout(p *plugin.Plugin) {
 		),
 	)).PageID("redis").
 		Subtitle("browse, query, and operate this server").
-		HeaderActions("flushdb", "flushall")
+		HeaderActions("addAlert", "flushdb", "flushall")
 
 	p.DashboardWidget("Redis", plugin.Section("", plugin.Leaf("overview")))
 	p.StackWidget("Redis", nil, plugin.Section("", plugin.Leaf("overview")))
