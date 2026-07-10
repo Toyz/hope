@@ -1,5 +1,7 @@
 package plugin
 
+import "encoding/json"
+
 // This file defines the wire types hope reads from a plugin: the capability
 // manifest (hope.schema) and the UI contribution descriptor (hope.layout). They
 // are plain JSON structs on purpose — any language can produce the same shapes;
@@ -236,7 +238,42 @@ type Schema struct {
 	Actions         []ActionDesc      `json:"actions"`
 	Views           []ViewDesc        `json:"views"`
 	Streams         []StreamDesc      `json:"streams"`
-	Settings        []Setting         `json:"settings,omitempty"` // operator-managed config (see Setting)
+	Settings        []Setting         `json:"settings,omitempty"`    // operator-managed config (see Setting)
+	Permissions     []Permission      `json:"permissions,omitempty"` // reverse-capability requests (see Permission)
+}
+
+// Permission is a reverse capability the plugin REQUESTS from hope. Least privilege:
+// a plugin gets NOTHING on the plugin->hope direction unless it declares the scope
+// here (via Plugin.RequirePermission) AND the operator consents when enabling it.
+// hope records the granted subset and gates every reverse call on it; the plugin's
+// token authenticates identity, the grant set authorizes. Reason is shown on the
+// operator's consent prompt.
+type Permission struct {
+	Scope  string `json:"scope"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// Reverse-capability scopes a plugin may request. Plain strings so older/newer peers
+// interoperate — an unknown scope is simply never granted. Additive: publish/storage/
+// action scopes land with their phases.
+const (
+	ScopeEventsSubscribe = "events:subscribe" // receive hope events via OnEvent
+	ScopeEventsPublish   = "events:publish"   // publish events onto hope's bus
+	ScopeStorage         = "storage"          // durable per-install KV (p.Storage)
+)
+
+// Event is one hope event delivered to an OnEvent handler. Mirrors hope's wire
+// event; Data is kind-specific JSON (may be empty). Delivered only when the plugin
+// holds the events:subscribe grant.
+type Event struct {
+	Seq     uint64          `json:"seq,omitempty"`
+	Kind    string          `json:"kind"`
+	Host    string          `json:"host,omitempty"`
+	Project string          `json:"project,omitempty"`
+	IDs     []string        `json:"ids,omitempty"`
+	Source  string          `json:"source,omitempty"`
+	Ts      int64           `json:"ts,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 // SettingKind enumerates the input type for an operator-managed plugin setting.

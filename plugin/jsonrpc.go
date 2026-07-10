@@ -203,6 +203,29 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// hope pushes a fleet event here when the plugin holds the events:subscribe grant
+	// (one unary call per event). params ARE the event. Best-effort from hope's side:
+	// an error or a missing handler is treated as "not delivered" and it moves on.
+	if req.Method == "hope.event" {
+		if p.onEvent == nil {
+			writeError(w, req.ID, codeMethodNotFn, "no event handler")
+			return
+		}
+		var e Event
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &e); err != nil {
+				writeError(w, req.ID, codeInvalidArgs, "invalid params")
+				return
+			}
+		}
+		if err := p.onEvent(r.Context(), e); err != nil {
+			writeError(w, req.ID, codeInternal, err.Error())
+			return
+		}
+		writeResult(w, req.ID, map[string]any{"ok": true})
+		return
+	}
+
 	ctx := context.WithValue(r.Context(), paramsKey{}, req.Params)
 	// Carry hope's advertised capabilities into the handler context so Caps(ctx) can
 	// let the plugin adapt its output to what this hope build can render.
