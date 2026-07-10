@@ -284,15 +284,15 @@ func registerOverview(p *plugin.Plugin) {
 			}, nil
 		}
 
-		var status any = plugin.CText("—")
+		var status any = "—"
 		if current {
 			status = plugin.Badge("connected", plugin.ToneInfo)
 		}
 		return plugin.Box(
 			plugin.CRow(
 				plugin.KeyVal("database", plugin.Badge(name, plugin.ToneInfo)),
-				plugin.KeyVal("size", plugin.CText(size)),
-				plugin.KeyVal("encoding", plugin.CText(encoding)),
+				plugin.KeyVal("size", size),
+				plugin.KeyVal("encoding", encoding),
 				plugin.KeyVal("status", status),
 			).Gapped(24),
 			plugin.Divider(),
@@ -302,7 +302,7 @@ func registerOverview(p *plugin.Plugin) {
 				plugin.KeyVal("active", plugin.Number(active, "")),
 				plugin.KeyVal("idle", plugin.Number(idle, "")),
 				plugin.KeyVal("idle in tx", idleTxComp),
-				plugin.KeyVal("limit", plugin.CText(connLimitStr)),
+				plugin.KeyVal("limit", connLimitStr),
 			).Gapped(24),
 			plugin.Divider(),
 			plugin.Heading("Performance", 3),
@@ -310,21 +310,21 @@ func registerOverview(p *plugin.Plugin) {
 				plugin.KeyVal("cache hit", plugin.Badge(fmt.Sprintf("%.1f%%", hitPct), hitTone)),
 				plugin.KeyVal("disk reads", plugin.Number(blksRead, " blks")),
 				plugin.KeyVal("commits", plugin.Number(commits, "")),
-				plugin.KeyVal("rollback ratio", plugin.CText(fmt.Sprintf("%.2f%%", rbPct))),
+				plugin.KeyVal("rollback ratio", fmt.Sprintf("%.2f%%", rbPct)),
 				plugin.KeyVal("deadlocks", plugin.Number(deadlocks, "")),
 			).Gapped(24),
 			plugin.CRow(
 				plugin.KeyVal("rows written", plugin.Number(tupIns+tupUpd+tupDel, "")),
 				plugin.KeyVal("temp files", plugin.Number(tempFiles, "")),
-				plugin.KeyVal("temp spilled", plugin.CText(humanBytes(tempBytes))),
+				plugin.KeyVal("temp spilled", humanBytes(tempBytes)),
 				plugin.KeyVal("conflicts", plugin.Number(conflicts, "")),
 			).Gapped(24),
 			plugin.Divider(),
 			plugin.Heading("Health", 3),
 			plugin.CRow(
-				plugin.KeyVal("longest tx", plugin.CText(humanDur(longestTx))),
+				plugin.KeyVal("longest tx", humanDur(longestTx)),
 				plugin.KeyVal("xid age", plugin.Number(xidAge, "")),
-				plugin.KeyVal("stats since", plugin.CText(statsSince)),
+				plugin.KeyVal("stats since", statsSince),
 			).Gapped(24),
 		), nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(15))
