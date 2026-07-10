@@ -116,9 +116,9 @@ func serveOnce(ctx context.Context, opts Options) error {
 		return s
 	}
 	selfID, _ := os.Hostname() // inside the container this is its short id
-	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s %s %s\n",
+	if _, err := fmt.Fprintf(conn, "%s %s %s %s %s %s %s/%s %s %s %s %s\n",
 		protoVersion, opts.Token, opts.HostID,
-		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime), f(selfID), capStreamTypes); err != nil {
+		f(v.Version), f(v.Revision), f(v.GoVersion), runtime.GOOS, runtime.GOARCH, f(v.BuildTime), f(selfID), capStreamTypes, capReverse); err != nil {
 		return err
 	}
 	reply, err := readLine(conn)
@@ -130,12 +130,16 @@ func serveOnce(ctx context.Context, opts Options) error {
 		return fmt.Errorf("hub rejected: %s", strings.TrimSpace(reply))
 	}
 	streamTypes := false
+	reverse := false
 	for _, cap := range replyFields[1:] {
 		if cap == capStreamTypes {
 			streamTypes = true
 		}
+		if cap == capReverse {
+			reverse = true
+		}
 	}
-	opts.Log.Info("agent connected", "hub", opts.Connect, "host", opts.HostID, "stream_types", streamTypes)
+	opts.Log.Info("agent connected", "hub", opts.Connect, "host", opts.HostID, "stream_types", streamTypes, "reverse", reverse)
 
 	// Agent accepts streams; hope (the hub) opens them.
 	sess, err := yamux.Server(conn, yamuxCfg())
@@ -148,6 +152,13 @@ func serveOnce(ctx context.Context, opts Options) error {
 		<-ctx.Done()
 		sess.Close()
 	}()
+
+	// Reverse channel: when both agreed, listen for a co-located plugin's HTTP
+	// (reachable by our container id once hope attaches us to ink-plugins) and relay
+	// each connection to hope over a REVERSE stream.
+	if reverse {
+		go serveReverse(ctx, sess, opts.Log)
+	}
 
 	for {
 		stream, err := sess.Accept()
@@ -208,6 +219,44 @@ func proxyToContainer(stream net.Conn, addr string) {
 	done := make(chan struct{}, 1)
 	go func() { _, _ = io.Copy(d, stream); done <- struct{}{} }()
 	_, _ = io.Copy(stream, d)
+	<-done
+}
+
+// serveReverse listens for a co-located plugin's reverse-channel HTTP on the agent
+// and relays each connection to hope over a REVERSE stream. The listener binds all
+// interfaces on ReversePort; a plugin reaches it by the agent's container id once
+// hope attaches the agent to ink-plugins. Runs until ctx is cancelled.
+func serveReverse(ctx context.Context, sess *yamux.Session, log Logger) {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ReversePort))
+	if err != nil {
+		log.Warn("reverse-channel listener failed", "err", err)
+		return
+	}
+	go func() { <-ctx.Done(); ln.Close() }()
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return // listener closed (ctx cancelled) or session gone
+		}
+		go relayReverse(c, sess)
+	}
+}
+
+// relayReverse pipes one plugin connection to hope over a new REVERSE stream. hope's
+// hub reads the "REVERSE" header, then relays the plugin's HTTP to its own ingress.
+func relayReverse(c net.Conn, sess *yamux.Session) {
+	defer c.Close()
+	s, err := sess.Open()
+	if err != nil {
+		return
+	}
+	defer s.Close()
+	if _, err := s.Write([]byte("REVERSE\n")); err != nil {
+		return
+	}
+	done := make(chan struct{}, 1)
+	go func() { _, _ = io.Copy(s, c); done <- struct{}{} }()
+	_, _ = io.Copy(c, s)
 	<-done
 }
 
