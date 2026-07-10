@@ -62,11 +62,11 @@ export class HopeSelect extends LoomElement {
     this.open = true;
     // The menu is a top-layer popover positioned to the trigger; do it after render so
     // the element exists, then reveal it. Focus the filter box if searchable.
+    // The popover attribute is in the JSX (survives loom's reconcile); position it to
+    // the trigger + reveal it in the top layer after render.
     requestAnimationFrame(() => {
-      const m = this.menuEl as any;
-      m?.setAttribute?.("popover", "manual"); // top layer — set here (loom JSX types omit it)
       this.positionMenu();
-      m?.showPopover?.();
+      (this.menuEl as any)?.showPopover?.();
       this.searchEl?.focus();
     });
   }
@@ -134,7 +134,7 @@ export class HopeSelect extends LoomElement {
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
-          <div class="menu" onClick={(e: Event) => e.stopPropagation()}>
+          <div class="menu" {...({ popover: "manual" } as any)} onClick={(e: Event) => e.stopPropagation()}>
             {this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
