@@ -16,6 +16,7 @@ import (
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/cloudflare"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 )
 
@@ -29,12 +30,19 @@ var (
 type TunnelsRouter struct {
 	hosts *hosts.Set
 	cf    *cloudflare.Client
+	bus   *events.Bus // nil-safe: publishes tunnel.changed to the global feed
 }
 
 // NewTunnelsRouter wires the router to the host set + Cloudflare client (cf may
-// be nil when the integration is disabled).
-func NewTunnelsRouter(hs *hosts.Set, cf *cloudflare.Client) *TunnelsRouter {
-	return &TunnelsRouter{hosts: hs, cf: cf}
+// be nil when the integration is disabled) + the event bus.
+func NewTunnelsRouter(hs *hosts.Set, cf *cloudflare.Client, bus *events.Bus) *TunnelsRouter {
+	return &TunnelsRouter{hosts: hs, cf: cf, bus: bus}
+}
+
+// tunnelsChanged fires a tunnel.changed event for the active host after a route
+// or connector mutation, so a tunnels view in another tab refetches.
+func (r *TunnelsRouter) tunnelsChanged(ctx context.Context) {
+	r.bus.Publish(events.Event{Kind: events.KindTunnelChanged, Host: r.hosts.ActiveIDFor(ctx)})
 }
 
 func (r *TunnelsRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
@@ -236,7 +244,12 @@ type CreateConnectorParams struct {
 // CreateConnector creates a remotely-managed tunnel in Cloudflare and runs a
 // cloudflared container for it on the active host (labeled as the shared/default
 // connector). hope owns this container's lifecycle.
-func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorParams) (*docker.Connector, error) {
+func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorParams) (conn *docker.Connector, err error) {
+	defer func() {
+		if err == nil {
+			r.tunnelsChanged(ctx)
+		}
+	}()
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -300,7 +313,12 @@ type RemoveConnectorParams struct {
 
 // RemoveConnector stops+removes a connector container, optionally deleting the
 // Cloudflare tunnel too (only hope-deployed ones should be fully deleted).
-func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorParams) (*RouteResult, error) {
+func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorParams) (res *RouteResult, err error) {
+	defer func() {
+		if err == nil {
+			r.tunnelsChanged(ctx)
+		}
+	}()
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -348,7 +366,12 @@ type AddTunnelParams struct {
 
 // AddTunnel wires hostname -> service through a connector: attaches the connector
 // to the origin's network, upserts the tunnel ingress, and ensures the DNS CNAME.
-func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (*RouteResult, error) {
+func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (res *RouteResult, err error) {
+	defer func() {
+		if err == nil {
+			r.tunnelsChanged(ctx)
+		}
+	}()
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}
@@ -395,7 +418,12 @@ type RemoveTunnelParams struct {
 
 // RemoveTunnel drops the exact host+path ingress rule on whichever connector
 // serves it; the DNS record is deleted only when no rules for that host remain.
-func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (*RouteResult, error) {
+func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (res *RouteResult, err error) {
+	defer func() {
+		if err == nil {
+			r.tunnelsChanged(ctx)
+		}
+	}()
 	if err := r.enabled(ctx); err != nil {
 		return nil, err
 	}

@@ -11,7 +11,7 @@ import { ConnectorInspector } from "../connector-inspector";
 import { AuthStore } from "../auth-store";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
-import { HostChanged, Refreshing, withRefresh } from "../events";
+import { HostChanged, Refreshing, withRefresh, TunnelsChanged } from "../events";
 import { UNGROUPED } from "../const";
 import { innerPort } from "../format";
 import { ConfirmService } from "../confirm";
@@ -130,6 +130,13 @@ export class TunnelsPage extends LoomElement {
   @on(HostChanged)
   onHostChanged() {
     if (this.auth.isAuthenticated) this.load();
+  }
+
+  // A route/connector changed on the server (this tab or another) — re-fetch,
+  // unless we just made a local change (suppressUntil) and already updated in place.
+  @on(TunnelsChanged)
+  onTunnelsChanged() {
+    if (this.auth.isAuthenticated && Date.now() >= this.suppressUntil) this.load();
   }
 
   // Spin the header refresh only for a user-triggered refresh (via the Refreshing

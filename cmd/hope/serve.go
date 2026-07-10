@@ -289,7 +289,7 @@ func runServe(configPath string) error {
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
 	gw.Register(containers.NewContainersRouter(hostSet, eventBus))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
-	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
+	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare), eventBus))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	var pluginDialer pluginhost.ContainerDialer
 	if hub != nil {

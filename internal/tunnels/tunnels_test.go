@@ -16,5 +16,5 @@ func TestRouterRegisters(t *testing.T) {
 		}
 	}()
 	gw := sov.New()
-	gw.Register(NewTunnelsRouter(nil, nil)) // nil deps: Register only inspects signatures
+	gw.Register(NewTunnelsRouter(nil, nil, nil)) // nil deps: Register only inspects signatures
 }
