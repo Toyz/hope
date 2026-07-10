@@ -34,8 +34,8 @@ import (
 )
 
 func main() {
-	p := plugin.New("hope-postgres", "2.0.0").
-		Description("Browse, query, and operate a Postgres database").
+	p := plugin.New("hope-postgres", "2.1.0").
+		Description("Browse, query, operate, and monitor a Postgres database").
 		Icon("database").
 		// Plugin-scoped icons: names hope doesn't ship as built-ins, registered here so
 		// the plugin can use them anywhere (leaf/tab/stat/empty/rail). Inner SVG markup
@@ -56,6 +56,7 @@ func main() {
 	registerQuery(p)
 	registerActivity(p)
 	registerMaintenance(p)
+	registerAlerts(p)
 	registerLayout(p)
 
 	addr := ":8080"
