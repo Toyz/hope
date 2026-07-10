@@ -9,7 +9,7 @@
 import { LoomElement, component, styles, css, reactive, mount, watch } from "@toyz/loom";
 import { theme } from "../styles";
 import { kvParse as textToRows, kvSerialize as rowsToText } from "../format";
-import { splitHost } from "../util";
+import { splitHost, patchAt, removeAt } from "../util";
 import type { ContainerSpec, TunnelRoute, PortMap, MountSpec, Option, HealthSpec } from "../contracts";
 
 interface PortRow { host: string; container: string; proto: string; }
@@ -220,12 +220,8 @@ export class HopeServiceForm extends LoomElement {
   }
 
   // ── row mutators (immutable so reactivity fires) ──
-  private up<T>(arr: T[], i: number, patch: Partial<T>): T[] {
-    const next = arr.slice();
-    next[i] = { ...next[i], ...patch };
-    return next;
-  }
-  private del<T>(arr: T[], i: number): T[] { return arr.filter((_, j) => j !== i); }
+  private up<T>(arr: T[], i: number, patch: Partial<T>): T[] { return patchAt(arr, i, patch); }
+  private del<T>(arr: T[], i: number): T[] { return removeAt(arr, i); }
 
   // splitHost breaks a hostname into subdomain + a known zone (domain). Falls
   // back to (sub="", domain="") for a free-text host when no zone matches.

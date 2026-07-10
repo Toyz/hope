@@ -675,29 +675,12 @@ export class DashboardPage extends LoomElement {
     return this.groupUpdates(this.outdated());
   }
 
-  // Cross-fleet equivalent of updateGroups: outdated services grouped by
-  // host+project, so the fleet Updates section renders like the per-host one.
+  // Cross-fleet equivalent of updateGroups: reuse the same project->services
+  // grouping per host, tag each group with its host, and sort the flat result.
   private fleetUpdateGroups(f: FleetHost[]) {
-    const groups: { host: string; project: string; services: { service: string; count: number }[]; count: number }[] = [];
-    for (const h of f) {
-      const byProj: Record<string, Record<string, number>> = {};
-      for (const u of h.updates ?? []) {
-        const p = u.project || UNGROUPED;
-        const s = u.service || u.name || u.image;
-        (byProj[p] ??= {})[s] = (byProj[p][s] ?? 0) + 1;
-      }
-      for (const [project, svc] of Object.entries(byProj)) {
-        groups.push({
-          host: h.id,
-          project,
-          count: Object.values(svc).reduce((a, b) => a + b, 0),
-          services: Object.entries(svc)
-            .map(([service, count]) => ({ service, count }))
-            .sort((a, b) => b.count - a.count || a.service.localeCompare(b.service)),
-        });
-      }
-    }
-    return groups.sort((a, b) => b.count - a.count || a.host.localeCompare(b.host) || a.project.localeCompare(b.project));
+    return f
+      .flatMap((h) => this.groupUpdates(h.updates ?? []).map((g) => ({ ...g, host: h.id })))
+      .sort((a, b) => b.count - a.count || a.host.localeCompare(b.host) || a.project.localeCompare(b.project));
   }
 
   // The oldest (stalest) per-host check time across the fleet — so "checked

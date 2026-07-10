@@ -8,6 +8,18 @@ export function toggleIn<T>(arr: T[], x: T): T[] {
   return arr.includes(x) ? arr.filter((v) => v !== x) : [...arr, x];
 }
 
+// patchAt returns a copy of arr with element i shallow-merged with p; removeAt
+// returns a copy without element i. The immutable row-edit pair the create/deploy
+// forms hand-rolled (deploy's patch, service-form's up/del).
+export function patchAt<T>(arr: T[], i: number, p: Partial<T>): T[] {
+  const next = arr.slice();
+  next[i] = { ...next[i], ...p };
+  return next;
+}
+export function removeAt<T>(arr: T[], i: number): T[] {
+  return arr.filter((_, j) => j !== i);
+}
+
 // splitHost breaks a hostname into { sub, domain } against a set of known zone
 // names — subdomain + the matched zone, or {sub:"", domain:""} for a free-text host
 // with no match. The tunnel/stack/service forms all did this loop; callers pass their

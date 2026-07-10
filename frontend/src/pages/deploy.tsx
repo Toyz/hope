@@ -19,6 +19,7 @@ import type { ConnectorOpt } from "../components/service-form";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
+import { patchAt as patch } from "../util";
 import { HostChanged } from "../events";
 import { appBar } from "../app-bar";
 import "../components/service-form";
@@ -536,8 +537,3 @@ export class DeployPage extends LoomElement {
   }
 }
 
-function patch<T>(arr: T[], i: number, p: Partial<T>): T[] {
-  const next = arr.slice();
-  next[i] = { ...next[i], ...p };
-  return next;
-}
