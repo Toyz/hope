@@ -1088,25 +1088,31 @@ export class StackPage extends LoomElement {
   // runs once the containers are up (e.g. to wire a tunnel route).
   private applyStackEdit = async (title: string, busyKey: string, mutate: (spec: StackSpec) => string | null, after?: (emit: (l: string) => void) => Promise<void>) => {
     this.busy = busyKey;
-    await this.proc.run(title, async (emit, signal) => {
-      try {
-        const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
-        const bad = mutate(spec);
-        if (bad) { emit("failed: " + bad); return false; }
-        let ok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
+    try {
+      await this.proc.run(title, async (emit, signal) => {
+        try {
+          const spec = await this.rpc.call<StackSpec>("Deploy", "editSpec", [this.project]);
+          const bad = mutate(spec);
+          if (bad) { emit("failed: " + bad); return false; }
+          let ok = true;
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "applyStack", [JSON.stringify(spec)], signal)) {
+            if (f.type === "log" && f.data) emit(f.data);
+            else if (f.type === "done" && !f.ok) { ok = false; emit("failed: " + (f.error ?? "")); }
+          }
+          if (!ok) return false;
+          if (after) await after(emit);
+          return true;
+        } catch (e: any) {
+          emit("failed: " + (e?.message || "error"));
+          return false;
         }
-        if (!ok) return false;
-        if (after) await after(emit);
-        return true;
-      } catch (e: any) {
-        emit("failed: " + (e?.message || "error"));
-        return false;
-      }
-    });
-    this.busy = "";
+      });
+    } finally {
+      // Release controls even if proc.run rejects (cancel/abort) — an unguarded reset
+      // here left this.busy wedged, disabling every op incl. the update chip until a
+      // page refresh cleared in-memory state.
+      this.busy = "";
+    }
     await this.load();
     this.loadTunnels();
   };
@@ -1124,30 +1130,33 @@ export class StackPage extends LoomElement {
     if (!ok) return;
     this.busy = "stack:delete";
     let success = false;
-    await this.proc.run("delete " + this.project, async (emit, signal) => {
-      try {
-        const routes = (await this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []).catch(() => [])) || [];
-        for (const r of routes.filter((r) => r.project === this.project)) {
-          emit("remove route " + r.hostname + (r.path || ""));
-          try {
-            await this.rmTunnelMut.call(r.hostname, r.path || "");
-          } catch (e: any) {
-            emit("route teardown failed: " + (e?.message || "error"));
+    try {
+      await this.proc.run("delete " + this.project, async (emit, signal) => {
+        try {
+          const routes = (await this.rpc.call<TunnelView[]>("Tunnels", "tunnels", []).catch(() => [])) || [];
+          for (const r of routes.filter((r) => r.project === this.project)) {
+            emit("remove route " + r.hostname + (r.path || ""));
+            try {
+              await this.rmTunnelMut.call(r.hostname, r.path || "");
+            } catch (e: any) {
+              emit("route teardown failed: " + (e?.message || "error"));
+            }
           }
+          let dok = true;
+          for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal)) {
+            if (f.type === "log" && f.data) emit(f.data);
+            else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
+          }
+          success = dok;
+          return dok;
+        } catch (e: any) {
+          emit("failed: " + (e?.message || "error"));
+          return false;
         }
-        let dok = true;
-        for await (const f of this.rpc.streamWithSignal<OpFrame>("Stream", "destroyStack", [this.project, "true"], signal)) {
-          if (f.type === "log" && f.data) emit(f.data);
-          else if (f.type === "done" && !f.ok) { dok = false; emit("failed: " + (f.error ?? "")); }
-        }
-        success = dok;
-        return dok;
-      } catch (e: any) {
-        emit("failed: " + (e?.message || "error"));
-        return false;
-      }
-    });
-    this.busy = "";
+      });
+    } finally {
+      this.busy = "";
+    }
     if (success) {
       bus.emit(new TopologyRemoved(this.hostCtx.token, this.project)); // rail patches the tree in place
       this.router.navigate(withHost(this.hostCtx.token, "/"));
@@ -1165,19 +1174,22 @@ export class StackPage extends LoomElement {
     });
     if (!ok) return;
     this.busy = "ctr:remove:" + id;
-    await this.proc.run("remove " + name, async (emit) => {
-      try {
-        emit("stop + remove " + name);
-        const res = await this.rpc.call<OpResult>("Containers", "remove", [id]);
-        if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
-        emit("removed " + name);
-        return true;
-      } catch (e: any) {
-        emit("failed: " + (e?.message || "error"));
-        return false;
-      }
-    });
-    this.busy = "";
+    try {
+      await this.proc.run("remove " + name, async (emit) => {
+        try {
+          emit("stop + remove " + name);
+          const res = await this.rpc.call<OpResult>("Containers", "remove", [id]);
+          if (res && res.ok === false) { emit("failed: " + (res.error || "error")); return false; }
+          emit("removed " + name);
+          return true;
+        } catch (e: any) {
+          emit("failed: " + (e?.message || "error"));
+          return false;
+        }
+      });
+    } finally {
+      this.busy = "";
+    }
     bus.emit(new TopologyRemoved(this.hostCtx.token, undefined, [id])); // rail drops this container
     await this.load();
   };
