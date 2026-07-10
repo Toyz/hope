@@ -29,9 +29,10 @@ const (
 	BucketPlugins    = "plugins"
 	BucketAudit      = "plugin_audit"
 	BucketCatalog    = "plugin_catalog"
+	BucketPluginKV   = "plugin_kv" // per-plugin opaque storage (p.Storage)
 )
 
-var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistries, BucketPlugins, BucketAudit}
+var buckets = []string{BucketAgents, BucketUpdates, BucketStacks, BucketRegistries, BucketPlugins, BucketAudit, BucketPluginKV}
 
 // Store wraps a bbolt DB. A nil db is the no-op store (path was empty).
 type Store struct {

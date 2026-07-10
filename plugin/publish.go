@@ -16,30 +16,29 @@ import (
 // plugin still runs; it just can't call back into hope.
 var ErrNoReverseChannel = errors.New("hope reverse channel unavailable (no callback URL from hope.init)")
 
-// Publish emits an event onto hope's bus. Requires (a) the events:publish permission
-// granted by the operator and (b) hope's reverse channel configured (a callback URL,
-// delivered via hope.init). hope stamps the Source and namespaces the Kind
-// (plugin.<identity>.<kind>), so only Kind + Data here are meaningful — a plugin can
-// never spoof another's events or a core hope kind. A 4xx from hope (no grant, bad
-// token, rate/size cap) is returned as an error.
-func (p *Plugin) Publish(ctx context.Context, e Event) error {
+// reverse snapshots the reverse-channel coordinates hope delivered in hope.init: its
+// base URL, this install's key, and the token to present. url/key empty => the channel
+// isn't available.
+func (p *Plugin) reverse() (url, key, token string) {
 	p.mu.Lock()
-	url, key, token := p.hopeURL, p.pluginKey, p.token
+	defer p.mu.Unlock()
+	token = p.token
 	if token == "" {
 		token = p.pinned
 	}
-	p.mu.Unlock()
-	if url == "" || key == "" {
-		return ErrNoReverseChannel
-	}
+	return p.hopeURL, p.pluginKey, token
+}
 
-	body, err := json.Marshal(map[string]any{"key": key, "event": e})
+// postReverse POSTs payload to a reverse-channel endpoint and returns the raw response
+// body, mapping a non-200 to an error. Shared by Publish and Storage.
+func postReverse(ctx context.Context, url, token, path string, payload any) (json.RawMessage, error) {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+"/rpc/_plugin_events", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+path, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
@@ -47,18 +46,31 @@ func (p *Plugin) Publish(ctx context.Context, e Event) error {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
-		return fmt.Errorf("hope rejected publish (%d): %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return nil, fmt.Errorf("hope rejected request (%d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
-	return nil
+	return raw, nil
 }
 
-// Alert is a convenience over Publish for the common case: it publishes an event
-// whose Data is {severity, title, detail, dedupeKey}. hope namespaces the kind to
+// Publish emits an event onto hope's bus. Requires (a) the events:publish permission
+// granted by the operator and (b) hope's reverse channel configured. hope stamps the
+// Source and namespaces the Kind (plugin.<identity>.<kind>), so only Kind + Data here
+// are meaningful — a plugin can never spoof another's events or a core hope kind.
+func (p *Plugin) Publish(ctx context.Context, e Event) error {
+	url, key, token := p.reverse()
+	if url == "" || key == "" {
+		return ErrNoReverseChannel
+	}
+	_, err := postReverse(ctx, url, token, "/rpc/_plugin_events", map[string]any{"key": key, "event": e})
+	return err
+}
+
+// Alert is a convenience over Publish: it publishes an event whose Data is
+// {severity, title, detail, dedupeKey}. hope namespaces the kind to
 // plugin.<identity>.alert. Requires events:publish.
 func (p *Plugin) Alert(ctx context.Context, severity, title, detail, dedupeKey string) error {
 	data, _ := json.Marshal(map[string]string{

@@ -355,6 +355,7 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if err := r.store.DeletePlugin(p.Key); err != nil {
 		return nil, rpc.Internal("forget: %v", err)
 	}
+	_ = r.store.DeletePluginKVAll(p.Key) // wipe the plugin's storage on full removal
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
 }

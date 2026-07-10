@@ -15,7 +15,10 @@ import (
 	"github.com/toyz/hope/internal/store"
 )
 
-const pathPluginEvents = "/rpc/_plugin_events"
+const (
+	pathPluginEvents = "/rpc/_plugin_events"
+	pathPluginKV     = "/rpc/_plugin/kv"
+)
 
 // PluginIngress is the plugin->hope reverse channel — hope's FIRST inbound-from-plugin
 // surface. A plugin POSTs here to publish an event onto hope's bus. The trust boundary
@@ -50,7 +53,7 @@ func (h *PluginIngress) Doc() string {
 	return "Plugin->hope reverse channel (/rpc/_plugin_events): a token-authenticated, events:publish-granted plugin publishes an event onto hope's bus. Attribution (Source/Kind) is server-forced so a plugin can't spoof another's events or a core kind."
 }
 
-func (h *PluginIngress) RoutePatterns() []string { return []string{pathPluginEvents} }
+func (h *PluginIngress) RoutePatterns() []string { return []string{pathPluginEvents, pathPluginKV} }
 
 func (h *PluginIngress) limiter(key string) *pluginLimiter {
 	h.mu.Lock()
@@ -71,41 +74,67 @@ type publishBody struct {
 	Event events.Event `json:"event"`
 }
 
-// ServeRoute authenticates + authorizes the plugin, then publishes its event with
-// server-controlled attribution.
+// ServeRoute dispatches the reverse-channel endpoints. Both require the store mounted
+// and a POST; each handler authenticates the plugin and checks the scope it needs.
 func (h *PluginIngress) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.Response {
 	if req.Method != http.MethodPost {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusMethodNotAllowed, Code: "BAD_REQUEST", Message: "method not allowed"})
+		return ingressErr(http.StatusMethodNotAllowed, "BAD_REQUEST", "method not allowed")
 	}
 	if h.store == nil || !h.store.Enabled() {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusServiceUnavailable, Code: "UNAVAILABLE", Message: "plugin store not mounted"})
+		return ingressErr(http.StatusServiceUnavailable, "UNAVAILABLE", "plugin store not mounted")
 	}
-	var body publishBody
-	if err := json.Unmarshal(req.Body, &body); err != nil || body.Key == "" {
-		return gateway.ErrorResponse(rpc.BadRequest("invalid body"))
+	switch req.Path {
+	case pathPluginEvents:
+		return h.publish(req)
+	case pathPluginKV:
+		return h.kv(req)
 	}
-	rec, err := h.store.Plugin(body.Key)
+	return ingressErr(http.StatusNotFound, "NOT_FOUND", "unknown endpoint")
+}
+
+// verify authenticates the caller as the plugin at key and authorizes the given scope.
+// It returns the enabled record, or a non-nil error response to send verbatim. The
+// whole plugin->hope trust boundary lives here.
+func (h *PluginIngress) verify(req *gateway.Request, key, scope string) (*store.PluginRecord, *gateway.Response) {
+	if key == "" {
+		return nil, ingressErr(http.StatusBadRequest, "BAD_REQUEST", "key required")
+	}
+	rec, err := h.store.Plugin(key)
 	if err != nil || rec == nil || !rec.Enabled {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "unknown or disabled plugin"})
+		return nil, ingressErr(http.StatusUnauthorized, "UNAUTHENTICATED", "unknown or disabled plugin")
 	}
-	// Verify the per-plugin token, constant time. The token is HMAC(hope secret, key)
-	// and the secret never leaves hope, so another container can't compute it.
+	// Constant-time token check. The token is HMAC(hope secret, key); the secret never
+	// leaves hope, so a co-located container can't compute another plugin's token.
 	tok, _ := auth.Bearer(req.Header.Get("Authorization"))
-	want := h.store.DeriveToken(body.Key)
+	want := h.store.DeriveToken(key)
 	if tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(want)) != 1 {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "bad plugin token"})
+		return nil, ingressErr(http.StatusUnauthorized, "UNAUTHENTICATED", "bad plugin token")
 	}
-	if !rec.HasGrant(scopeEventsPublish) {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusForbidden, Code: "FORBIDDEN", Message: "plugin lacks the events:publish permission"})
+	if !rec.HasGrant(scope) {
+		return nil, ingressErr(http.StatusForbidden, "FORBIDDEN", "plugin lacks the "+scope+" permission")
 	}
-	if !h.limiter(body.Key).allowRate() {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusTooManyRequests, Code: "RATE_LIMITED", Message: "publish rate exceeded"})
+	if !h.limiter(key).allowRate() {
+		return nil, ingressErr(http.StatusTooManyRequests, "RATE_LIMITED", "rate exceeded")
+	}
+	return rec, nil
+}
+
+// publish handles POST /rpc/_plugin_events: emit an event onto the bus with
+// server-forced attribution.
+func (h *PluginIngress) publish(req *gateway.Request) *gateway.Response {
+	var body publishBody
+	if err := json.Unmarshal(req.Body, &body); err != nil {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "invalid body")
+	}
+	rec, errResp := h.verify(req, body.Key, scopeEventsPublish)
+	if errResp != nil {
+		return errResp
 	}
 	if len(body.Event.Data) > h.limits.MaxFrameBytes {
-		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusRequestEntityTooLarge, Code: "TOO_LARGE", Message: "event data too large"})
+		return ingressErr(http.StatusRequestEntityTooLarge, "TOO_LARGE", "event data too large")
 	}
-	// Server-forced attribution: Source and the Kind namespace are hope's, not the
-	// plugin's — it may only pick the kind SUFFIX (sanitized).
+	// Server-forced attribution: Source and the Kind namespace are hope's — the plugin
+	// picks only the (sanitized) kind suffix + Data.
 	h.bus.Publish(events.Event{
 		Kind:    events.Kind("plugin." + body.Key + "." + cleanKindSuffix(string(body.Event.Kind))),
 		Host:    rec.Host,
@@ -113,7 +142,77 @@ func (h *PluginIngress) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		Source:  "plugin." + body.Key,
 		Data:    body.Event.Data,
 	})
-	return &gateway.Response{Status: http.StatusOK, Header: gateway.Header{"Content-Type": "application/json"}, Body: []byte(`{"ok":true}`)}
+	return ingressOK(`{"ok":true}`)
+}
+
+// kvBody is a storage request. Op is get|set|del|list; k is the user key; value is
+// the JSON to store (set); prefix filters a list.
+type kvBody struct {
+	Key    string          `json:"key"`
+	Op     string          `json:"op"`
+	K      string          `json:"k"`
+	Prefix string          `json:"prefix"`
+	Value  json.RawMessage `json:"value"`
+}
+
+// kv handles POST /rpc/_plugin/kv: the p.Storage capability (opaque per-plugin KV).
+func (h *PluginIngress) kv(req *gateway.Request) *gateway.Response {
+	var body kvBody
+	if err := json.Unmarshal(req.Body, &body); err != nil {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "invalid body")
+	}
+	if _, errResp := h.verify(req, body.Key, scopeStorage); errResp != nil {
+		return errResp
+	}
+	switch body.Op {
+	case "get":
+		v, err := h.store.GetPluginKV(body.Key, body.K)
+		if err != nil {
+			return ingressErr(http.StatusInternalServerError, "INTERNAL", "read failed")
+		}
+		out, _ := json.Marshal(map[string]any{"value": rawOrNull(v)})
+		return ingressOK(string(out))
+	case "set":
+		if len(body.Value) > h.limits.MaxFrameBytes {
+			return ingressErr(http.StatusRequestEntityTooLarge, "TOO_LARGE", "value too large")
+		}
+		if err := h.store.PutPluginKV(body.Key, body.K, body.Value); err != nil {
+			return ingressErr(http.StatusInternalServerError, "INTERNAL", "write failed")
+		}
+		return ingressOK(`{"ok":true}`)
+	case "del":
+		if err := h.store.DeletePluginKV(body.Key, body.K); err != nil {
+			return ingressErr(http.StatusInternalServerError, "INTERNAL", "delete failed")
+		}
+		return ingressOK(`{"ok":true}`)
+	case "list":
+		keys, err := h.store.ListPluginKV(body.Key, body.Prefix)
+		if err != nil {
+			return ingressErr(http.StatusInternalServerError, "INTERNAL", "list failed")
+		}
+		if keys == nil {
+			keys = []string{}
+		}
+		out, _ := json.Marshal(map[string]any{"keys": keys})
+		return ingressOK(string(out))
+	}
+	return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "unknown op")
+}
+
+// rawOrNull returns v as raw JSON, or JSON null when absent.
+func rawOrNull(v []byte) json.RawMessage {
+	if len(v) == 0 {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(v)
+}
+
+func ingressOK(body string) *gateway.Response {
+	return &gateway.Response{Status: http.StatusOK, Header: gateway.Header{"Content-Type": "application/json"}, Body: []byte(body)}
+}
+
+func ingressErr(status int, code, msg string) *gateway.Response {
+	return gateway.ErrorResponse(&rpc.Error{Status: status, Code: code, Message: msg})
 }
 
 // cleanKindSuffix keeps the plugin-supplied kind suffix to a safe token

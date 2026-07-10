@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Toyz/sov/gateway"
@@ -89,5 +90,53 @@ func TestIngressRejectsUnknownPlugin(t *testing.T) {
 	resp := h.ServeRoute(context.Background(), publishReq("nope|x/y", token, events.Event{Kind: "alert"}))
 	if resp.Status != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401 for an unknown plugin", resp.Status)
+	}
+}
+
+func kvReq(key, token, op, k, prefix string, val json.RawMessage) *gateway.Request {
+	body, _ := json.Marshal(kvBody{Key: key, Op: op, K: k, Prefix: prefix, Value: val})
+	h := gateway.Header{}
+	if token != "" {
+		h.Set("Authorization", "Bearer "+token)
+	}
+	return &gateway.Request{Method: http.MethodPost, Path: pathPluginKV, Header: h, Body: body}
+}
+
+func TestIngressKVRoundTrip(t *testing.T) {
+	h, _, token := ingressFixture(t, []string{scopeStorage})
+	ctx := context.Background()
+
+	if r := h.ServeRoute(ctx, kvReq(testKey, token, "set", "cfg", "", json.RawMessage(`{"a":1}`))); r.Status != http.StatusOK {
+		t.Fatalf("set status = %d", r.Status)
+	}
+	r := h.ServeRoute(ctx, kvReq(testKey, token, "get", "cfg", "", nil))
+	if r.Status != http.StatusOK {
+		t.Fatalf("get status = %d", r.Status)
+	}
+	var got struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(r.Body, &got); err != nil || string(got.Value) != `{"a":1}` {
+		t.Fatalf("get value = %s (err %v), want {\"a\":1}", got.Value, err)
+	}
+	r = h.ServeRoute(ctx, kvReq(testKey, token, "list", "", "", nil))
+	if !strings.Contains(string(r.Body), `"cfg"`) {
+		t.Fatalf("list body = %s, want it to contain cfg", r.Body)
+	}
+	if r := h.ServeRoute(ctx, kvReq(testKey, token, "del", "cfg", "", nil)); r.Status != http.StatusOK {
+		t.Fatalf("del status = %d", r.Status)
+	}
+	r = h.ServeRoute(ctx, kvReq(testKey, token, "get", "cfg", "", nil))
+	_ = json.Unmarshal(r.Body, &got)
+	if string(got.Value) != "null" {
+		t.Fatalf("after delete, value = %s, want null", got.Value)
+	}
+}
+
+func TestIngressKVRequiresStorageGrant(t *testing.T) {
+	h, _, token := ingressFixture(t, []string{scopeEventsPublish}) // wrong grant
+	r := h.ServeRoute(context.Background(), kvReq(testKey, token, "set", "cfg", "", json.RawMessage(`{}`)))
+	if r.Status != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 without the storage grant", r.Status)
 	}
 }
