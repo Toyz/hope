@@ -771,7 +771,9 @@ func registerLayout(p *plugin.Plugin) {
 				plugin.Leaf("query").Titled("Query"),
 				plugin.Leaf("explain").Titled("Explain"),
 				plugin.Leaf("activity").Titled("Activity"),
+				plugin.Leaf("alertRules").Titled("Alerts"),
 			),
+			plugin.Section("Alerts", plugin.Buttons("addAlert")),
 			plugin.Section("Maintenance", plugin.Buttons("analyze", "vacuum")),
 		))
 
@@ -792,11 +794,12 @@ func registerLayout(p *plugin.Plugin) {
 			plugin.Leaf("query").Titled("Query"),
 			plugin.Leaf("explain").Titled("Explain"),
 			plugin.Leaf("activity").Titled("Activity"),
+			plugin.Leaf("alertRules").Titled("Alerts"),
 			plugin.Leaf("schema").Titled("Schema"),
 		),
 	)).PageID("postgres").
-		Subtitle("browse, query, and operate this database").
-		HeaderActions("analyze", "vacuum")
+		Subtitle("browse, query, operate, and monitor this database").
+		HeaderActions("addAlert", "analyze", "vacuum")
 
 	// Compact fleet-dashboard widget: just the stat tiles, so a DB's health shows on
 	// the dashboard alongside hope's own cards (keep it small — no full panel).
