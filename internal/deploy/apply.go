@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
 )
@@ -17,10 +18,13 @@ import (
 type Engine struct {
 	hosts *hosts.Set
 	store *Store
+	bus   *events.Bus // nil-safe: publishes stack topology events to the global feed
 }
 
-// NewEngine wires the deploy engine to the host set + spec store.
-func NewEngine(hs *hosts.Set, store *Store) *Engine { return &Engine{hosts: hs, store: store} }
+// NewEngine wires the deploy engine to the host set + spec store + event bus.
+func NewEngine(hs *hosts.Set, store *Store, bus *events.Bus) *Engine {
+	return &Engine{hosts: hs, store: store, bus: bus}
+}
 
 func (e *Engine) dock(ctx context.Context) *docker.Client { return e.hosts.ActiveFor(ctx) }
 func (e *Engine) hostID(ctx context.Context) string       { return e.hosts.ActiveIDFor(ctx) }
@@ -201,7 +205,15 @@ func (e *Engine) ApplyStack(ctx context.Context, spec *stackspec.StackSpec, addi
 		}
 	}
 	emit("stack " + project + " applied")
+	e.publishApplied(ctx, project)
 	return nil
+}
+
+// publishApplied fires a stack-topology event after a successful ApplyStack. Split
+// out so the WithoutCancel deploy context (which strips cancellation but keeps the
+// target-host value) still resolves the right host id.
+func (e *Engine) publishApplied(ctx context.Context, project string) {
+	e.bus.Publish(events.Event{Kind: events.KindStackDeployed, Host: e.hostID(ctx), Project: project})
 }
 
 // DeployContainer creates a single one-off container from spec (no project
@@ -221,6 +233,7 @@ func (e *Engine) DeployContainer(ctx context.Context, spec stackspec.ContainerSp
 	if _, err := e.dock(ctx).CreateContainer(ctx, name, spec, true, emit); err != nil {
 		return err
 	}
+	e.bus.Publish(events.Event{Kind: events.KindStackDeployed, Host: e.hostID(ctx)})
 	return nil
 }
 
@@ -256,6 +269,7 @@ func (e *Engine) Destroy(ctx context.Context, project string, prune bool, emit f
 		emit("warning: could not delete stored spec: " + err.Error())
 	}
 	emit("stack " + project + " destroyed")
+	e.bus.Publish(events.Event{Kind: events.KindStackDestroyed, Host: e.hostID(ctx), Project: project})
 	return nil
 }
 

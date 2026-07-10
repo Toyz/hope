@@ -167,6 +167,8 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 			Settings     map[string]string `json:"settings"`
 			Protocol     int               `json:"protocolVersion"`
 			Capabilities Capabilities      `json:"capabilities"`
+			HopeBaseURL  string            `json:"hopeBaseURL"`
+			PluginKey    string            `json:"pluginKey"`
 		}
 		if len(req.Params) > 0 {
 			if err := json.Unmarshal(req.Params, &in); err != nil {
@@ -175,6 +177,14 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		p.applySettings(in.Settings)
+		// Reverse channel: hope tells us how to call back (Publish/Storage) + who we
+		// are. Absent when hope has no callback URL configured -> reverse stays off.
+		if in.HopeBaseURL != "" {
+			p.mu.Lock()
+			p.hopeURL = in.HopeBaseURL
+			p.pluginKey = in.PluginKey
+			p.mu.Unlock()
+		}
 		if p.onInit != nil {
 			ctx := context.WithValue(r.Context(), capsKey{}, in.Capabilities)
 			if err := p.onInit(ctx, InitContext{Settings: in.Settings, Protocol: in.Protocol, Caps: in.Capabilities}); err != nil {
@@ -199,6 +209,29 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		p.applySettings(in.Values)
+		writeResult(w, req.ID, map[string]any{"ok": true})
+		return
+	}
+
+	// hope pushes a fleet event here when the plugin holds the events:subscribe grant
+	// (one unary call per event). params ARE the event. Best-effort from hope's side:
+	// an error or a missing handler is treated as "not delivered" and it moves on.
+	if req.Method == "hope.event" {
+		if p.onEvent == nil {
+			writeError(w, req.ID, codeMethodNotFn, "no event handler")
+			return
+		}
+		var e Event
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &e); err != nil {
+				writeError(w, req.ID, codeInvalidArgs, "invalid params")
+				return
+			}
+		}
+		if err := p.onEvent(r.Context(), e); err != nil {
+			writeError(w, req.ID, codeInternal, err.Error())
+			return
+		}
 		writeResult(w, req.ID, map[string]any{"ok": true})
 		return
 	}

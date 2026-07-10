@@ -8,6 +8,7 @@ import (
 
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
 )
@@ -18,11 +19,13 @@ const pullTimeout = 15 * time.Minute
 // ContainersRouter handles single-container operations.
 type ContainersRouter struct {
 	hosts *hosts.Set
+	bus   *events.Bus // nil-safe: publishes lifecycle events to the global feed
 }
 
-// NewContainersRouter wires the router to the host set (active-host aware).
-func NewContainersRouter(hs *hosts.Set) *ContainersRouter {
-	return &ContainersRouter{hosts: hs}
+// NewContainersRouter wires the router to the host set (active-host aware) and the
+// event bus (for live UI updates on container lifecycle).
+func NewContainersRouter(hs *hosts.Set, bus *events.Bus) *ContainersRouter {
+	return &ContainersRouter{hosts: hs, bus: bus}
 }
 
 // dock is the docker client for the currently-active host.
@@ -71,28 +74,28 @@ func (r *ContainersRouter) Spec(ctx *rpc.Context, p *IDParams) (*stackspec.Conta
 
 // Start starts a stopped container.
 func (r *ContainersRouter) Start(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock(ctx).Start)
+	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Start)
 }
 
 // Stop stops a running container.
 func (r *ContainersRouter) Stop(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock(ctx).Stop)
+	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Stop)
 }
 
 // Restart restarts a container.
 func (r *ContainersRouter) Restart(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock(ctx).Restart)
+	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Restart)
 }
 
 // Kill sends SIGKILL to a container.
 func (r *ContainersRouter) Kill(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock(ctx).Kill)
+	return r.act(ctx, p, events.KindContainerState, r.dock(ctx).Kill)
 }
 
 // Remove stops and deletes a container (for loose/ungrouped containers compose
 // can't manage).
 func (r *ContainersRouter) Remove(ctx *rpc.Context, p *IDParams) (*CtrResult, error) {
-	return r.act(ctx, p, r.dock(ctx).Remove)
+	return r.act(ctx, p, events.KindContainerRemoved, r.dock(ctx).Remove)
 }
 
 // Pull pulls the latest image for this one container (not the whole stack).
@@ -110,6 +113,7 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, erro
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock(ctx).RefreshImageStatus(cctx, img) // keep the update cache fresh
+	r.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
 	return &CtrResult{OK: true}, nil
 }
 
@@ -132,15 +136,17 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, 
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock(ctx).RefreshImageStatus(cctx, img) // image is now current — refresh the cache
+	r.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
 	return &CtrResult{OK: true}, nil
 }
 
-func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, fn func(context.Context, string) error) (*CtrResult, error) {
+func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, kind events.Kind, fn func(context.Context, string) error) (*CtrResult, error) {
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}
 	if err := fn(ctx, p.ID); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.bus.Publish(events.Event{Kind: kind, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
 	return &CtrResult{OK: true}, nil
 }

@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/store"
 )
@@ -27,11 +29,18 @@ type PluginsRouter struct {
 	enabled       bool             // [plugins] enabled capability gate
 	autoReapprove bool             // trust schema/image changes (dev): re-record fingerprint instead of disabling
 	limits        Limits           // operator-tuned per-plugin safety caps
+	bus           *events.Bus      // nil-safe: publishes plugin.changed to the global feed
+	callbackURL   string           // hope's base URL reachable by a plugin (reverse channel); empty = off
 
 	mu       sync.Mutex
 	cache    []Discovered
 	cachedAt time.Time
 	scanMu   sync.Mutex // serializes fleet scans so concurrent callers don't stampede
+
+	// missCount tracks consecutive reconcile passes an enabled record's identity was
+	// absent on a REACHABLE host, before it's GC'd. Touched only by the single
+	// reconcile goroutine, so it needs no lock.
+	missCount map[string]int
 
 	limMu    sync.Mutex
 	limiters map[string]*pluginLimiter
@@ -58,9 +67,13 @@ func (r *PluginsRouter) limiter(key string) *pluginLimiter {
 // (for remote dialing; pass nil when no hub). enabled is the [plugins] config gate;
 // when false every method reports the feature is off. sov derives the wire name
 // "Plugins" by stripping the required "Router" suffix.
-func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits) *PluginsRouter {
-	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults()}
+func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, eng *deploy.Engine, cat *catalog.Service, enabled, autoReapprove bool, limits Limits, bus *events.Bus) *PluginsRouter {
+	return &PluginsRouter{hosts: hs, store: st, dialer: dialer, deploy: eng, catalog: cat, enabled: enabled, autoReapprove: autoReapprove, limits: limits.WithDefaults(), bus: bus}
 }
+
+// SetCallbackURL sets hope's plugin-reachable base URL, handed to plugins in hope.init
+// so they can call back (publish / storage). Empty leaves the reverse channel off.
+func (r *PluginsRouter) SetCallbackURL(u string) { r.callbackURL = u }
 
 // Catalog returns the installable first-party plugins (built-ins merged with any
 // remote manifest entries). Empty when no catalog is wired.
@@ -155,6 +168,12 @@ type PluginView struct {
 	Trusted     bool   `json:"trusted"`  // has a stored approval record
 	Enabled     bool   `json:"enabled"`  // trusted AND currently on
 	Stale       bool   `json:"stale"`    // enabled but the image changed since approval
+
+	// Permission state (the reverse-capability grants). The inspector renders these
+	// so the operator can see what a plugin CAN do and revoke a scope anytime.
+	Grants  []string `json:"grants,omitempty"`
+	Pending []string `json:"pending,omitempty"`
+	Denied  []string `json:"denied,omitempty"`
 }
 
 // ListParams optionally forces a fresh fleet scan (bypassing the cache) and/or
@@ -234,6 +253,9 @@ func (r *PluginsRouter) List(ctx *rpc.Context, p *ListParams) ([]PluginView, err
 			Trusted:     trusted,
 			Enabled:     trusted && rec.Enabled,
 			Stale:       stale,
+			Grants:      rec.Grants,
+			Pending:     rec.Pending,
+			Denied:      rec.Denied,
 		})
 	}
 	// Trusted plugins whose identity is no longer discovered (stack removed, etc).
@@ -254,6 +276,9 @@ func (r *PluginsRouter) List(ctx *rpc.Context, p *ListParams) ([]PluginView, err
 			Present:     false,
 			Trusted:     true,
 			Enabled:     false,
+			Grants:      rec.Grants,
+			Pending:     rec.Pending,
+			Denied:      rec.Denied,
 		})
 	}
 	return out, nil
@@ -265,6 +290,14 @@ type TargetParams struct {
 }
 
 func (p *TargetParams) valid() bool { return p != nil && p.Key != "" }
+
+// pluginChangeData is the optional payload on a plugin.changed event: which plugin
+// and what happened. The frontend's PluginsChanged carries no payload (it just
+// refetches), so this is only for future/plugin consumers.
+func pluginChangeData(key, action string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"key": key, "action": action})
+	return b
+}
 
 // Enable trusts a discovered plugin: it mints a per-plugin bearer token, captures
 // the fingerprint of the representative container, and persists the approval keyed
@@ -282,6 +315,7 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if _, _, _, err := r.enableRecord(ctx, p.Key, ""); err != nil {
 		return nil, err
 	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "enabled")})
 	return map[string]any{"ok": true}, nil
 }
 
@@ -305,6 +339,7 @@ func (r *PluginsRouter) Disable(ctx *rpc.Context, p *TargetParams) (any, error) 
 		return nil, rpc.Internal("persist: %v", err)
 	}
 	r.detachPluginNet(ctx, p.Key) // stop sharing hope's network
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "disabled")})
 	return map[string]any{"ok": true}, nil
 }
 
@@ -337,7 +372,118 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if err := r.store.DeletePlugin(p.Key); err != nil {
 		return nil, rpc.Internal("forget: %v", err)
 	}
+	_ = r.store.DeletePluginKVAll(p.Key) // wipe the plugin's storage on full removal
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
+}
+
+// GrantParams targets a permission scope on a plugin for a consent decision.
+type GrantParams struct {
+	Key     string `sov:"key,0,required" json:"key"`
+	Scope   string `sov:"scope,1,required" json:"scope"`
+	DontAsk bool   `sov:"dont_ask,2" json:"dont_ask"` // Deny only: never re-prompt this scope
+}
+
+func (p *GrantParams) valid() bool { return p != nil && p.Key != "" && p.Scope != "" }
+
+// Grant records the operator's consent to a plugin's requested scope: it moves the
+// scope from pending to granted (clearing any prior denial), so hope's reverse
+// capabilities gated on that scope begin working for the plugin.
+func (r *PluginsRouter) Grant(ctx *rpc.Context, p *GrantParams) (any, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key and scope are required")
+	}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil {
+		return nil, rpc.BadRequest("plugin not found")
+	}
+	rec.Pending = removeStr(rec.Pending, p.Scope)
+	rec.Denied = removeStr(rec.Denied, p.Scope)
+	if !slices.Contains(rec.Grants, p.Scope) {
+		rec.Grants = append(rec.Grants, p.Scope)
+	}
+	if err := r.store.PutPlugin(*rec); err != nil {
+		return nil, rpc.Internal("persist: %v", err)
+	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "granted")})
+	return map[string]any{"ok": true}, nil
+}
+
+// Deny rejects (or revokes) a plugin's scope: it clears the grant and any pending
+// prompt. With DontAsk set, the scope is remembered as denied so re-enabling or a
+// runtime request never re-prompts. Doubles as the inspector's "revoke".
+func (r *PluginsRouter) Deny(ctx *rpc.Context, p *GrantParams) (any, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key and scope are required")
+	}
+	rec, err := r.store.Plugin(p.Key)
+	if err != nil {
+		return nil, rpc.Internal("read approval: %v", err)
+	}
+	if rec == nil {
+		return map[string]any{"ok": true}, nil // nothing to deny
+	}
+	rec.Pending = removeStr(rec.Pending, p.Scope)
+	rec.Grants = removeStr(rec.Grants, p.Scope) // revoke if it was granted
+	if p.DontAsk && !slices.Contains(rec.Denied, p.Scope) {
+		rec.Denied = append(rec.Denied, p.Scope)
+	}
+	if err := r.store.PutPlugin(*rec); err != nil {
+		return nil, rpc.Internal("persist: %v", err)
+	}
+	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "denied")})
+	return map[string]any{"ok": true}, nil
+}
+
+// ConsentPrompt is one pending permission request the UI renders (a plugin wants a
+// scope the operator hasn't decided). Reason isn't persisted — the modal shows the
+// scope's own label; the live permission.requested event carries the rich reason.
+type ConsentPrompt struct {
+	Key   string `json:"key"`
+	Name  string `json:"name"`
+	Host  string `json:"host"`
+	Scope string `json:"scope"`
+}
+
+// PendingConsents lists every enabled plugin's undecided permission requests, so the
+// UI can render the consent queue on load (the live feed drives new ones after).
+func (r *PluginsRouter) PendingConsents(ctx *rpc.Context) ([]ConsentPrompt, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	recs, err := r.store.Plugins()
+	if err != nil {
+		return nil, rpc.Internal("read approvals: %v", err)
+	}
+	out := []ConsentPrompt{}
+	for _, rec := range recs {
+		if !rec.Enabled {
+			continue
+		}
+		for _, sc := range rec.Pending {
+			out = append(out, ConsentPrompt{Key: rec.Key, Name: rec.Name, Host: rec.Host, Scope: sc})
+		}
+	}
+	return out, nil
+}
+
+// removeStr returns ss without the first occurrence of s (order-preserving).
+func removeStr(ss []string, s string) []string {
+	for i, x := range ss {
+		if x == s {
+			return append(ss[:i:i], ss[i+1:]...)
+		}
+	}
+	return ss
 }
 
 // PluginManifest is what the UI needs to render an enabled plugin: its capability

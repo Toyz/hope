@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"time"
 )
 
@@ -54,7 +55,21 @@ type PluginRecord struct {
 	// pushes them to the plugin). Sealed with the rest of the record, so secret
 	// settings are encrypted at rest.
 	Settings map[string]string `json:"settings,omitempty"`
+
+	// Permission state (the plugin->hope capability model, least-privilege). The
+	// plugin DECLARES the scopes it wants (schema.Permissions); the operator consents
+	// per scope. hope gates every reverse capability on Grants — the token proves
+	// identity, this set authorizes.
+	//   Grants  — scopes the operator allowed.
+	//   Pending — declared-but-undecided scopes awaiting a consent answer.
+	//   Denied  — scopes the operator rejected with "don't ask again" (never re-prompt).
+	Grants  []string `json:"grants,omitempty"`
+	Pending []string `json:"pending,omitempty"`
+	Denied  []string `json:"denied,omitempty"`
 }
+
+// HasGrant reports whether the operator has consented to a scope for this plugin.
+func (r *PluginRecord) HasGrant(scope string) bool { return slices.Contains(r.Grants, scope) }
 
 // PutPlugin persists (or replaces) a plugin record, sealed.
 func (s *Store) PutPlugin(rec PluginRecord) error {

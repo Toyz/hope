@@ -92,6 +92,7 @@ type Client struct {
 	updPath  string           // optional on-disk JSON persistence (empty = memory only)
 	updStore UpdateCacheStore // optional k/v persistence (state db); wins over updPath
 	updKey   string           // this host's key in updStore
+	updHook  func()           // fired once per crawl when a ref newly flips to "outdated" (event bus)
 
 	// Docker disk-usage cache (df is expensive, so it's crawled, not live).
 	duMu    sync.RWMutex

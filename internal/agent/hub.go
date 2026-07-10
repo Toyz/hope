@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 )
 
 // AgentInfo is the remote agent's build metadata, reported in the handshake.
@@ -124,7 +125,12 @@ type Hub struct {
 	reg        *Registry
 	log        Logger
 	onConnect  func(ctx context.Context, h *Host)
+	bus        *events.Bus // nil-safe: publishes agent online/offline to the global feed
 }
+
+// SetBus wires the event bus after construction (the hub is built before the bus in
+// serve.go). Safe to leave unset — publishing on a nil bus is a no-op.
+func (h *Hub) SetBus(bus *events.Bus) { h.bus = bus }
 
 // OnConnect registers a callback run for each agent once it's online, with a
 // context cancelled when that agent disconnects. hope uses it to start the
@@ -296,6 +302,7 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	host := &Host{ID: hostID, Docker: dock, Remote: conn.RemoteAddr().String(), ConnectedAt: time.Now(), Info: info, sess: sess, streamTypes: streamTypes}
 	h.reg.add(host)
 	h.log.Info("agent online", "host", hostID, "remote", host.Remote)
+	h.bus.Publish(events.Event{Kind: events.KindAgentOnline, Host: hostID})
 
 	// Per-session context so the host's background jobs stop when it drops.
 	sessCtx, cancel := context.WithCancel(ctx)
@@ -312,4 +319,5 @@ func (h *Hub) handle(ctx context.Context, conn net.Conn) {
 	dock.Close()
 	h.reg.remove(hostID, host)
 	h.log.Info("agent offline", "host", hostID)
+	h.bus.Publish(events.Event{Kind: events.KindAgentOffline, Host: hostID})
 }

@@ -190,11 +190,28 @@ func (c *Client) crawlUpdates(ctx context.Context) {
 	wg.Wait()
 
 	c.updMu.Lock()
+	// Detect a fresh flip to "outdated" (a new update appeared) vs the prior crawl, so
+	// we publish at most one event per crawl instead of on every scan.
+	flipped := false
+	for ref, st := range acc {
+		if st.status == "outdated" && c.updByRef[ref].status != "outdated" {
+			flipped = true
+			break
+		}
+	}
 	c.updByRef = acc
 	c.updAt = time.Now()
 	c.updMu.Unlock()
 	c.saveUpdateCache()
+	if flipped && c.updHook != nil {
+		c.updHook()
+	}
 }
+
+// SetUpdateHook registers a callback fired once per crawl when some image newly flips
+// to "outdated". The caller closes over its host id + the event bus to publish an
+// image.update event. Set before StartUpdateCrawler.
+func (c *Client) SetUpdateHook(fn func()) { c.updHook = fn }
 
 // persistedCache is the on-disk shape of the freshness cache.
 type persistedCache struct {

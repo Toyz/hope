@@ -41,6 +41,11 @@ type EmitFunc func(v any)
 // forever). Always select on ctx.Done() in long loops.
 type StreamFunc func(ctx context.Context, emit EmitFunc) error
 
+// EventFunc handles a hope event pushed to the plugin (one unary hope.event call
+// per event). It should return quickly; hope treats a slow/erroring handler as a
+// missed delivery and moves on. Requires the events:subscribe permission.
+type EventFunc func(ctx context.Context, e Event) error
+
 type viewEntry struct {
 	desc ViewDesc
 	fn   ViewFunc
@@ -83,6 +88,19 @@ type Plugin struct {
 	// onInit, if set, runs when hope calls hope.init — the plugin's initialization
 	// handshake, carrying its settings so it can set up WITH them (see OnInit).
 	onInit func(ctx context.Context, in InitContext) error
+
+	// onEvent, if set, handles hope events pushed via hope.event (requires the
+	// events:subscribe grant). perms are the reverse-capability requests declared
+	// via RequirePermission, surfaced in hope.schema for operator consent.
+	onEvent func(ctx context.Context, e Event) error
+	perms   []Permission
+
+	// Reverse channel, delivered by hope.init: hopeURL is hope's base URL reachable
+	// by this plugin, pluginKey is this install's stable identity. Both empty until
+	// hope.init delivers them (needs a callback URL configured on hope) — Publish and
+	// Storage are no-ops until then. Guarded by mu.
+	hopeURL   string
+	pluginKey string
 
 	// auth: token is the configured shared secret (HOPE_PLUGIN_TOKEN or Token()).
 	// When empty, the plugin trusts-on-first-use — it pins the first bearer hope
@@ -437,6 +455,37 @@ func (p *Plugin) Stream(method, label string, kind StreamKind, fn StreamFunc) *P
 	return p
 }
 
+// OnEvent registers a handler for hope events (stack/container/image/plugin/agent
+// changes, and plugin-published events). hope pushes each relevant event as a unary
+// hope.event call. Registering a handler auto-declares the events:subscribe
+// permission, so the operator is asked to consent on enable; without the grant hope
+// never calls it. Call RequirePermission(ScopeEventsSubscribe, "<reason>") first to
+// set a custom consent reason.
+func (p *Plugin) OnEvent(fn EventFunc) *Plugin {
+	p.onEvent = fn
+	if fn != nil {
+		p.RequirePermission(ScopeEventsSubscribe, "react to fleet events")
+	}
+	return p
+}
+
+// RequirePermission declares that the plugin wants a reverse capability (an
+// events:*/storage/... scope). It appears in hope.schema; the operator consents when
+// enabling the plugin, and hope gates the capability on the grant. Idempotent per
+// scope — a later call only updates the reason if one is given.
+func (p *Plugin) RequirePermission(scope, reason string) *Plugin {
+	for i := range p.perms {
+		if p.perms[i].Scope == scope {
+			if reason != "" {
+				p.perms[i].Reason = reason
+			}
+			return p
+		}
+	}
+	p.perms = append(p.perms, Permission{Scope: scope, Reason: reason})
+	return p
+}
+
 // Setting declares an operator-managed configuration field. hope renders these in
 // the plugin inspector, persists the values (encrypted), and pushes them to the
 // plugin; read a value in any handler with SettingValue. Settings are config the
@@ -628,6 +677,7 @@ func (p *Plugin) schema() Schema {
 		s.Icons = p.icons
 	}
 	s.Settings = p.settings
+	s.Permissions = p.perms
 	for _, m := range p.order {
 		switch {
 		case p.views[m].fn != nil:

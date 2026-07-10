@@ -271,6 +271,42 @@ export class HopeTransport extends RpcTransport {
     }
   }
 
+  /**
+   * events opens the global event feed (POST /rpc/_events) and yields one parsed
+   * frame per NDJSON line. Unlike streamWithSignal it is NOT a router/method call:
+   * the body is {since} (the last Seq seen) so a reconnect replays only the gap.
+   * Host-agnostic — the feed is fleet-wide. Pass an AbortSignal to tear it down.
+   */
+  async *events(since: number, signal?: AbortSignal): AsyncIterable<any> {
+    const res = await fetch(`${this.baseUrl}/_events`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ since }),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      throw new RpcError(`event feed: ${res.status}`, res.status, "_events", "");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) yield JSON.parse(line);
+        }
+      }
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+  }
+
   // trySso attempts the Cloudflare Access exchange (POST /rpc/Auth/sso). Returns
   // true and stores the token when the edge assertion is valid; false otherwise
   // (not behind Access, or the assertion didn't verify).

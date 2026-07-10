@@ -27,6 +27,7 @@ import (
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
+	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hostguard"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
@@ -167,11 +168,17 @@ func runServe(configPath string) error {
 	// enables the WebSocket endpoint on hope's main port (no extra port — it
 	// rides 443 through Cloudflare); an optional raw TCP listener serves agents
 	// on a trusted LAN/overlay.
+	// Global event bus: producers publish state-change events; the /rpc/_events feed
+	// streams them to the UI (live rail/pages). Built before the hub + crawlers so the
+	// agent-connect and update-crawler hooks can publish onto it.
+	eventBus := events.New()
+
 	var hub *agent.Hub
 	var hubReg *agent.Registry
 	if cfg.Agent.Token != "" {
 		hub = agent.NewHub(cfg.Agent.Token, cfg.Docker.Config, lg)
 		hubReg = hub.Registry()
+		hub.SetBus(eventBus) // agent online/offline -> live feed
 		// Give every connected agent the same background jobs as the local
 		// daemon — registry creds + update/disk crawlers — scoped to its
 		// connection (sctx is cancelled when it drops). The freshness cache is
@@ -180,6 +187,7 @@ func runServe(configPath string) error {
 			d := host.Docker
 			applyRegistries(d) // config + db creds — hope auths registries for every agent
 			if cfg.Updates.Enabled {
+				d.SetUpdateHook(func() { eventBus.Publish(events.Event{Kind: events.KindImageUpdate, Host: host.ID}) })
 				d.StartUpdateCrawler(sctx, cfg.Updates.Interval, "")
 			}
 			d.StartDiskCrawler(sctx, time.Hour)
@@ -235,6 +243,7 @@ func runServe(configPath string) error {
 			if st.Enabled() {
 				dock.SetUpdateCache(storeUpdCache{st}, "local")
 			}
+			dock.SetUpdateHook(func() { eventBus.Publish(events.Event{Kind: events.KindImageUpdate, Host: hosts.LocalID}) })
 			dock.StartUpdateCrawler(ctx, cfg.Updates.Interval, "")
 			lg.Info("update crawler started", "interval", cfg.Updates.Interval.String(), "persisted", st.Enabled())
 		}
@@ -255,7 +264,7 @@ func runServe(configPath string) error {
 	// networks/volumes). Specs live in the state db; no store mounted = not
 	// retained across a recreate (deploy still works; re-import to edit).
 	deployStore := deploy.NewStore(st)
-	deployEngine := deploy.NewEngine(hostSet, deployStore)
+	deployEngine := deploy.NewEngine(hostSet, deployStore, eventBus)
 
 	// Front the listener with the agent WebSocket endpoint when the hub is on,
 	// so agents reach hope over its main port (through Cloudflare). Non-tunnel
@@ -278,9 +287,9 @@ func runServe(configPath string) error {
 	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
 	gw.Register(stacks.NewStacksRouter(hostSet, comp))
-	gw.Register(containers.NewContainersRouter(hostSet))
+	gw.Register(containers.NewContainersRouter(hostSet, eventBus))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
-	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare)))
+	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare), eventBus))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
 	var pluginDialer pluginhost.ContainerDialer
 	if hub != nil {
@@ -298,22 +307,32 @@ func runServe(configPath string) error {
 	}
 	pluginCatalog := catalog.New(catalogSources, cfg.Plugins.Catalog.Refresh, pluginCatalogCache)
 	pluginCatalog.Start(ctx)
-	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginhost.Limits{
+	pluginLimits := pluginhost.Limits{
 		MaxConcurrentCalls:   cfg.Plugins.Limits.MaxConcurrentCalls,
 		MaxConcurrentStreams: cfg.Plugins.Limits.MaxConcurrentStreams,
 		CallRatePerSec:       cfg.Plugins.Limits.CallRatePerSec,
 		CallBurst:            cfg.Plugins.Limits.CallBurst,
 		MaxFrameBytes:        cfg.Plugins.Limits.MaxFrameBytes,
 		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
-	})
+	}
+	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginLimits, eventBus)
+	pluginsRouter.SetCallbackURL(cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
 	gw.Register(pluginsRouter)
-	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens)) // plugin NDJSON streams
+	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
+	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
 	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
 	}
 	if cfg.Plugins.Enabled {
 		lg.Info("container plugins enabled")
+		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
+		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
+		pluginsRouter.StartEventFanout(ctx)
+		// Reap orphaned plugin records: the bus fast path (stack.destroyed) + a periodic
+		// reconcile backstop (identity absent on a reachable host) for out-of-band removals.
+		pluginsRouter.StartRecordGC(ctx)
+		pluginsRouter.StartRecordReconcile(ctx, 5*time.Minute)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is
@@ -330,7 +349,11 @@ func runServe(configPath string) error {
 	gw.MustUse(hosttarget.New())
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(hostSet, tokens, deployEngine))
+	gw.MustUse(logstream.New(hostSet, tokens, deployEngine, eventBus))
+
+	// Global event feed: one long-lived NDJSON stream of state-change events (the
+	// bus fanned out to the UI). Registered beside the other stream handlers.
+	gw.MustUse(events.NewHandler(eventBus))
 
 	// Headless API: when keys are configured, enable sov's introspection endpoint
 	// (/rpc/_introspect) and the interactive explorer UI (/rpc/_explorer/). Off by
