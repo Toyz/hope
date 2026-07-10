@@ -329,8 +329,10 @@ func runServe(configPath string) error {
 		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
 		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
 		pluginsRouter.StartEventFanout(ctx)
-		// Reap orphaned plugin records when their stack is destroyed (bus fast path).
+		// Reap orphaned plugin records: the bus fast path (stack.destroyed) + a periodic
+		// reconcile backstop (identity absent on a reachable host) for out-of-band removals.
 		pluginsRouter.StartRecordGC(ctx)
+		pluginsRouter.StartRecordReconcile(ctx, 5*time.Minute)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is

@@ -37,6 +37,11 @@ type PluginsRouter struct {
 	cachedAt time.Time
 	scanMu   sync.Mutex // serializes fleet scans so concurrent callers don't stampede
 
+	// missCount tracks consecutive reconcile passes an enabled record's identity was
+	// absent on a REACHABLE host, before it's GC'd. Touched only by the single
+	// reconcile goroutine, so it needs no lock.
+	missCount map[string]int
+
 	limMu    sync.Mutex
 	limiters map[string]*pluginLimiter
 
