@@ -163,6 +163,12 @@ type PluginView struct {
 	Trusted     bool   `json:"trusted"`  // has a stored approval record
 	Enabled     bool   `json:"enabled"`  // trusted AND currently on
 	Stale       bool   `json:"stale"`    // enabled but the image changed since approval
+
+	// Permission state (the reverse-capability grants). The inspector renders these
+	// so the operator can see what a plugin CAN do and revoke a scope anytime.
+	Grants  []string `json:"grants,omitempty"`
+	Pending []string `json:"pending,omitempty"`
+	Denied  []string `json:"denied,omitempty"`
 }
 
 // ListParams optionally forces a fresh fleet scan (bypassing the cache) and/or
@@ -242,6 +248,9 @@ func (r *PluginsRouter) List(ctx *rpc.Context, p *ListParams) ([]PluginView, err
 			Trusted:     trusted,
 			Enabled:     trusted && rec.Enabled,
 			Stale:       stale,
+			Grants:      rec.Grants,
+			Pending:     rec.Pending,
+			Denied:      rec.Denied,
 		})
 	}
 	// Trusted plugins whose identity is no longer discovered (stack removed, etc).
@@ -262,6 +271,9 @@ func (r *PluginsRouter) List(ctx *rpc.Context, p *ListParams) ([]PluginView, err
 			Present:     false,
 			Trusted:     true,
 			Enabled:     false,
+			Grants:      rec.Grants,
+			Pending:     rec.Pending,
+			Denied:      rec.Denied,
 		})
 	}
 	return out, nil

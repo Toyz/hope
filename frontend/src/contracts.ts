@@ -356,6 +356,9 @@ export interface PluginView {
   trusted: boolean; // has a stored approval
   enabled: boolean; // trusted AND on
   stale: boolean; // enabled but the image changed since approval
+  grants?: string[]; // reverse-capability scopes the operator granted
+  pending?: string[]; // scopes awaiting a consent decision
+  denied?: string[]; // scopes the operator denied (don't-ask-again)
 }
 
 // ---- plugin marketplace (catalog + installer) ----

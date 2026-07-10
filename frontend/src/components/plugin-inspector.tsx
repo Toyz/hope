@@ -19,6 +19,18 @@ import { withHost } from "../host-url";
 import type { PluginView, PluginConfig, OpFrame } from "../contracts";
 import { theme } from "../styles";
 
+// Short label for a reverse-capability scope (kept in sync with the Go scope
+// constants). Falls back to the raw scope for a future/unknown one.
+const SCOPE_LABELS: Record<string, string> = {
+  "events:subscribe": "receive fleet events",
+  "events:publish": "publish events / alerts",
+  storage: "store its config in hope",
+  "spec:label": "edit its stack's service labels",
+};
+function scopeLabel(scope: string): string {
+  return SCOPE_LABELS[scope] || scope;
+}
+
 // A plugin's operator-managed setting descriptor (subset of hope.schema.settings).
 interface PluginSetting {
   key: string;
@@ -252,6 +264,23 @@ export class HopePluginInspector extends LoomElement {
     }
   };
 
+  // Allow (grant) or deny/revoke a reverse-capability scope. Deny doubles as revoke.
+  private decideScope = async (scope: string, allow: boolean) => {
+    const v = this.view;
+    if (!v || this.busy) return;
+    this.busy = true;
+    try {
+      await this.rpc.call("Plugins", allow ? "grant" : "deny", [{ key: v.key, scope }]);
+      this.toast.ok(`${allow ? "granted" : "revoked"} ${scopeLabel(scope)}`);
+      bus.emit(new PluginsChanged());
+      await this.load();
+    } catch (e: any) {
+      this.toast.error(`${allow ? "grant" : "revoke"} — ${e?.message ?? "failed"}`);
+    } finally {
+      this.busy = false;
+    }
+  };
+
   // Display value for a setting row — secrets are masked, never revealed.
   private settingDisplay(s: PluginSetting): string {
     const val = this.settingVals[s.key] ?? s.default ?? "";
@@ -314,6 +343,27 @@ export class HopePluginInspector extends LoomElement {
                 {v.enabled ? <span class="pill ok">enabled</span> : v.trusted ? <span class="pill">disabled</span> : <span class="pill warn">untrusted</span>}
                 {v.stale ? <span class="pill bad">changed</span> : null}
               </span></span></div>
+
+              {v.trusted && ((v.grants?.length ?? 0) + (v.pending?.length ?? 0) > 0) ? (
+                <>
+                  <div class="ctitle sep">permissions</div>
+                  {(v.pending ?? []).map((sc) => (
+                    <div class="row">
+                      <span class="k">{scopeLabel(sc)}</span>
+                      <span class="v">
+                        <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, true)}>allow</button>
+                        <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, false)}>deny</button>
+                      </span>
+                    </div>
+                  ))}
+                  {(v.grants ?? []).map((sc) => (
+                    <div class="row">
+                      <span class="k">{scopeLabel(sc)}</span>
+                      <span class="v"><span class="pill ok">granted</span> <button class="edit" disabled={this.busy} onClick={() => this.decideScope(sc, false)}>revoke</button></span>
+                    </div>
+                  ))}
+                </>
+              ) : null}
             </div>
 
             <div class="col">
