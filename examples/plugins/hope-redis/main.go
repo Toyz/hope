@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hope-redis", "1.0.0").
+	p := plugin.New("hope-redis", "1.1.0").
 		Description("Browse, query, and operate a Redis / Valkey server").
 		Icon("database")
 
@@ -40,6 +40,7 @@ func main() {
 	registerConsole(p)
 	registerMonitor(p)
 	registerMaintenance(p)
+	registerAlerts(p)
 	registerLayout(p)
 
 	addr := ":8080"
@@ -116,18 +117,85 @@ func registerOverview(p *plugin.Plugin) {
 			}
 		}
 		if !plugin.Caps(ctx).Supports("component") {
-			return plugin.KVData{"hit ratio": hitVal, "memory": orDash(info["used_memory_human"]), "ops/sec": orDash(info["instantaneous_ops_per_sec"])}, nil
+			return plugin.KVData{"hit ratio": hitVal, "memory": orDash(info["used_memory_human"]), "ops/sec": orDash(info["instantaneous_ops_per_sec"]),
+				"clients": orDash(info["connected_clients"]), "evicted keys": orDash(info["evicted_keys"])}, nil
 		}
-		return plugin.Box(
+
+		// Fragmentation: ~1.0 is healthy; >1.5 wastes RAM, <1.0 means swapping (worse).
+		var frag any = orDash(info["mem_fragmentation_ratio"])
+		if f := toF(info["mem_fragmentation_ratio"]); f > 0 {
+			t := plugin.ToneInfo
+			if f >= 1.5 || f < 1 {
+				t = plugin.ToneWarn
+			}
+			frag = plugin.Badge(strconv.FormatFloat(f, 'f', 2, 64), t)
+		}
+		maxmem := "unbounded"
+		if m := toF(info["maxmemory"]); m > 0 {
+			maxmem = humanBytes(int64(m))
+		}
+		var blocked any = plugin.Number(toInt(info["blocked_clients"]), "")
+		if toInt(info["blocked_clients"]) > 0 {
+			blocked = plugin.Badge(info["blocked_clients"], plugin.ToneWarn) // clients waiting on BLPOP/WAIT
+		}
+		var evicted any = plugin.Number(toInt(info["evicted_keys"]), "")
+		if toInt(info["evicted_keys"]) > 0 {
+			evicted = plugin.Badge(info["evicted_keys"], plugin.ToneWarn) // keys dropped under memory pressure
+		}
+		rows := []*plugin.Comp{
 			plugin.Heading("Hit ratio "+hitVal, 2).Toned(hitTone),
-			plugin.CText("share of key lookups served from cache"),
+			plugin.CText("share of key lookups served from cache · " + orDash(info["instantaneous_ops_per_sec"]) + " ops/sec"),
 			plugin.Divider(),
+			plugin.Heading("Memory", 3),
 			plugin.CRow(
-				plugin.KeyVal("memory", plugin.Code(orDash(info["used_memory_human"]))),
-				plugin.KeyVal("ops/sec", plugin.Number(toInt(info["instantaneous_ops_per_sec"]), "")),
-				plugin.KeyVal("keys", plugin.Number(totalKeys(info), "")),
-			).Gapped(20),
-		), nil
+				plugin.KeyVal("used", orDash(info["used_memory_human"])),
+				plugin.KeyVal("peak", orDash(info["used_memory_peak_human"])),
+				plugin.KeyVal("rss", orDash(info["used_memory_rss_human"])),
+				plugin.KeyVal("frag ratio", frag),
+				plugin.KeyVal("maxmemory", maxmem),
+				plugin.KeyVal("policy", orDash(info["maxmemory_policy"])),
+			).Gapped(24),
+			plugin.Divider(),
+			plugin.Heading("Clients & stats", 3),
+			plugin.CRow(
+				plugin.KeyVal("clients", plugin.Number(toInt(info["connected_clients"]), "")),
+				plugin.KeyVal("blocked", blocked),
+				plugin.KeyVal("commands", plugin.Number(toInt(info["total_commands_processed"]), "")),
+				plugin.KeyVal("conns recv", plugin.Number(toInt(info["total_connections_received"]), "")),
+				plugin.KeyVal("rejected", plugin.Number(toInt(info["rejected_connections"]), "")),
+			).Gapped(24),
+			plugin.CRow(
+				plugin.KeyVal("hits", plugin.Number(toInt(info["keyspace_hits"]), "")),
+				plugin.KeyVal("misses", plugin.Number(toInt(info["keyspace_misses"]), "")),
+				plugin.KeyVal("expired", plugin.Number(toInt(info["expired_keys"]), "")),
+				plugin.KeyVal("evicted", evicted),
+			).Gapped(24),
+			plugin.Divider(),
+			plugin.Heading("Persistence", 3),
+			plugin.CRow(
+				plugin.KeyVal("last save", humanDur(nowUnix()-toF(info["rdb_last_save_time"]))+" ago"),
+				plugin.KeyVal("unsaved", plugin.Number(toInt(info["rdb_changes_since_last_save"]), "")),
+				plugin.KeyVal("last bgsave", statusBadge(info["rdb_last_bgsave_status"])),
+				plugin.KeyVal("aof", aofState(info)),
+			).Gapped(24),
+		}
+		// Replication section only when relevant (a replica, or has replicas).
+		if info["role"] == "slave" || toInt(info["connected_slaves"]) > 0 {
+			link := "—"
+			if info["role"] == "slave" {
+				link = orDash(info["master_link_status"])
+			}
+			rows = append(rows,
+				plugin.Divider(),
+				plugin.Heading("Replication", 3),
+				plugin.CRow(
+					plugin.KeyVal("role", plugin.Badge(orDash(info["role"]), plugin.ToneInfo)),
+					plugin.KeyVal("replicas", plugin.Number(toInt(info["connected_slaves"]), "")),
+					plugin.KeyVal("master link", link),
+				).Gapped(24),
+			)
+		}
+		return plugin.Box(rows...), nil
 	}, plugin.Refreshable(), plugin.RefreshEvery(15))
 
 	// Per-database key counts from INFO keyspace, as a table.
@@ -360,7 +428,9 @@ func registerLayout(p *plugin.Plugin) {
 			plugin.Leaf("command").Titled("Console"),
 			plugin.Leaf("slowlog").Titled("Slowlog"),
 			plugin.Leaf("clients").Titled("Clients"),
+			plugin.Leaf("alertRules").Titled("Alerts"),
 		),
+		plugin.Section("Alerts", plugin.Buttons("addAlert")),
 		plugin.Section("Maintenance", plugin.Buttons("flushdb", "flushall")),
 	)
 
@@ -379,6 +449,7 @@ func registerLayout(p *plugin.Plugin) {
 			plugin.Leaf("command").Titled("Console").Filled(),
 			plugin.Leaf("slowlog").Titled("Slowlog"),
 			plugin.Leaf("clients").Titled("Clients"),
+			plugin.Leaf("alertRules").Titled("Alerts"),
 		),
 	)).PageID("redis").
 		Subtitle("browse, query, and operate this server").
@@ -739,4 +810,28 @@ func humanBytes(n int64) string {
 	}
 	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + units[exp]
+}
+
+func nowUnix() float64 { return float64(time.Now().Unix()) }
+
+// statusBadge tones a redis status string ("ok" vs anything else) into a badge.
+func statusBadge(s string) any {
+	if s == "" {
+		return "—"
+	}
+	if strings.EqualFold(s, "ok") {
+		return plugin.Badge(s, plugin.ToneOK)
+	}
+	return plugin.Badge(s, plugin.ToneBad)
+}
+
+// aofState summarizes AOF persistence: off, or on + its last rewrite status.
+func aofState(info map[string]string) any {
+	if info["aof_enabled"] != "1" {
+		return plugin.Badge("off", plugin.ToneInfo)
+	}
+	if st := info["aof_last_bgrewrite_status"]; st != "" && !strings.EqualFold(st, "ok") {
+		return plugin.Badge("on · "+st, plugin.ToneBad)
+	}
+	return plugin.Badge("on", plugin.ToneOK)
 }
