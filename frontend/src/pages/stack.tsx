@@ -260,6 +260,12 @@ function aggMark(items: ContainerSummary[]): string {
   .rdrow .rdname { font: 500 13px/1 var(--mono); color: var(--hi); }
   .rdrow .grow { flex: 1; }
   .rdrow .rdpods { font: 11px/1 var(--mono); color: var(--dim); }
+  .rdpick { display: flex; align-items: center; gap: 8px; padding: 9px 18px 10px; border-bottom: 1px solid var(--line); }
+  .rdpick .rdpl { font: 10px/1 var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
+  .rdpick .grow { flex: 1; }
+  .rdpb { font: 12px/1 var(--mono); color: var(--mid); background: var(--ink); border: 1px solid var(--line); padding: 6px 12px; cursor: pointer; }
+  .rdpb:hover { border-color: var(--line2); color: var(--hi); }
+  .rdpb.on { color: var(--hi); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
   .rdopts { display: flex; align-items: center; gap: 22px; padding: 10px 18px; border-top: 1px solid var(--line2);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .rdopts .ck { width: 14px; height: 14px; }
@@ -1502,6 +1508,11 @@ export class StackPage extends LoomElement {
     const groups = this.groups(s);
     const included = groups.filter((g) => !this.rdExcluded.includes(g.service));
     const count = included.reduce((a, g) => a + g.items.length, 0);
+    const updatedSvcs = groups.filter((g) => this.groupUpdate(g.items) === "outdated").map((g) => g.service);
+    // Which quick-select mode the current selection matches (for the active highlight).
+    const isAll = this.rdExcluded.length === 0;
+    const isNone = count === 0;
+    const isUpdated = updatedSvcs.length > 0 && included.length === updatedSvcs.length && included.every((g) => updatedSvcs.includes(g.service));
     return (
       <div class="rdmodal" onClick={() => (this.rdOpen = false)}>
         <div class="rdbox" onClick={(e: Event) => e.stopPropagation()}>
@@ -1512,6 +1523,14 @@ export class StackPage extends LoomElement {
             <button class="rdx" onClick={() => (this.rdOpen = false)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
           <p class="rdmsg">Recreates each checked service. Uncheck any to leave it as-is.</p>
+          <div class="rdpick">
+            <span class="rdpl">select</span>
+            <button class={"rdpb" + (isAll ? " on" : "")} onClick={() => (this.rdExcluded = [])}>all</button>
+            <button class={"rdpb" + (isNone ? " on" : "")} onClick={() => (this.rdExcluded = groups.map((g) => g.service))}>none</button>
+            {updatedSvcs.length > 0 ? (
+              <button class={"rdpb" + (isUpdated ? " on" : "")} onClick={() => (this.rdExcluded = groups.filter((g) => !updatedSvcs.includes(g.service)).map((g) => g.service))}>updated ({updatedSvcs.length})</button>
+            ) : null}
+          </div>
           <div class="rdbody">
             {groups.map((g) => {
               const on = !this.rdExcluded.includes(g.service);
