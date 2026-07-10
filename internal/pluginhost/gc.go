@@ -22,7 +22,7 @@ const reconcileMisses = 3
 // that host/project is safe to drop immediately. The reconcile backstop for other
 // removal routes (a record whose identity no longer has a container on a REACHABLE
 // host) is a separate, discovery-driven follow-up. Runs until ctx is cancelled.
-func (r *PluginsRouter) StartRecordGC(ctx context.Context) {
+func StartRecordGC(ctx context.Context, r *PluginsRouter) {
 	if r.bus == nil || !r.store.Enabled() {
 		return
 	}
@@ -74,7 +74,7 @@ func (r *PluginsRouter) reap(key, host string) {
 // passes is reaped. The reachable guard is the safety catch — an offline agent host's
 // plugins simply vanish from discovery, so their absence proves nothing and they are
 // never GC'd while the host is down. No-op without a store.
-func (r *PluginsRouter) StartRecordReconcile(ctx context.Context, every time.Duration) {
+func StartRecordReconcile(ctx context.Context, r *PluginsRouter, every time.Duration) {
 	if !r.store.Enabled() {
 		return
 	}

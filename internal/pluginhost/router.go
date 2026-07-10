@@ -72,8 +72,10 @@ func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, en
 }
 
 // SetCallbackURL sets hope's plugin-reachable base URL, handed to plugins in hope.init
-// so they can call back (publish / storage). Empty leaves the reverse channel off.
-func (r *PluginsRouter) SetCallbackURL(u string) { r.callbackURL = u }
+// so they can call back (publish / storage). Empty leaves the reverse channel off. A
+// package function, not a method — see the note on StartEventFanout (an exported
+// non-RPC method would panic under gw.Register's reflection).
+func SetCallbackURL(r *PluginsRouter, u string) { r.callbackURL = u }
 
 // Catalog returns the installable first-party plugins (built-ins merged with any
 // remote manifest entries). Empty when no catalog is wired.

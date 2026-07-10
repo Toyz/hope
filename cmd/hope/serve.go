@@ -316,7 +316,7 @@ func runServe(configPath string) error {
 		MaxFramesPerSec:      cfg.Plugins.Limits.MaxFramesPerSec,
 	}
 	pluginsRouter := pluginhost.NewPluginsRouter(hostSet, st, pluginDialer, deployEngine, pluginCatalog, cfg.Plugins.Enabled, cfg.Plugins.AutoReapprove, pluginLimits, eventBus)
-	pluginsRouter.SetCallbackURL(cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
+	pluginhost.SetCallbackURL(pluginsRouter, cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
 	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
@@ -328,11 +328,11 @@ func runServe(configPath string) error {
 		lg.Info("container plugins enabled")
 		// Fan the event bus out to plugins that hold the events:subscribe grant, so a
 		// subscribed plugin (OnEvent) receives fleet events. Best-effort + bounded.
-		pluginsRouter.StartEventFanout(ctx)
+		pluginhost.StartEventFanout(ctx, pluginsRouter)
 		// Reap orphaned plugin records: the bus fast path (stack.destroyed) + a periodic
 		// reconcile backstop (identity absent on a reachable host) for out-of-band removals.
-		pluginsRouter.StartRecordGC(ctx)
-		pluginsRouter.StartRecordReconcile(ctx, 5*time.Minute)
+		pluginhost.StartRecordGC(ctx, pluginsRouter)
+		pluginhost.StartRecordReconcile(ctx, pluginsRouter, 5*time.Minute)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is

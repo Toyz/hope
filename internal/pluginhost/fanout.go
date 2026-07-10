@@ -28,7 +28,11 @@ const (
 // pool, so a slow plugin never backs up the bus (a saturated dispatch drops the
 // delivery); each push is time-bounded. Runs until ctx is cancelled. No-op without a
 // bus or store (nothing to fan out / no grants to check).
-func (r *PluginsRouter) StartEventFanout(ctx context.Context) {
+// NOTE: this and the other Start*/Set* helpers are PACKAGE FUNCTIONS, not methods on
+// *PluginsRouter. The router is registered via gw.Register, which reflects over every
+// exported METHOD and requires the (*rpc.Context, ...) RPC shape — an exported helper
+// method would panic at startup. Package functions are invisible to that reflection.
+func StartEventFanout(ctx context.Context, r *PluginsRouter) {
 	if r.bus == nil || !r.store.Enabled() {
 		return
 	}
