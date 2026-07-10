@@ -319,7 +319,7 @@ func runServe(configPath string) error {
 	pluginsRouter.SetCallbackURL(cfg.Plugins.CallbackURL) // reverse channel (publish/storage); empty = off
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
-	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, pluginLimits)) // plugin->hope reverse channel (publish)
+	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
 	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)

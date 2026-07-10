@@ -29,7 +29,7 @@ func ingressFixture(t *testing.T, grants []string) (*PluginIngress, *events.Bus,
 		t.Fatalf("put plugin: %v", err)
 	}
 	bus := events.New()
-	return NewPluginIngress(st, bus, DefaultLimits), bus, st.DeriveToken(testKey)
+	return NewPluginIngress(st, bus, nil, DefaultLimits), bus, st.DeriveToken(testKey)
 }
 
 func publishReq(key, token string, e events.Event) *gateway.Request {
@@ -138,5 +138,38 @@ func TestIngressKVRequiresStorageGrant(t *testing.T) {
 	r := h.ServeRoute(context.Background(), kvReq(testKey, token, "set", "cfg", "", json.RawMessage(`{}`)))
 	if r.Status != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 without the storage grant", r.Status)
+	}
+}
+
+func actionReq(key, token, op, service string) *gateway.Request {
+	body, _ := json.Marshal(actionBody{Key: key, Op: op, Service: service, LabelKey: "prometheus.io/scrape", LabelValue: "true"})
+	h := gateway.Header{}
+	if token != "" {
+		h.Set("Authorization", "Bearer "+token)
+	}
+	return &gateway.Request{Method: http.MethodPost, Path: pathPluginAction, Header: h, Body: body}
+}
+
+func TestActionRequiresScope(t *testing.T) {
+	h, _, token := ingressFixture(t, nil) // enabled, no spec:label grant
+	r := h.ServeRoute(context.Background(), actionReq(testKey, token, "addServiceLabel", "web"))
+	if r.Status != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 without spec:label", r.Status)
+	}
+}
+
+func TestActionUnknownOp(t *testing.T) {
+	h, _, token := ingressFixture(t, []string{scopeSpecLabel})
+	r := h.ServeRoute(context.Background(), actionReq(testKey, token, "rmRf", "web"))
+	if r.Status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for an unknown op", r.Status)
+	}
+}
+
+func TestActionUnavailableWithoutEngine(t *testing.T) {
+	h, _, token := ingressFixture(t, []string{scopeSpecLabel}) // fixture wires deploy=nil
+	r := h.ServeRoute(context.Background(), actionReq(testKey, token, "addServiceLabel", "web"))
+	if r.Status != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 when no deploy engine is wired", r.Status)
 	}
 }

@@ -260,6 +260,7 @@ const (
 	ScopeEventsSubscribe = "events:subscribe" // receive hope events via OnEvent
 	ScopeEventsPublish   = "events:publish"   // publish events onto hope's bus
 	ScopeStorage         = "storage"          // durable per-install KV (p.Storage)
+	ScopeSpecLabel       = "spec:label"       // add/update a service label in the plugin's own stack (p.Hope().AddServiceLabel)
 )
 
 // Event is one hope event delivered to an OnEvent handler. Mirrors hope's wire

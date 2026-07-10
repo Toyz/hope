@@ -8,10 +8,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/Toyz/sov/rpc"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/store"
 )
@@ -20,7 +22,15 @@ const (
 	pathPluginEvents  = "/rpc/_plugin_events"
 	pathPluginKV      = "/rpc/_plugin/kv"
 	pathPluginReqPerm = "/rpc/_plugin/request-permission"
+	pathPluginAction  = "/rpc/_plugin/action"
 )
+
+// actionTimeout bounds a plugin-triggered stack re-apply (it recreates changed
+// services) so a hung apply can't hold resources forever.
+const actionTimeout = 5 * time.Minute
+
+// timeNow is the current unix-milli clock (audit timing).
+func timeNow() int64 { return time.Now().UnixMilli() }
 
 // PluginIngress is the plugin->hope reverse channel — hope's FIRST inbound-from-plugin
 // surface. A plugin POSTs here to publish an event onto hope's bus. The trust boundary
@@ -32,6 +42,7 @@ const (
 type PluginIngress struct {
 	store  *store.Store
 	bus    *events.Bus
+	deploy *deploy.Engine // for operator actions (spec mutation); nil = actions unavailable
 	limits Limits
 
 	mu   sync.Mutex
@@ -44,9 +55,10 @@ var (
 	_ gateway.RouteHandler = (*PluginIngress)(nil)
 )
 
-// NewPluginIngress builds the reverse-channel handler.
-func NewPluginIngress(st *store.Store, bus *events.Bus, limits Limits) *PluginIngress {
-	return &PluginIngress{store: st, bus: bus, limits: limits.WithDefaults(), lims: map[string]*pluginLimiter{}}
+// NewPluginIngress builds the reverse-channel handler. eng enables operator actions
+// (spec mutation); pass nil to leave actions unavailable.
+func NewPluginIngress(st *store.Store, bus *events.Bus, eng *deploy.Engine, limits Limits) *PluginIngress {
+	return &PluginIngress{store: st, bus: bus, deploy: eng, limits: limits.WithDefaults(), lims: map[string]*pluginLimiter{}}
 }
 
 func (h *PluginIngress) PluginName() string { return "plugin-ingress" }
@@ -56,7 +68,7 @@ func (h *PluginIngress) Doc() string {
 }
 
 func (h *PluginIngress) RoutePatterns() []string {
-	return []string{pathPluginEvents, pathPluginKV, pathPluginReqPerm}
+	return []string{pathPluginEvents, pathPluginKV, pathPluginReqPerm, pathPluginAction}
 }
 
 func (h *PluginIngress) limiter(key string) *pluginLimiter {
@@ -94,8 +106,122 @@ func (h *PluginIngress) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		return h.kv(req)
 	case pathPluginReqPerm:
 		return h.requestPermission(req)
+	case pathPluginAction:
+		return h.action(ctx, req)
 	}
 	return ingressErr(http.StatusNotFound, "NOT_FOUND", "unknown endpoint")
+}
+
+// actionBody is an operator-action request. Op selects the mutation; the remaining
+// fields are its args. Actions are always scoped to the plugin's OWN stack (hope uses
+// the record's host/project — the plugin cannot target another).
+type actionBody struct {
+	Key        string `json:"key"`
+	Op         string `json:"op"` // "addServiceLabel"
+	Service    string `json:"service"`
+	LabelKey   string `json:"labelKey"`
+	LabelValue string `json:"labelValue"`
+}
+
+// actionScope maps an action op to the permission scope it requires. Empty = unknown op.
+func actionScope(op string) string {
+	switch op {
+	case "addServiceLabel":
+		return scopeSpecLabel
+	}
+	return ""
+}
+
+// action handles POST /rpc/_plugin/action — plugins as operators. It is the highest-
+// privilege reverse capability: a granted plugin mutates its own stack's spec and hope
+// re-applies it, so the change PERSISTS across future redeploys (unlike a live-container
+// relabel, which evaporates on the next recreate). Enforcement: the scope must be
+// granted, and the target is ALWAYS the plugin's own host/project (:own) — hope ignores
+// any cross-stack target. Every action is audited.
+func (h *PluginIngress) action(ctx context.Context, req *gateway.Request) *gateway.Response {
+	var body actionBody
+	if err := json.Unmarshal(req.Body, &body); err != nil {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "invalid body")
+	}
+	scope := actionScope(body.Op)
+	if scope == "" {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "unknown action op")
+	}
+	rec, errResp := h.verify(req, body.Key, scope)
+	if errResp != nil {
+		return errResp
+	}
+	if h.deploy == nil {
+		return ingressErr(http.StatusServiceUnavailable, "UNAVAILABLE", "actions unavailable (no deploy engine)")
+	}
+	switch body.Op {
+	case "addServiceLabel":
+		return h.addServiceLabel(ctx, rec, body)
+	}
+	return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "unknown action op")
+}
+
+// addServiceLabel adds/updates one label on a service in the plugin's OWN stack spec,
+// then re-applies the stack so the label persists. The stack is resolved from the
+// record (rec.Host/rec.Project) — the plugin names only the service, never a project.
+func (h *PluginIngress) addServiceLabel(ctx context.Context, rec *store.PluginRecord, body actionBody) *gateway.Response {
+	if body.Service == "" || body.LabelKey == "" {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "service and labelKey required")
+	}
+	if rec.Project == "" {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "plugin is not part of a stack hope can edit")
+	}
+	spec, err := h.deploy.Store().Load(rec.Host, rec.Project)
+	if err != nil || spec == nil {
+		return ingressErr(http.StatusBadRequest, "NO_SPEC", "no stored spec for this stack (hope can only edit stacks it deployed)")
+	}
+	found := false
+	for i := range spec.Services {
+		if spec.Services[i].Name == body.Service {
+			if spec.Services[i].Labels == nil {
+				spec.Services[i].Labels = map[string]string{}
+			}
+			spec.Services[i].Labels[body.LabelKey] = body.LabelValue
+			found = true
+		}
+	}
+	if !found {
+		return ingressErr(http.StatusBadRequest, "NO_SERVICE", "service not found in this stack")
+	}
+
+	// Apply detached + time-bounded: the re-apply outlives the plugin's HTTP call but
+	// can't hang a worker forever.
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), actionTimeout)
+	defer cancel()
+	start := timeNow()
+	applyErr := h.deploy.ApplyStack(actx, spec, false, func(string) {})
+	h.audit(rec, "addServiceLabel:"+body.Service+"/"+body.LabelKey, applyErr, start)
+	if applyErr != nil {
+		return ingressErr(http.StatusInternalServerError, "APPLY_FAILED", applyErr.Error())
+	}
+	return ingressOK(`{"ok":true}`)
+}
+
+// audit records a plugin-initiated mutation (actor is the plugin itself — no human
+// subject on the reverse channel).
+func (h *PluginIngress) audit(rec *store.PluginRecord, method string, err error, start int64) {
+	_ = h.store.AppendAudit(store.AuditEntry{
+		Actor:  "plugin:" + rec.Key,
+		Plugin: rec.Key,
+		Host:   rec.Host,
+		Method: method,
+		Danger: true,
+		OK:     err == nil,
+		Err:    errString(err),
+		Millis: timeNow() - start,
+	})
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // requestPermission handles POST /rpc/_plugin/request-permission: a plugin asks, at

@@ -14,6 +14,7 @@ const (
 	scopeEventsSubscribe = "events:subscribe"
 	scopeEventsPublish   = "events:publish"
 	scopeStorage         = "storage"
+	scopeSpecLabel       = "spec:label"
 )
 
 const (
