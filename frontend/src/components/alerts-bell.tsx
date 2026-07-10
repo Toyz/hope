@@ -11,6 +11,7 @@ interface ActiveAlert {
   key: string; // dedupe key, or source|title
   severity: string;
   source: string; // "plugin.<identity>"
+  host: string; // the host the plugin runs on
   title: string;
   detail: string;
   ts: number; // client receive time
@@ -77,7 +78,7 @@ export class HopeAlertsBell extends LoomElement {
       this.alerts = this.alerts.filter((a) => a.key !== key);
       return;
     }
-    const next: ActiveAlert = { key, severity: e.severity, source: e.source, title: e.title, detail: e.detail, ts: Date.now() };
+    const next: ActiveAlert = { key, severity: e.severity, source: e.source, host: e.host, title: e.title, detail: e.detail, ts: Date.now() };
     const i = this.alerts.findIndex((a) => a.key === key);
     // Newest first; an updated same-key alert moves to the top.
     this.alerts = i >= 0 ? [next, ...this.alerts.filter((_, j) => j !== i)] : [next, ...this.alerts];
@@ -121,7 +122,7 @@ export class HopeAlertsBell extends LoomElement {
                   <div class="body">
                     <div class="t">{a.title}</div>
                     {a.detail ? <div class="d">{a.detail}</div> : null}
-                    <div class="meta"><span>{sourceLabel(a.source)}</span><span>{ago(a.ts)}</span></div>
+                    <div class="meta"><span>{sourceLabel(a.source)}{a.host ? " · " + a.host : ""}</span><span>{ago(a.ts)}</span></div>
                   </div>
                   <span class="x" title="dismiss" onClick={(e: Event) => this.dismiss(a.key, e)}><loom-icon name="x" size={12}></loom-icon></span>
                 </div>

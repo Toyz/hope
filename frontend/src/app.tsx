@@ -94,7 +94,8 @@ export class HopeApp extends LoomElement {
       if (now - (this.alertSeen.get(e.dedupe) ?? 0) < 30_000) return;
       this.alertSeen.set(e.dedupe, now);
     }
-    const msg = e.detail ? `${label} — ${e.detail}` : label;
+    const base = e.detail ? `${label} — ${e.detail}` : label;
+    const msg = e.host ? `${base} (${e.host})` : base;
     const tone = /crit|error|high|fatal/i.test(e.severity) ? "bad" : /warn|med/i.test(e.severity) ? "warn" : "ok";
     this.toast.show(msg, tone);
   }

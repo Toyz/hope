@@ -152,6 +152,7 @@ export class EventFeed {
               d.detail ?? "",
               d.dedupeKey ?? "",
               d.resolved === "true" || (d.resolved as unknown) === true,
+              host,
             ),
           );
         }

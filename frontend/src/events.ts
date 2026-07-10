@@ -256,6 +256,7 @@ export class PluginAlert extends LoomEvent {
     public detail: string,
     public dedupe: string, // dedupeKey (LoomEvent already owns `dedupeKey`)
     public resolved: boolean,
+    public host = "", // the host the plugin runs on (fleet attribution)
   ) {
     super();
   }
