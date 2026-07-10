@@ -53,7 +53,7 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 }
 
 func main() {
-	p := plugin.New("kitchen-sink", "1.0.0").
+	p := plugin.New("kitchen-sink", "1.1.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
 		Icon("box").
 		Icons(map[string]string{
@@ -561,6 +561,57 @@ func main() {
 		plugin.Section("Query", plugin.Leaf("sql")),
 		plugin.Section("Rows", plugin.Leaf("rows").Filled()),
 	), dbs)
+
+	// --- reverse channel demo: subscribe to fleet events, publish alerts, use durable
+	// storage, and act as an operator. Each capability is least-privilege: the operator
+	// consents to these scopes when enabling the plugin (events:subscribe is auto-
+	// declared by OnEvent). They no-op gracefully until hope has [plugins] callback_url
+	// configured. This is the end-to-end smoke test for the event bus. ---
+	p.RequirePermission(plugin.ScopeEventsPublish, "raise alerts you can see in hope")
+	p.RequirePermission(plugin.ScopeStorage, "remember how many events it has seen")
+	p.RequirePermission(plugin.ScopeSpecLabel, "tag its own stack's services on request")
+
+	// OnEvent: log every fleet event, count them in hope-persisted storage, and raise a
+	// demo alert every 5th event (deduped by key so it doesn't spam).
+	p.OnEvent(func(ctx context.Context, e plugin.Event) error {
+		log.Printf("event: kind=%s host=%s project=%s", e.Kind, e.Host, e.Project)
+		var count int
+		_, _ = p.Storage().Get(ctx, "eventCount", &count)
+		count++
+		_ = p.Storage().Set(ctx, "eventCount", count)
+		if count%5 == 0 {
+			_ = p.Alert(ctx, "info", "kitchen-sink milestone", fmt.Sprintf("seen %d fleet events", count), "milestone")
+		}
+		return nil
+	})
+
+	// A button that publishes an alert on demand (proves publish end-to-end).
+	p.Action("fireAlert", "Fire a demo alert", []plugin.Field{{Key: "sev", Label: "Severity", Placeholder: "warn"}}, func(ctx context.Context, in map[string]any) (any, error) {
+		sev, _ := in["sev"].(string)
+		if sev == "" {
+			sev = "warn"
+		}
+		if err := p.Alert(ctx, sev, "manual alert from kitchen-sink", "you pressed the button", ""); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	})
+
+	// Operator action: add a label to one of THIS plugin's own stack services (persists
+	// across redeploys). The Prometheus-labels pattern.
+	p.Action("tagService", "Tag a service", []plugin.Field{
+		{Key: "service", Label: "Service"},
+		{Key: "key", Label: "Label key", Placeholder: "prometheus.io/scrape"},
+		{Key: "value", Label: "Label value", Placeholder: "true"},
+	}, func(ctx context.Context, in map[string]any) (any, error) {
+		svc, _ := in["service"].(string)
+		k, _ := in["key"].(string)
+		v, _ := in["value"].(string)
+		if err := p.Hope().AddServiceLabel(ctx, svc, k, v); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	})
 
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
