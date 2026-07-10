@@ -22,6 +22,7 @@ import {
   TunnelsChanged,
   AgentStatusChanged,
   PermissionRequested,
+  PluginAlert,
 } from "./events";
 
 // One server frame off the feed. Everything but kind is optional (see the Go
@@ -32,6 +33,7 @@ interface Frame {
   host?: string;
   project?: string;
   ids?: string[];
+  source?: string; // "hope" | "plugin.<identity>"
   data?: Record<string, string>; // kind-specific payload (e.g. permission.requested)
 }
 
@@ -135,8 +137,22 @@ export class EventFeed {
         bus.emit(new AgentStatusChanged(host, false));
         return;
       default:
-        // Unknown/plugin-namespaced kind (a future hope or a plugin-published
-        // event) — ignore silently so an older frontend degrades gracefully.
+        // Plugin-published alert (kind plugin.<key>.alert): surface it. Other
+        // plugin-namespaced / future kinds are ignored so an older frontend degrades
+        // gracefully.
+        if (f.kind.startsWith("plugin.") && f.kind.endsWith(".alert")) {
+          const d = f.data ?? {};
+          bus.emit(
+            new PluginAlert(
+              f.source ?? "",
+              d.severity ?? "info",
+              d.title ?? "",
+              d.detail ?? "",
+              d.dedupeKey ?? "",
+              d.resolved === "true" || (d.resolved as unknown) === true,
+            ),
+          );
+        }
         return;
     }
   }

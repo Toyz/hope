@@ -243,6 +243,24 @@ export class AgentStatusChanged extends LoomEvent {
   }
 }
 
+// Fired when a plugin PUBLISHES an alert onto the bus (kind plugin.<key>.alert). The
+// server-forced Source (plugin.<key>) means it's attributable and unspoofable. hope-app
+// surfaces it as a toast; a persistent alerts surface can also listen. severity is the
+// plugin's ("critical"/"warn"/"info"…); resolved clears a prior alert with the same
+// dedupeKey.
+export class PluginAlert extends LoomEvent {
+  constructor(
+    public source: string, // "plugin.<identity>"
+    public severity: string,
+    public title: string,
+    public detail: string,
+    public dedupe: string, // dedupeKey (LoomEvent already owns `dedupeKey`)
+    public resolved: boolean,
+  ) {
+    super();
+  }
+}
+
 // Fired when a plugin requests a permission scope the operator hasn't decided
 // (declared at enable, or a runtime request). The consent modal (<hope-consent>,
 // owned by hope-app) prompts the operator to Allow/Deny. Android-style: the request
