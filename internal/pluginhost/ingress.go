@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	pathPluginEvents = "/rpc/_plugin_events"
-	pathPluginKV     = "/rpc/_plugin/kv"
+	pathPluginEvents  = "/rpc/_plugin_events"
+	pathPluginKV      = "/rpc/_plugin/kv"
+	pathPluginReqPerm = "/rpc/_plugin/request-permission"
 )
 
 // PluginIngress is the plugin->hope reverse channel — hope's FIRST inbound-from-plugin
@@ -53,7 +55,9 @@ func (h *PluginIngress) Doc() string {
 	return "Plugin->hope reverse channel (/rpc/_plugin_events): a token-authenticated, events:publish-granted plugin publishes an event onto hope's bus. Attribution (Source/Kind) is server-forced so a plugin can't spoof another's events or a core kind."
 }
 
-func (h *PluginIngress) RoutePatterns() []string { return []string{pathPluginEvents, pathPluginKV} }
+func (h *PluginIngress) RoutePatterns() []string {
+	return []string{pathPluginEvents, pathPluginKV, pathPluginReqPerm}
+}
 
 func (h *PluginIngress) limiter(key string) *pluginLimiter {
 	h.mu.Lock()
@@ -88,14 +92,46 @@ func (h *PluginIngress) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		return h.publish(req)
 	case pathPluginKV:
 		return h.kv(req)
+	case pathPluginReqPerm:
+		return h.requestPermission(req)
 	}
 	return ingressErr(http.StatusNotFound, "NOT_FOUND", "unknown endpoint")
 }
 
-// verify authenticates the caller as the plugin at key and authorizes the given scope.
-// It returns the enabled record, or a non-nil error response to send verbatim. The
-// whole plugin->hope trust boundary lives here.
-func (h *PluginIngress) verify(req *gateway.Request, key, scope string) (*store.PluginRecord, *gateway.Response) {
+// requestPermission handles POST /rpc/_plugin/request-permission: a plugin asks, at
+// runtime, for a scope it doesn't hold (the Android runtime-permission model). It does
+// NOT grant — it queues the scope as pending and raises a consent prompt for the
+// operator. Anti-nuisance: already-granted / already-pending / don't-ask-again-denied
+// are silent no-ops, so a plugin can't spam the operator.
+func (h *PluginIngress) requestPermission(req *gateway.Request) *gateway.Response {
+	var body struct {
+		Key    string `json:"key"`
+		Scope  string `json:"scope"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(req.Body, &body); err != nil || body.Scope == "" {
+		return ingressErr(http.StatusBadRequest, "BAD_REQUEST", "key and scope required")
+	}
+	rec, errResp := h.authenticate(req, body.Key)
+	if errResp != nil {
+		return errResp
+	}
+	// Already decided or queued -> no new prompt.
+	if slices.Contains(rec.Grants, body.Scope) || slices.Contains(rec.Denied, body.Scope) || slices.Contains(rec.Pending, body.Scope) {
+		return ingressOK(`{"ok":true,"pending":false}`)
+	}
+	rec.Pending = append(rec.Pending, body.Scope)
+	if err := h.store.PutPlugin(*rec); err != nil {
+		return ingressErr(http.StatusInternalServerError, "INTERNAL", "persist failed")
+	}
+	h.bus.Publish(events.Event{Kind: events.KindPermissionReq, Host: rec.Host, Data: permissionReqData(body.Key, rec.Name, body.Scope, body.Reason)})
+	return ingressOK(`{"ok":true,"pending":true}`)
+}
+
+// authenticate proves the caller is the plugin at key (enabled record + valid token)
+// and applies the per-plugin rate cap. It does NOT check any grant — that's the
+// caller's job via verify. Returns the record or a non-nil error response.
+func (h *PluginIngress) authenticate(req *gateway.Request, key string) (*store.PluginRecord, *gateway.Response) {
 	if key == "" {
 		return nil, ingressErr(http.StatusBadRequest, "BAD_REQUEST", "key required")
 	}
@@ -110,11 +146,21 @@ func (h *PluginIngress) verify(req *gateway.Request, key, scope string) (*store.
 	if tok == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(want)) != 1 {
 		return nil, ingressErr(http.StatusUnauthorized, "UNAUTHENTICATED", "bad plugin token")
 	}
-	if !rec.HasGrant(scope) {
-		return nil, ingressErr(http.StatusForbidden, "FORBIDDEN", "plugin lacks the "+scope+" permission")
-	}
 	if !h.limiter(key).allowRate() {
 		return nil, ingressErr(http.StatusTooManyRequests, "RATE_LIMITED", "rate exceeded")
+	}
+	return rec, nil
+}
+
+// verify authenticates the caller AND authorizes the given scope — the trust boundary
+// for a capability that requires an operator grant.
+func (h *PluginIngress) verify(req *gateway.Request, key, scope string) (*store.PluginRecord, *gateway.Response) {
+	rec, errResp := h.authenticate(req, key)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if !rec.HasGrant(scope) {
+		return nil, ingressErr(http.StatusForbidden, "FORBIDDEN", "plugin lacks the "+scope+" permission")
 	}
 	return rec, nil
 }

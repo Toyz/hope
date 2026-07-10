@@ -69,6 +69,22 @@ func (p *Plugin) Publish(ctx context.Context, e Event) error {
 	return err
 }
 
+// RequestPermission asks the operator, at runtime, to grant a scope this plugin
+// doesn't yet hold (the Android runtime-permission model). It does not grant anything
+// — hope raises a consent prompt; the plugin gains the capability only if the operator
+// allows it. Safe to call repeatedly: an already-granted/denied/pending scope is a
+// no-op on hope's side. Declaring the scope up front via RequirePermission (so it's
+// asked at enable) is usually better; use this when a capability is only needed
+// conditionally at runtime.
+func (p *Plugin) RequestPermission(ctx context.Context, scope, reason string) error {
+	url, key, token := p.reverse()
+	if url == "" || key == "" {
+		return ErrNoReverseChannel
+	}
+	_, err := postReverse(ctx, url, token, "/rpc/_plugin/request-permission", map[string]any{"key": key, "scope": scope, "reason": reason})
+	return err
+}
+
 // Alert is a convenience over Publish: it publishes an event whose Data is
 // {severity, title, detail, dedupeKey}. hope namespaces the kind to
 // plugin.<identity>.alert. Requires events:publish.
