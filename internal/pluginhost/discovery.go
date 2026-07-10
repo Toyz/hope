@@ -97,6 +97,39 @@ func (r *PluginsRouter) scan(ctx context.Context, refresh bool) []Discovered {
 	return out
 }
 
+// invalidateScan drops the discovery cache so the next scan re-lists the fleet
+// instead of serving a stale snapshot. Called when a bus event (e.g. a plugin
+// container restarting) means the cached view is likely out of date.
+func (r *PluginsRouter) invalidateScan() {
+	r.mu.Lock()
+	r.cachedAt = time.Time{}
+	r.mu.Unlock()
+}
+
+// touchesPlugin reports whether any of the given container ids belongs to a
+// currently-discovered plugin container — used to decide if a container.state
+// event (start/stop/restart/kill) should refresh the plugin view. Matches against
+// the last scan; a restart keeps the same container id, so a warm cache hits.
+func (r *PluginsRouter) touchesPlugin(ids []string) bool {
+	if len(ids) == 0 {
+		return false
+	}
+	want := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			want[id] = struct{}{}
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, d := range r.cache {
+		if _, ok := want[d.PC.ContainerID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // pluginIdentity is a plugin instance's STABLE key across recreates. It is host +
 // compose project + service when the plugin lives in a stack — so a redeploy (new
 // container id, same project/service) keeps its identity, two instances of the

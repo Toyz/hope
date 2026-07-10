@@ -358,6 +358,10 @@ func runServe(configPath string) error {
 		// data-loss bug). So the absence-based reconcile backstop is intentionally NOT
 		// run; a stale orphaned record is far preferable to eating a live plugin's config.
 		pluginhost.StartRecordGC(ctx, pluginsRouter)
+		// Keep the rail's plugin view fresh: when a plugin container's state changes
+		// (e.g. an operator restarts it), bust the 15s discovery cache and republish
+		// plugin.changed so the UI updates now instead of after the cache TTL lapses.
+		pluginhost.StartPluginLiveness(ctx, pluginsRouter)
 	}
 
 	// Cloudflare Access SSO: when configured, a request already past Access is

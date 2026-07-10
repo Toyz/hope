@@ -45,6 +45,37 @@ func StartRecordGC(ctx context.Context, r *PluginsRouter) {
 	}()
 }
 
+// StartPluginLiveness keeps the rail's plugin view fresh when a plugin container's
+// state changes out-of-band. The discovery scan is cached for cacheTTL (15s), so
+// after restarting a plugin container the rail would show stale state until the TTL
+// lapses. This subscribes to the bus and, on a container.state event that hits a
+// discovered plugin container, busts the discovery cache and republishes
+// plugin.changed so the UI refetches immediately. Unlike GC it needs no bbolt store,
+// so it runs whenever plugins are enabled. Runs until ctx is cancelled.
+func StartPluginLiveness(ctx context.Context, r *PluginsRouter) {
+	if r.bus == nil {
+		return
+	}
+	ch, cancel := r.bus.Subscribe(0)
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case e, ok := <-ch:
+				if !ok {
+					return
+				}
+				if e.Kind == events.KindContainerState && e.Host != "" && r.touchesPlugin(e.IDs) {
+					r.invalidateScan()
+					r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: e.Host, Data: pluginChangeData("", "container-state")})
+				}
+			}
+		}
+	}()
+}
+
 // reapStack deletes every plugin record (and its storage) belonging to a destroyed
 // stack.
 func (r *PluginsRouter) reapStack(host, project string) {
