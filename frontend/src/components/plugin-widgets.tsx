@@ -27,8 +27,13 @@ type Widget = Surface & { host?: string; stack?: string; icon?: string };
   .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 14px; align-items: start; }
   .wcard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; transition: border-color .12s ease; }
   .wcard:hover { border-color: var(--line2); }
-  .wtitle { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line); color: var(--hi); font: 600 12px/1.2 var(--mono); }
-  .wtitle .wsub { margin-left: auto; color: var(--dim); font: 10px/1 var(--mono); }
+  /* Two rows so the title breathes: name on top, its meta (plugin · host · stack)
+     on a tidy line below instead of everything crammed onto one row. */
+  .wtitle { display: flex; flex-direction: column; gap: 6px; padding: 10px 13px; border-bottom: 1px solid var(--line); }
+  .wtitle .wt { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--hi); font: 600 12.5px/1.2 var(--mono); }
+  .wtitle .wt .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wtitle .wmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+  .wtitle .wsub { color: var(--dim); font: 10px/1 var(--mono); }
   /* host tag in the fleet ("all") view so a widget's origin host is obvious */
   .wtitle .whost { color: var(--upd); font: 9.5px/1.6 var(--mono); letter-spacing: .04em; text-transform: uppercase;
     border: 1px solid color-mix(in srgb, var(--upd) 40%, var(--line2)); padding: 1px 6px; }
@@ -98,11 +103,15 @@ export class HopePluginWidgets extends LoomElement {
           {shown.map((w) => (
             <div class="wcard">
               <div class="wtitle">
-                <hope-plugin-icon plugin={w.key} name={w.icon || "plugin"} size={14}></hope-plugin-icon>
-                {w.title || w.name}
-                <span class="wsub">{w.name}</span>
-                {!this.host && w.host ? <span class="whost">{w.host}</span> : null}
-                {w.stack ? <span class="wstack">{w.stack}</span> : null}
+                <div class="wt">
+                  <hope-plugin-icon plugin={w.key} name={w.icon || "plugin"} size={14}></hope-plugin-icon>
+                  <span class="nm">{w.title || w.name}</span>
+                </div>
+                <div class="wmeta">
+                  <span class="wsub">{w.name}</span>
+                  {!this.host && w.host ? <span class="whost">{w.host}</span> : null}
+                  {w.stack ? <span class="wstack">{w.stack}</span> : null}
+                </div>
               </div>
               <div class="wbody"><hope-plugin-surface surface={w}></hope-plugin-surface></div>
             </div>
