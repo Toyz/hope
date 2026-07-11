@@ -81,7 +81,11 @@ func (c *Client) CreateContainer(ctx context.Context, name string, spec stackspe
 	if err != nil {
 		return "", fmt.Errorf("create %s: %w", name, err)
 	}
-	for _, n := range nets[1:] {
+	// Index-based from 1: nets[1:] panics ("slice bounds out of range [1:0]") for a
+	// network-less spec — and that panic would land AFTER ContainerCreate, leaving a
+	// created-but-not-started container. Same guard as Recreate.
+	for i := 1; i < len(nets); i++ {
+		n := nets[i]
 		if err := c.sdk().NetworkConnect(ctx, n, created.ID, &network.EndpointSettings{Aliases: endpointAliases(spec, n)}); err != nil {
 			return "", fmt.Errorf("connect %s to %s: %w", name, n, err)
 		}
