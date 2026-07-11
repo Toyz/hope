@@ -113,44 +113,68 @@ func (r *SystemRouter) RefreshFleetUpdates(ctx *rpc.Context) ([]FleetHost, error
 func (r *SystemRouter) collectFleet(ctx context.Context, refresh bool) []FleetHost {
 	hcs := r.hosts.All()
 	out := make([]FleetHost, len(hcs))
-	timeout := 25 * time.Second
+	perHost := 25 * time.Second
 	if refresh {
-		timeout = 100 * time.Second // recrawl per host can be slow
+		perHost = 100 * time.Second // recrawl per host can be slow
 	}
-	var wg sync.WaitGroup
+	type res struct {
+		i int
+		h FleetHost
+	}
+	results := make(chan res, len(hcs))
+	pending := 0
 	for i, h := range hcs {
 		out[i] = FleetHost{ID: h.ID, Kind: h.Kind, Online: h.Online, Stacks: []docker.StackSummary{}}
 		if !h.Online || h.Client == nil {
 			continue
 		}
-		wg.Add(1)
-		go func(i int, c docker.API) {
-			defer wg.Done()
-			cctx, cancel := context.WithTimeout(ctx, timeout)
+		pending++
+		go func(i int, base FleetHost, c docker.API) {
+			cctx, cancel := context.WithTimeout(ctx, perHost)
 			defer cancel()
+			fh := base
 			if refresh {
 				c.RefreshUpdates(cctx)
 			}
 			st, err := c.Stacks(cctx)
 			if err != nil {
-				out[i].Online = false
-				out[i].Error = err.Error()
+				fh.Online = false
+				fh.Error = err.Error()
+				results <- res{i, fh}
 				return
 			}
-			out[i].Stacks = st
+			fh.Stacks = st
 			// Outdated items from this host's (per-host) update cache.
 			if ups, at, e := c.AllUpdates(cctx); e == nil {
 				for _, u := range ups {
 					if u.Status == "outdated" {
-						out[i].Updates = append(out[i].Updates, u)
+						fh.Updates = append(fh.Updates, u)
 					}
 				}
-				out[i].Outdated = len(out[i].Updates)
-				out[i].CheckedAt = stamp(at)
+				fh.Outdated = len(fh.Updates)
+				fh.CheckedAt = stamp(at)
 			}
-		}(i, h.Client)
+			results <- res{i, fh}
+		}(i, out[i], h.Client)
 	}
-	wg.Wait()
+	// Gather via a channel with an OVERALL deadline instead of an unbounded wg.Wait:
+	// a host whose docker op ignores context cancellation (hangs past its own timeout)
+	// would otherwise wedge this call forever — and the UI's check button spins +
+	// stays disabled until a page reload. Return partial results instead; a host that
+	// didn't report keeps its base entry. out is written only here, so no data race
+	// with a still-running goroutine.
+	deadline := time.After(perHost + 15*time.Second)
+	for pending > 0 {
+		select {
+		case rr := <-results:
+			out[rr.i] = rr.h
+			pending--
+		case <-deadline:
+			return out
+		case <-ctx.Done():
+			return out
+		}
+	}
 	return out
 }
 
