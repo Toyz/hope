@@ -168,7 +168,7 @@ type Placement struct {
 
 // install orchestrates the whole flow, streaming progress via emit. dock is the target
 // host's docker client (resolved from X-Hope-Host by the caller); host is its id.
-func (r *PluginsRouter) install(ctx context.Context, dock *docker.Client, host string, p InstallParams, emit func(string)) error {
+func (r *PluginsRouter) install(ctx context.Context, dock docker.API, host string, p InstallParams, emit func(string)) error {
 	if r.deploy == nil {
 		return fmt.Errorf("install unavailable: the deploy engine is not wired")
 	}

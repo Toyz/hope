@@ -21,14 +21,14 @@ type SystemRouter struct {
 	apiEnabled  bool           // static API keys configured -> headless RPC + explorer link
 	pluginsOn   bool           // [plugins] enabled -> surface the plugins page
 	store       *store.Store   // persisted registry creds (no-op when unmounted)
-	localDock   *docker.Client // local daemon — the canonical registry-auth view
+	localDock   docker.API // local daemon — the canonical registry-auth view
 }
 
 // NewSystemRouter wires the router to the host set (active-host aware). The agent
 // token + ws path power the "add an agent" enrollment helper; apiEnabled toggles
 // the API explorer link. st persists UI-added registry creds; localDock is the
 // canonical client for listing them (registries are applied fleet-wide).
-func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled, pluginsOn bool, st *store.Store, localDock *docker.Client) *SystemRouter {
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled, pluginsOn bool, st *store.Store, localDock docker.API) *SystemRouter {
 	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, pluginsOn: pluginsOn, store: st, localDock: localDock}
 }
 
@@ -75,7 +75,7 @@ func (r *SystemRouter) AgentEnroll(ctx *rpc.Context) (*AgentEnrollInfo, error) {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *SystemRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
+func (r *SystemRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
 
 // Hosts lists every selectable host (local + connected agents) with the active
 // one flagged, for the host switcher.
@@ -124,7 +124,7 @@ func (r *SystemRouter) collectFleet(ctx context.Context, refresh bool) []FleetHo
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c *docker.Client) {
+		go func(i int, c docker.API) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
@@ -236,7 +236,7 @@ func (r *SystemRouter) FleetImages(ctx *rpc.Context) ([]FleetImagesHost, error) 
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c *docker.Client) {
+		go func(i int, c docker.API) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 			defer cancel()
@@ -320,7 +320,7 @@ func (r *SystemRouter) FleetNetworks(ctx *rpc.Context) ([]FleetNetworksHost, err
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c *docker.Client) {
+		go func(i int, c docker.API) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
@@ -348,7 +348,7 @@ func (r *SystemRouter) FleetVolumes(ctx *rpc.Context) ([]FleetVolumesHost, error
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c *docker.Client) {
+		go func(i int, c docker.API) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
@@ -399,7 +399,7 @@ func (r *SystemRouter) Agents(ctx *rpc.Context) ([]AgentView, error) {
 			Platform: h.Info.Platform, BuildTime: h.Info.BuildTime, Online: true,
 		}
 		wg.Add(1)
-		go func(i int, c *docker.Client) {
+		go func(i int, c docker.API) {
 			defer wg.Done()
 			cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			defer cancel()
@@ -659,8 +659,8 @@ func (r *SystemRouter) RemoveRegistry(ctx *rpc.Context, p *IDParam) (any, error)
 
 // fleetDockers returns the local daemon plus every connected agent's client, so
 // a registry change is applied everywhere hope pulls images.
-func (r *SystemRouter) fleetDockers() []*docker.Client {
-	ds := []*docker.Client{}
+func (r *SystemRouter) fleetDockers() []docker.API {
+	ds := []docker.API{}
 	if r.localDock != nil {
 		ds = append(ds, r.localDock)
 	}

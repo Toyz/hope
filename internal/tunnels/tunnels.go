@@ -45,7 +45,7 @@ func (r *TunnelsRouter) tunnelsChanged(ctx context.Context) {
 	r.bus.Publish(events.Event{Kind: events.KindTunnelChanged, Host: r.hosts.ActiveIDFor(ctx)})
 }
 
-func (r *TunnelsRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
+func (r *TunnelsRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
 
 // enabled gates every method: without a Cloudflare client the domain is off.
 func (r *TunnelsRouter) enabled(ctx *rpc.Context) error {

@@ -30,7 +30,7 @@ func NewContainersRouter(hs *hosts.Set, bus *events.Bus) *ContainersRouter {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *ContainersRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
+func (r *ContainersRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
 
 // IDParams targets a container by id or name.
 type IDParams struct {

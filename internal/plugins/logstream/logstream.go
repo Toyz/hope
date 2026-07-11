@@ -75,7 +75,7 @@ type Plugin struct {
 }
 
 // dock is the docker client for the currently-active host.
-func (p *Plugin) dock(ctx context.Context) *docker.Client { return p.hosts.ActiveFor(ctx) }
+func (p *Plugin) dock(ctx context.Context) docker.API { return p.hosts.ActiveFor(ctx) }
 
 // Compile-time proof of the hooks this plugin binds — a signature drift here
 // is a build error, not a silent non-binding at runtime.

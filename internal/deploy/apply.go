@@ -26,7 +26,7 @@ func NewEngine(hs *hosts.Set, store *Store, bus *events.Bus) *Engine {
 	return &Engine{hosts: hs, store: store, bus: bus}
 }
 
-func (e *Engine) dock(ctx context.Context) *docker.Client { return e.hosts.ActiveFor(ctx) }
+func (e *Engine) dock(ctx context.Context) docker.API { return e.hosts.ActiveFor(ctx) }
 func (e *Engine) hostID(ctx context.Context) string       { return e.hosts.ActiveIDFor(ctx) }
 
 // Store exposes the spec store for the router's read paths.

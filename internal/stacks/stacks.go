@@ -34,7 +34,7 @@ func NewStacksRouter(hs *hosts.Set, c *compose.Manager) *StacksRouter {
 }
 
 // dock is the docker client for the currently-active host.
-func (r *StacksRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
+func (r *StacksRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
 
 // ProjectParams targets a single compose project by name.
 type ProjectParams struct {

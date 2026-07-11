@@ -25,7 +25,7 @@ func NewDeployRouter(hs *hosts.Set, store *Store) *DeployRouter {
 	return &DeployRouter{hosts: hs, store: store}
 }
 
-func (r *DeployRouter) dock(ctx context.Context) *docker.Client { return r.hosts.ActiveFor(ctx) }
+func (r *DeployRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
 func (r *DeployRouter) hostID(ctx context.Context) string       { return r.hosts.ActiveIDFor(ctx) }
 
 // ── import / export / edit ──────────────────────────────────────────────────

@@ -54,7 +54,7 @@ func TargetFrom(ctx context.Context) string {
 // Set is the live collection of hosts with a single active selection.
 type Set struct {
 	mu      sync.RWMutex
-	local   *docker.Client
+	local   docker.API
 	localUp bool            // local daemon reachable at boot
 	reg     *agent.Registry // connected agents (nil = no hub)
 	// active is "" for AUTO (local if up, else the first connected agent),
@@ -65,12 +65,12 @@ type Set struct {
 // New builds a Set over the local client and (optional) agent registry. localUp
 // reports whether the local daemon was reachable, so AUTO mode can fall back to
 // a connected agent when there is no usable local socket.
-func New(local *docker.Client, localUp bool, reg *agent.Registry) *Set {
+func New(local docker.API, localUp bool, reg *agent.Registry) *Set {
 	return &Set{local: local, localUp: localUp, reg: reg}
 }
 
 // firstAgent returns any connected agent's client, or nil.
-func (s *Set) firstAgent() (string, *docker.Client) {
+func (s *Set) firstAgent() (string, docker.API) {
 	if s.reg == nil {
 		return "", nil
 	}
@@ -85,7 +85,7 @@ func (s *Set) firstAgent() (string, *docker.Client) {
 // resolve maps the current selection to a concrete (id, client). A selected
 // agent that dropped, or AUTO with a dead local, falls back to a live agent so
 // the UI keeps working without a manual switch.
-func (s *Set) resolve() (string, *docker.Client) {
+func (s *Set) resolve() (string, docker.API) {
 	s.mu.RLock()
 	active := s.active
 	s.mu.RUnlock()
@@ -109,13 +109,13 @@ func (s *Set) resolve() (string, *docker.Client) {
 }
 
 // Active returns the docker client for the resolved active host.
-func (s *Set) Active() *docker.Client { _, c := s.resolve(); return c }
+func (s *Set) Active() docker.API { _, c := s.resolve(); return c }
 
 // ActiveFor returns the docker client for a request: a per-request X-Hope-Host
 // target (headless API) when present and reachable, else the globally-active
 // host. An unknown/disconnected target falls back to the active host so a call
 // never silently runs nowhere.
-func (s *Set) ActiveFor(ctx context.Context) *docker.Client {
+func (s *Set) ActiveFor(ctx context.Context) docker.API {
 	id := TargetFrom(ctx)
 	if id == "" {
 		return s.Active()
@@ -164,7 +164,7 @@ func (s *Set) ActiveIDFor(ctx context.Context) string {
 // error rather than a silent fallback. Host-scoped mutations resolve their Docker
 // client through this so a write always lands on the host the caller named — or
 // fails loudly. Reads keep using ActiveFor (a fallback is harmless for a read).
-func (s *Set) RequireTarget(ctx context.Context) (string, *docker.Client, error) {
+func (s *Set) RequireTarget(ctx context.Context) (string, docker.API, error) {
 	return s.ResolveTarget(TargetFrom(ctx))
 }
 
@@ -172,7 +172,7 @@ func (s *Set) RequireTarget(ctx context.Context) (string, *docker.Client, error)
 // X-Hope-Host header by middleware, which runs before the target lands on the
 // context). Empty id -> ErrHostRequired; a named-but-disconnected host is an
 // error, never a silent fallback.
-func (s *Set) ResolveTarget(id string) (string, *docker.Client, error) {
+func (s *Set) ResolveTarget(id string) (string, docker.API, error) {
 	if id == "" {
 		return "", nil, ErrHostRequired
 	}
@@ -214,7 +214,7 @@ type HostClient struct {
 	ID     string
 	Kind   string // "local" | "agent"
 	Online bool
-	Client *docker.Client
+	Client docker.API
 }
 
 // All returns local plus every connected agent with its client, in stable order
