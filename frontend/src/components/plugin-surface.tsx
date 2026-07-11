@@ -183,6 +183,7 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .tcount { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .tfacet { width: 170px; flex: none; }
   .tpager { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .trfr { margin-left: auto; display: inline-flex; } /* push the refresh button to the far right (rightmost even when there's no pager) */
   .pnum { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .pbtn { display: inline-flex; padding: 3px; background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer; }
   .pbtn:hover:not(:disabled) { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
@@ -993,7 +994,10 @@ export class HopePluginSurface extends LoomElement {
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(st.page, pages - 1);
     const shown = server ? idx : idx.slice(page * pageSize, page * pageSize + pageSize);
-    const toolbar = !embedded && ((!noFilter && (server || rows.length > pageSize || st.filter)) || total > pageSize);
+    // A refreshable table always gets a toolbar (for its refresh button) even when it's
+    // too small to need filter/pagination — otherwise a refreshable table rendered in a
+    // tab (label hidden) has nowhere for the refresh affordance.
+    const toolbar = !embedded && ((!noFilter && (server || rows.length > pageSize || st.filter)) || total > pageSize || !!v?.refresh);
     // Control handlers route to the plugin (server) or re-render locally (client).
     const changePage = (p: number) => { this.setTable(key, { page: p }); if (server) this.serverFetch(key); };
     // 3-phase sort: unsorted -> ascending -> descending -> unsorted.
@@ -1035,6 +1039,7 @@ export class HopePluginSurface extends LoomElement {
                 <button class="pbtn" disabled={page >= pages - 1} onClick={() => changePage(page + 1)}><loom-icon name="chevron-right" size={13}></loom-icon></button>
               </span>
             ) : null}
+            {v?.refresh ? <span class="trfr">{this.refreshBtn(key)}</span> : null}
           </div>
         ) : null}
         <div class={"gwrap" + (embedded ? " embed" : "")}>
