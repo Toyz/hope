@@ -180,10 +180,12 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .tbar { display: flex; align-items: center; gap: 12px; padding: 6px 0 8px; }
   .tfilter { flex: 0 1 220px; height: 38px; box-sizing: border-box; padding: 0 11px; background: var(--ink); border: 1px solid var(--line); color: var(--hi); font: 12.5px/1 var(--mono); }
   .tfilter:focus { outline: none; border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
-  .tcount { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  /* count + pager + refresh form ONE right-aligned cluster (count's auto-margin does
+     the single push, so they don't scatter to separate edges). */
+  .tcount { margin-left: auto; color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .tfacet { width: 170px; flex: none; }
-  .tpager { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-  .trfr { margin-left: auto; display: inline-flex; } /* push the refresh button to the far right (rightmost even when there's no pager) */
+  .tpager { display: inline-flex; align-items: center; gap: 8px; }
+  .trfr { display: inline-flex; }
   .pnum { color: var(--dim); font: 11px/1 var(--mono); font-variant-numeric: tabular-nums; }
   .pbtn { display: inline-flex; padding: 3px; background: transparent; border: 1px solid var(--line); color: var(--mid); cursor: pointer; }
   .pbtn:hover:not(:disabled) { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
