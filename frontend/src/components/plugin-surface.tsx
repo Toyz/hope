@@ -748,7 +748,7 @@ export class HopePluginSurface extends LoomElement {
   }
 
   private refreshBtn(ref: string) {
-    return <button class="sbtn rfr" title="refresh" onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button>;
+    return <hope-tip text="refresh" pos="top-end"><button class="sbtn rfr" onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button></hope-tip>;
   }
 
   private renderView(v: ViewDesc, data: any) {

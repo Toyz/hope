@@ -433,14 +433,16 @@ export class StackPage extends LoomElement {
   private rowActions(c: ContainerSummary) {
     const open = this.openRow === c.id;
     const ico = (op: ContainerOp, icon: string, danger = false) => (
-      <button class={"ibtn" + (danger ? " danger" : "")} title={op} disabled={!!this.busy || !actionEnabled(c.state, op)}
-        onClick={(e: Event) => { e.stopPropagation(); this.containerOp(c.id, op, c.service || c.name); }}>
-        {this.busy === `${c.id}:${op}` ? <span class="bdot">…</span> : <loom-icon name={icon} size={14}></loom-icon>}
-      </button>
+      <hope-tip text={op} pos="top">
+        <button class={"ibtn" + (danger ? " danger" : "")} disabled={!!this.busy || !actionEnabled(c.state, op)}
+          onClick={(e: Event) => { e.stopPropagation(); this.containerOp(c.id, op, c.service || c.name); }}>
+          {this.busy === `${c.id}:${op}` ? <span class="bdot">…</span> : <loom-icon name={icon} size={14}></loom-icon>}
+        </button>
+      </hope-tip>
     );
     return (
       <div class="racts">
-        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.openContainer(c.id, c.service || c.name, "logs"); }}><loom-icon name="terminal" size={14}></loom-icon></button>
+        <hope-tip text="logs" pos="top"><button class="ibtn" onClick={(e: Event) => { e.stopPropagation(); this.openContainer(c.id, c.service || c.name, "logs"); }}><loom-icon name="terminal" size={14}></loom-icon></button></hope-tip>
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
@@ -482,7 +484,7 @@ export class StackPage extends LoomElement {
     );
     return (
       <div class="racts">
-        <button class="ibtn" title="logs" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${project}/${g.service}`, "serviceLogs", [project, g.service]); }}><loom-icon name="terminal" size={14}></loom-icon></button>
+        <hope-tip text="logs" pos="top"><button class="ibtn" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${project}/${g.service}`, "serviceLogs", [project, g.service]); }}><loom-icon name="terminal" size={14}></loom-icon></button></hope-tip>
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
