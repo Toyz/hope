@@ -3,6 +3,7 @@
 // decorators run; then start.
 import { app } from "@toyz/loom";
 import { LoomRouter } from "@toyz/loom/router";
+import "./tip"; // register the `tip` custom attribute (loom 0.21 @attribute)
 import { RpcTransport } from "@toyz/loom-rpc";
 import { AuthStore } from "./auth-store";
 import { HopeTransport } from "./transport";
