@@ -81,7 +81,7 @@ import { theme } from "../styles";
   .lysz { color: var(--mid); font-variant-numeric: tabular-nums; text-align: right; }
   .lysz.heavy { color: var(--hi); font-weight: 600; }
   .lycmd { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .lycmdtip { min-width: 0; overflow: hidden; } /* keep the clipped command ellipsizing inside the tooltip wrapper */
+  .lycmdtip { display: flex; min-width: 0; overflow: hidden; } /* keep the clipped command ellipsizing inside the tooltip wrapper */
   .lycmdtip .lycmd { display: block; width: 100%; }
   .lyrow.meta .lycmd { color: var(--dim); }
   .lybadge { text-align: right; color: var(--dim); font: 600 10px/1.5 var(--mono); font-variant-numeric: tabular-nums; }
@@ -224,7 +224,7 @@ export class HopeImageInspector extends LoomElement {
             <>
               <div class={"lyrow" + (l.empty ? " meta" : "") + (open ? " on" : "")} onClick={() => (this.openLayer = open ? "" : key)}>
                 <span class={"lysz" + (heavy ? " heavy" : "")}>{l.size ? bytes(l.size) : "—"}</span>
-                <hope-tip class="lycmdtip" text={text} pos="top"><span class="lycmd">{text}</span></hope-tip>
+                <span class="lycmdtip" tip={text}><span class="lycmd">{text}</span></span>
                 <span class="lybadge">{l.empty ? "meta" : "L" + step}</span>
               </div>
               {open ? (
@@ -262,12 +262,10 @@ export class HopeImageInspector extends LoomElement {
           </div>
           <span class="grow"></span>
           <div class="acts">
-            <hope-tip text={this.reveal ? "hide secrets" : "reveal secrets (build steps)"} pos="bottom-end">
-              <button class={"pa iconly caution" + (this.reveal ? " armed" : "")} onClick={() => (this.reveal = !this.reveal)}><loom-icon name={this.reveal ? "x" : "alert"} size={14}></loom-icon></button>
-            </hope-tip>
-            {i && i.used_by.length ? <hope-tip text="redeploy &amp; free" pos="bottom-end"><button class="pa iconly warn" disabled={this.busy} onClick={this.redeployUsers}><loom-icon name="redeploy" size={14}></loom-icon></button></hope-tip> : null}
-            <hope-tip text="remove image" pos="bottom-end"><button class="pa iconly danger" disabled={this.busy} onClick={this.removeImage}><loom-icon name="trash" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom-end"><button class="pa iconly" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class={"pa iconly caution" + (this.reveal ? " armed" : "")} tip={{ text: this.reveal ? "hide secrets" : "reveal secrets (build steps)", pos: "bottom-end" }} onClick={() => (this.reveal = !this.reveal)}><loom-icon name={this.reveal ? "x" : "alert"} size={14}></loom-icon></button>
+            {i && i.used_by.length ? <button class="pa iconly warn" tip={{ text: "redeploy & free", pos: "bottom-end" }} disabled={this.busy} onClick={this.redeployUsers}><loom-icon name="redeploy" size={14}></loom-icon></button> : null}
+            <button class="pa iconly danger" tip={{ text: "remove image", pos: "bottom-end" }} disabled={this.busy} onClick={this.removeImage}><loom-icon name="trash" size={14}></loom-icon></button>
+            <button class="pa iconly" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
 
@@ -284,7 +282,7 @@ export class HopeImageInspector extends LoomElement {
               <div class="row"><span class="k">source</span>{i.registry ? <span class="v">{i.registry}</span> : <span class="v dim">local only</span>}</div>
               <div class="row"><span class="k">tags</span><span class="v">{i.tags.length ? i.tags.map((t) => <span class="tag">{t}</span>) : <span class="dim">untagged</span>}</span></div>
               {i.digests && i.digests.length ? (
-                <div class="row"><span class="k">digest</span><span class="v">{i.digests.map((d) => { const at = d.lastIndexOf("@"); const sha = at > 0 ? d.slice(at + 1) : d; return <hope-tip text={d} pos="top-end"><button class="digest" onClick={() => this.copyDigest(d)}>{shortSha(sha)}<loom-icon name="copy" size={11}></loom-icon></button></hope-tip>; })}</span></div>
+                <div class="row"><span class="k">digest</span><span class="v">{i.digests.map((d) => { const at = d.lastIndexOf("@"); const sha = at > 0 ? d.slice(at + 1) : d; return <button class="digest" tip={{ text: d, pos: "top-end" }} onClick={() => this.copyDigest(d)}>{shortSha(sha)}<loom-icon name="copy" size={11}></loom-icon></button>; })}</span></div>
               ) : null}
               <div class="ctitle sep">used by &middot; {i.used_by.length}</div>
               {i.used_by.length ? (

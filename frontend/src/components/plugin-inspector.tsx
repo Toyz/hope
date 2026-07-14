@@ -313,15 +313,15 @@ export class HopePluginInspector extends LoomElement {
           <span class="grow"></span>
           <div class="acts">
             {v && v.present && !v.enabled ? (
-              <hope-tip text={this.storeOn ? "enable" : "store not mounted"} pos="bottom-end"><button class="pa ok" disabled={this.busy || !this.storeOn} onClick={() => this.act("enable")}><loom-icon name="play" size={14}></loom-icon></button></hope-tip>
+              <button class="pa ok" tip={{ text: this.storeOn ? "enable" : "store not mounted", pos: "bottom-end" }} disabled={this.busy || !this.storeOn} onClick={() => this.act("enable")}><loom-icon name="play" size={14}></loom-icon></button>
             ) : null}
             {v && v.enabled ? (
-              <hope-tip text="disable" pos="bottom-end"><button class="pa" disabled={this.busy} onClick={() => this.act("disable")}><loom-icon name="stop" size={14}></loom-icon></button></hope-tip>
+              <button class="pa" tip={{ text: "disable", pos: "bottom-end" }} disabled={this.busy} onClick={() => this.act("disable")}><loom-icon name="stop" size={14}></loom-icon></button>
             ) : null}
             {v && v.trusted ? (
-              <hope-tip text="forget" pos="bottom-end"><button class="pa danger" disabled={this.busy} onClick={() => this.act("forget")}><loom-icon name="trash" size={14}></loom-icon></button></hope-tip>
+              <button class="pa danger" tip={{ text: "forget", pos: "bottom-end" }} disabled={this.busy} onClick={() => this.act("forget")}><loom-icon name="trash" size={14}></loom-icon></button>
             ) : null}
-            <hope-tip text="close" pos="bottom-end"><button class="pa" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class="pa" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
 

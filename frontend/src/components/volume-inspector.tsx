@@ -121,8 +121,8 @@ export class HopeVolumeInspector extends LoomElement {
           </div>
           <span class="grow"></span>
           <div class="acts">
-            <hope-tip text={inUse ? "unmount its containers first" : "remove volume"} pos="bottom-end"><button class="pa danger" disabled={this.busy || inUse} onClick={this.removeVol}><loom-icon name="trash" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom-end"><button class="pa" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class="pa danger" tip={{ text: inUse ? "unmount its containers first" : "remove volume", pos: "bottom-end" }} disabled={this.busy || inUse} onClick={this.removeVol}><loom-icon name="trash" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
 

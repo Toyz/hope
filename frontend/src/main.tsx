@@ -42,7 +42,6 @@ import "./components/plugin-inspector"; // docked plugin inspector (<hope-plugin
 import "./components/plugin-surface"; // plugin UI renderer (<hope-plugin-surface>)
 import "./components/code-editor"; // highlighting code editor for plugin query views (<hope-code>)
 import "./components/sysbanner"; // global persistence warning above the shell (<hope-sysbanner>)
-import "./components/tooltip"; // reusable hover tooltip (<hope-tip>)
 import "./components/phead"; // shared page header: title row + stat band (<hope-phead>)
 import "./components/stat"; // one labelled figure in a header stat band (<hope-stat>)
 import "./components/skeleton"; // shimmer loading placeholder (<hope-skel>)

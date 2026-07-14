@@ -743,7 +743,7 @@ export class HopeInspector extends LoomElement {
               <div class="drow"><div class="dk">image</div><div class="dv">{cfg.Image ? <button class="imglink" onClick={() => this.imageInsp.select(this.host, this.raw?.Image || cfg.Image)}>{cfg.Image}<loom-icon name="box" size={12}></loom-icon></button> : <span class="dim">—</span>}</div></div>
               <div class="drow">
                 <div class="dk">id</div>
-                <div class="dv"><span class="cpwrap">{shortId(this.id)}<hope-tip text="copy full id"><button class="copy" onClick={this.copyId}><loom-icon name="copy" size="13"></loom-icon></button></hope-tip></span></div>
+                <div class="dv"><span class="cpwrap">{shortId(this.id)}<button class="copy" tip="copy full id" onClick={this.copyId}><loom-icon name="copy" size="13"></loom-icon></button></span></div>
               </div>
               {this.row("name", this.name)}
               {this.row("host", this.host)}
@@ -775,7 +775,7 @@ export class HopeInspector extends LoomElement {
                         <span class="grow"></span>
                         <loom-icon class="ext" name="link" size={13}></loom-icon>
                       </a>
-                      <hope-tip text="remove route" pos="bottom-end"><button class="ingrm" onClick={(e: Event) => this.removeRoute(r, e)}><loom-icon name="trash" size={13}></loom-icon></button></hope-tip>
+                      <button class="ingrm" tip={{ text: "remove route", pos: "bottom-end" }} onClick={(e: Event) => this.removeRoute(r, e)}><loom-icon name="trash" size={13}></loom-icon></button>
                     </div>
                   ))}
                 </div>
@@ -909,13 +909,11 @@ export class HopeInspector extends LoomElement {
           </div>
           <span class="grow"></span>
           <div class="acts">
-            <hope-tip text={this.reveal ? "hide secrets" : "reveal secrets (env, tokens, command)"} pos="bottom-end">
-              <button class={"pa caution" + (this.reveal ? " armed" : "")} onClick={() => (this.reveal = !this.reveal)}><loom-icon name={this.reveal ? "x" : "alert"} size={14}></loom-icon></button>
-            </hope-tip>
-            <hope-tip text="restart" pos="bottom-end"><button class="pa" disabled={!!this.busy} onClick={() => this.op("restart")}><loom-icon name="rotate" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="redeploy (pull + recreate)" pos="bottom-end"><button class="pa" disabled={!!this.busy} onClick={() => this.op("redeploy")}><loom-icon name="redeploy" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="stop" pos="bottom-end"><button class="pa danger" disabled={!!this.busy} onClick={() => this.op("stop")}><loom-icon name="stop" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom-end"><button class="pa" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class={"pa caution" + (this.reveal ? " armed" : "")} tip={{ text: this.reveal ? "hide secrets" : "reveal secrets (env, tokens, command)", pos: "bottom-end" }} onClick={() => (this.reveal = !this.reveal)}><loom-icon name={this.reveal ? "x" : "alert"} size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "restart", pos: "bottom-end" }} disabled={!!this.busy} onClick={() => this.op("restart")}><loom-icon name="rotate" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "redeploy (pull + recreate)", pos: "bottom-end" }} disabled={!!this.busy} onClick={() => this.op("redeploy")}><loom-icon name="redeploy" size={14}></loom-icon></button>
+            <button class="pa danger" tip={{ text: "stop", pos: "bottom-end" }} disabled={!!this.busy} onClick={() => this.op("stop")}><loom-icon name="stop" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
         <div class="body" onScroll={this.onScroll}>{this.renderBody()}</div>

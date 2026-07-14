@@ -114,8 +114,8 @@ export class HopeNetworkInspector extends LoomElement {
           </div>
           <span class="grow"></span>
           <div class="acts">
-            <hope-tip text={attached ? "detach its containers first" : "remove network"} pos="bottom-end"><button class="pa danger" disabled={this.busy || attached} onClick={this.removeNet}><loom-icon name="trash" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom-end"><button class="pa" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class="pa danger" tip={{ text: attached ? "detach its containers first" : "remove network", pos: "bottom-end" }} disabled={this.busy || attached} onClick={this.removeNet}><loom-icon name="trash" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
 

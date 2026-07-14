@@ -233,7 +233,7 @@ export class PluginsPage extends LoomElement {
         <div class="pacts" onClick={(e: Event) => e.stopPropagation()}>
           {p.present && !p.enabled ? <hope-button size="sm" tone="primary" icon="play" disabled={!this.storeOn} onClick={() => this.enable(p)}>enable</hope-button> : null}
           {p.enabled ? <hope-button size="sm" icon="stop" onClick={() => this.disable(p)}>disable</hope-button> : null}
-          {p.trusted ? <hope-tip text="forget · drop approval + token" pos="top-end"><hope-button size="sm" tone="danger" icon="trash" onClick={() => this.forget(p)}></hope-button></hope-tip> : null}
+          {p.trusted ? <hope-button size="sm" tone="danger" icon="trash" tip={{ text: "forget · drop approval + token", pos: "top-end" }} onClick={() => this.forget(p)}></hope-button> : null}
         </div>
       </div>
     );

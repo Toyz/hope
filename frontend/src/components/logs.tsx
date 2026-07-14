@@ -151,8 +151,8 @@ export class HopeLogs extends LoomElement {
           <div class="srch"><loom-icon name="search" size={13}></loom-icon><input placeholder="filter logs…" value={this.q} onInput={(e: any) => (this.q = e.target.value)} /></div>
           <span class="grow"></span>
           <div class="acts">
-            <hope-tip text={this.wrap ? "no wrap" : "wrap lines"} pos="bottom"><button class={"pa" + (this.wrap ? " on" : "")} onClick={() => (this.wrap = !this.wrap)}><loom-icon name="menu" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom"><button class="pa" onClick={() => this.lp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            <button class={"pa" + (this.wrap ? " on" : "")} tip={{ text: this.wrap ? "no wrap" : "wrap lines", pos: "bottom" }} onClick={() => (this.wrap = !this.wrap)}><loom-icon name="menu" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "close", pos: "bottom" }} onClick={() => this.lp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
         {this.sources.length > 1 ? (

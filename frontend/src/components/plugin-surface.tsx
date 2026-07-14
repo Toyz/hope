@@ -92,6 +92,11 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .tb.on { color: var(--hi); border-bottom-color: var(--upd); }
 
   .leaf { padding: 6px 16px 12px; min-width: 0; }
+  /* tip-attribute host: when a tooltip wraps a prebuilt element or a bare label
+     (not a single element we can attribute directly), this span carries the tip
+     attribute. inline-flex + min-width:0 mirrors the old hope-tip host so layout
+     (and any inner ellipsis) is unchanged. */
+  .tw { display: inline-flex; min-width: 0; }
   .llabel { display: flex; align-items: center; gap: 10px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px; }
   .sbtn { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
   .sbtn:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
@@ -656,7 +661,7 @@ export class HopePluginSurface extends LoomElement {
     if (this.actions[ref]) {
       const a = this.actions[ref];
       const btn = <hope-button size="sm" tone={a.danger ? "danger" : "primary"} onClick={() => { void this.runAction(a); }}>{this.leafIcon(a.icon)}{a.label}</hope-button>;
-      return <div class="leaf">{a.tip ? <hope-tip text={a.tip.text} pos={a.tip.pos || "top"}>{btn}</hope-tip> : btn}</div>;
+      return <div class="leaf">{a.tip ? <span class="tw" tip={{ text: a.tip.text, pos: a.tip.pos || "top" }}>{btn}</span> : btn}</div>;
     }
     if (this.streams[ref]) {
       const st = this.streams[ref];
@@ -748,7 +753,7 @@ export class HopePluginSurface extends LoomElement {
   }
 
   private refreshBtn(ref: string) {
-    return <hope-tip text="refresh" pos="top-end"><button class="sbtn rfr" onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button></hope-tip>;
+    return <button class="sbtn rfr" tip={{ text: "refresh", pos: "top-end" }} onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button>;
   }
 
   private renderView(v: ViewDesc, data: any) {
@@ -952,7 +957,7 @@ export class HopePluginSurface extends LoomElement {
     const hidden: Set<string> = new Set(Array.isArray(data?.hidden) ? data.hidden : []);
     // Optional per-column header tooltips (column name -> {text, pos}).
     const colTips: Record<string, Tip> = data?.column_tips || {};
-    const colLabel = (c: string): any => (colTips[c] ? <hope-tip text={colTips[c].text} pos={colTips[c].pos || "top"}>{c}</hope-tip> : c);
+    const colLabel = (c: string): any => (colTips[c] ? <span class="tw" tip={{ text: colTips[c].text, pos: colTips[c].pos || "top" }}>{c}</span> : c);
     const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const flyoutMethod: string | undefined = v?.row_flyout || data?.row_flyout;
     const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
@@ -1093,7 +1098,7 @@ export class HopePluginSurface extends LoomElement {
                             {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
                           </button>
                         );
-                        return a.tip ? <hope-tip text={a.tip.text} pos={a.tip.pos || "top-end"}>{btn}</hope-tip> : btn;
+                        return a.tip ? <span class="tw" tip={{ text: a.tip.text, pos: a.tip.pos || "top-end" }}>{btn}</span> : btn;
                       })}
                     </td>
                   ) : null}
@@ -1345,7 +1350,7 @@ export class HopePluginSurface extends LoomElement {
       <div class="stats2">
         {stats.map((st) => (
           <div class={"statb" + (this.toneClass(st.tone) ? " " + this.toneClass(st.tone) : "")}>
-            <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{st.tip ? <hope-tip text={st.tip.text} pos={st.tip.pos || "top"}>{this.cellStr(st.label)}</hope-tip> : this.cellStr(st.label)}</div>
+            <div class="stlabel">{st.icon ? <hope-plugin-icon plugin={this.surface?.key} name={st.icon} size={12}></hope-plugin-icon> : null}{st.tip ? <span class="tw" tip={{ text: st.tip.text, pos: st.tip.pos || "top" }}>{this.cellStr(st.label)}</span> : this.cellStr(st.label)}</div>
             <div class="stval" title={this.cellStr(st.value)}>{this.fmtNum(st.value)}{st.unit ? <span class="stunit"> {st.unit}</span> : null}</div>
             {st.sub ? <div class="stsub">{this.cellStr(st.sub)}</div> : null}
           </div>
@@ -1371,7 +1376,7 @@ export class HopePluginSurface extends LoomElement {
               {n.label}
             </span>
           );
-          const labelled = n.tip ? <hope-tip text={n.tip.text} pos={n.tip.pos || "top"}>{label}</hope-tip> : label;
+          const labelled = n.tip ? <span class="tw" tip={{ text: n.tip.text, pos: n.tip.pos || "top" }}>{label}</span> : label;
           return (
             <li>
               {kids.length ? (

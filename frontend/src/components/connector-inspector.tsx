@@ -239,10 +239,10 @@ export class HopeConnectorInspector extends LoomElement {
           </div>
           <span class="grow"></span>
           <div class="acts">
-            {c?.update_ready ? <hope-tip text="update cloudflared" pos="bottom-end"><button class="pa upd" disabled={this.busy} onClick={this.updateConn}><loom-icon name="redeploy" size={14}></loom-icon></button></hope-tip> : null}
-            <hope-tip text="rename tunnel" pos="bottom-end"><button class="pa" disabled={this.busy || !c} onClick={this.rename}><loom-icon name="edit" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="remove connector" pos="bottom-end"><button class="pa danger" disabled={this.busy || !c} onClick={this.removeConn}><loom-icon name="trash" size={14}></loom-icon></button></hope-tip>
-            <hope-tip text="close" pos="bottom-end"><button class="pa" onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button></hope-tip>
+            {c?.update_ready ? <button class="pa upd" tip={{ text: "update cloudflared", pos: "bottom-end" }} disabled={this.busy} onClick={this.updateConn}><loom-icon name="redeploy" size={14}></loom-icon></button> : null}
+            <button class="pa" tip={{ text: "rename tunnel", pos: "bottom-end" }} disabled={this.busy || !c} onClick={this.rename}><loom-icon name="edit" size={14}></loom-icon></button>
+            <button class="pa danger" tip={{ text: "remove connector", pos: "bottom-end" }} disabled={this.busy || !c} onClick={this.removeConn}><loom-icon name="trash" size={14}></loom-icon></button>
+            <button class="pa" tip={{ text: "close", pos: "bottom-end" }} onClick={() => this.insp.close()}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
         </div>
 
