@@ -9,7 +9,7 @@
 //
 //   <button tip="restart">…</button>
 //   <button tip={{ text: "close", pos: "bottom-end" }}>…</button>
-import { attribute, LoomAttribute, reactive } from "@toyz/loom";
+import { attribute, LoomAttribute, reactive, prop } from "@toyz/loom";
 
 declare module "@toyz/loom/jsx-runtime" {
   interface LoomCustomAttributes {
@@ -29,13 +29,16 @@ type TipArg = string | { text?: string; pos?: string } | null | undefined;
 
 @attribute("tip")
 export class Tip extends LoomAttribute<TipArg> {
+  // The OBJECT form — tip={{ text, placement }} — binds these @prop accessors by key,
+  // exactly like a component's props. The bare-string form (tip="logs") has no keys,
+  // so bareArg() maps the raw attribute value onto text.
+  @prop accessor text = "";
+  @prop accessor pos = "top";
   @reactive accessor open = false;
   private anchor = "--tip-" + ++seq;
-  private text = "";
-  private pos = "top";
 
   connect() {
-    this.sync();
+    this.bareArg();
     if (ANCHOR_OK) (this.el.style as { anchorName?: string }).anchorName = this.anchor;
     const show = () => (this.open = true);
     const hide = () => (this.open = false);
@@ -51,17 +54,14 @@ export class Tip extends LoomAttribute<TipArg> {
   }
 
   valueChanged() {
-    this.sync();
+    this.bareArg();
     if (this.open) this.rerender();
   }
 
-  private sync() {
-    const a = this.arg;
-    if (a && typeof a === "object") {
-      this.text = a.text || "";
-      this.pos = a.pos || "top";
-    } else {
-      this.text = (typeof a === "string" ? a : this.value) || "";
+  // A bare string tip="logs" isn't an object, so no @prop binds — map value -> text.
+  private bareArg() {
+    if (typeof this.arg !== "object" || this.arg == null) {
+      this.text = this.value || "";
       this.pos = "top";
     }
   }
