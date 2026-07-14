@@ -10,7 +10,7 @@
 //
 //   <button tip="restart">…</button>
 //   <button tip={{ text: "close", pos: "bottom" }}>…</button>
-import { attribute, LoomAttribute, reactive, prop, styles, css } from "@toyz/loom";
+import { attribute, LoomAttribute, reactive, prop, styles, css, on } from "@toyz/loom";
 
 declare module "@toyz/loom/jsx-runtime" {
   interface LoomCustomAttributes {
@@ -41,21 +41,19 @@ export class Tip extends LoomAttribute<TipArg> {
 
   connect() {
     this.bareArg();
-    const show = () => (this.open = true);
-    const hide = () => (this.open = false);
-    const on = (ev: string, fn: () => void) => {
-      this.el.addEventListener(ev, fn);
-      this.track(() => this.el.removeEventListener(ev, fn));
-    };
-    on("pointerenter", show);
-    on("pointerleave", hide);
-    on("focusin", show);
-    on("focusout", hide);
   }
 
   valueChanged() {
     this.bareArg();
   }
+
+  // @on routes through CONNECT_HOOKS on an attribute controller exactly like on a
+  // component; the resolver receives the controller, so `c => c.el` binds the host.
+  // Auto-cleaned on disconnect — no manual addEventListener/track bookkeeping.
+  @on((c: Tip) => c.el, "pointerenter") private onEnter() { this.open = true; }
+  @on((c: Tip) => c.el, "focusin") private onFocus() { this.open = true; }
+  @on((c: Tip) => c.el, "pointerleave") private onLeave() { this.open = false; }
+  @on((c: Tip) => c.el, "focusout") private onBlur() { this.open = false; }
 
   private bareArg() {
     if (typeof this.arg !== "object" || this.arg == null) {
