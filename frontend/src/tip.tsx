@@ -1,15 +1,16 @@
 // The `tip` custom attribute — a zero-footprint tooltip that attaches to ANY element
 // via `tip="restart"` or `tip={{ text, pos }}`, replacing the <hope-tip> WRAPPER.
 //
-// Built on loom 0.21's @attribute: an attribute controller is behavior + a PORTALED
-// render, no wrapper node in the flow. The old <hope-tip> was an inline-flex element
-// that disrupted flex/grid layout (the cramming we hit); this adds nothing to the
-// tree — the button is still just a button — and the bubble renders into document.body
-// where it can't be clipped by an ancestor's overflow.
+// Built on loom 0.21's @attribute: an attribute controller is a full component
+// (@prop / @reactive / @styles / update()) bound to a FOREIGN host and rendered into a
+// PORTAL. No wrapper node in the flow (the old <hope-tip> was an inline-flex element
+// that disrupted layout), and the styled bubble renders into document.body where an
+// ancestor's overflow can't clip it. update() re-reads the host rect every render, so
+// the bubble is always positioned to the button and only exists while hovered.
 //
 //   <button tip="restart">…</button>
-//   <button tip={{ text: "close", pos: "bottom-end" }}>…</button>
-import { attribute, LoomAttribute, reactive, prop } from "@toyz/loom";
+//   <button tip={{ text: "close", pos: "bottom" }}>…</button>
+import { attribute, LoomAttribute, reactive, prop, styles, css } from "@toyz/loom";
 
 declare module "@toyz/loom/jsx-runtime" {
   interface LoomCustomAttributes {
@@ -17,29 +18,29 @@ declare module "@toyz/loom/jsx-runtime" {
   }
 }
 
-let seq = 0;
-// CSS Anchor Positioning natively pins the top-layer bubble to its host and flips it
-// when it'd clip — no JS rect math. Not everywhere yet, so a JS fallback covers the rest.
-const ANCHOR_OK = typeof CSS !== "undefined" && !!CSS.supports && CSS.supports("anchor-name: --x");
-const BUBBLE = "background: var(--ink); border: 1px solid var(--line2); color: var(--hi);" +
-  "font: 500 10.5px/1 var(--mono); letter-spacing: .03em; padding: 5px 8px; white-space: nowrap;" +
-  "z-index: 3000; pointer-events: none;";
+// The bubble design travels WITH the attribute — @styles scopes it into the controller's
+// own shadow, which is teleported to the portal target. Theme vars (:root) inherit in.
+const tipSheet = css`
+  .bubble {
+    position: fixed; z-index: 3000; pointer-events: none; white-space: nowrap;
+    background: var(--ink); border: 1px solid var(--line2); color: var(--hi);
+    font: 500 10.5px/1 var(--mono); letter-spacing: .03em; padding: 5px 8px;
+  }
+`;
 
 type TipArg = string | { text?: string; pos?: string } | null | undefined;
 
 @attribute("tip")
+@styles(tipSheet)
 export class Tip extends LoomAttribute<TipArg> {
-  // The OBJECT form — tip={{ text, placement }} — binds these @prop accessors by key,
-  // exactly like a component's props. The bare-string form (tip="logs") has no keys,
-  // so bareArg() maps the raw attribute value onto text.
+  // Object form (tip={{ text, pos }}) binds these @prop accessors by key, exactly like
+  // component props; a bare string (tip="logs") has no keys, so bareArg() maps value.
   @prop accessor text = "";
   @prop accessor pos = "top";
   @reactive accessor open = false;
-  private anchor = "--tip-" + ++seq;
 
   connect() {
     this.bareArg();
-    if (ANCHOR_OK) (this.el.style as { anchorName?: string }).anchorName = this.anchor;
     const show = () => (this.open = true);
     const hide = () => (this.open = false);
     const on = (ev: string, fn: () => void) => {
@@ -50,15 +51,12 @@ export class Tip extends LoomAttribute<TipArg> {
     on("pointerleave", hide);
     on("focusin", show);
     on("focusout", hide);
-    this.track(() => { if (ANCHOR_OK) (this.el.style as { anchorName?: string }).anchorName = ""; });
   }
 
   valueChanged() {
     this.bareArg();
-    if (this.open) this.rerender();
   }
 
-  // A bare string tip="logs" isn't an object, so no @prop binds — map value -> text.
   private bareArg() {
     if (typeof this.arg !== "object" || this.arg == null) {
       this.text = this.value || "";
@@ -68,31 +66,14 @@ export class Tip extends LoomAttribute<TipArg> {
 
   update() {
     if (!this.open || !this.text) return;
-    const bottom = this.pos.startsWith("bottom");
-    if (ANCHOR_OK) {
-      // Native: pin to the host's anchor, center on it, flip block-axis if it'd clip.
-      this.css(".tip { position: fixed; position-anchor: " + this.anchor +
-        "; position-area: " + (bottom ? "bottom" : "top") + "; justify-self: anchor-center;" +
-        " margin-block: 6px; " + BUBBLE + " position-try-fallbacks: flip-block; }");
-      return <div class="tip">{this.text}</div>;
-    }
-    // Fallback: fixed-position to the host rect after the bubble mounts (measured once).
-    this.css(".tip { position: fixed; " + BUBBLE + " opacity: 0; transition: opacity .1s; } .tip.on { opacity: 1; }");
-    requestAnimationFrame(() => this.place(bottom));
-    return <div class="tip">{this.text}</div>;
-  }
-
-  private place(bottom: boolean) {
-    const tip = this.$<HTMLElement>(".tip");
-    if (!tip) return;
+    // Fresh host rect every render — the bubble follows the button, no stale coords.
     const r = this.el.getBoundingClientRect();
-    const tr = tip.getBoundingClientRect();
-    let top = bottom ? r.bottom + 6 : r.top - tr.height - 6;
-    if (!bottom && top < 4) top = r.bottom + 6; // no room above -> flip below
-    let left = r.left + r.width / 2 - tr.width / 2;
-    left = Math.max(4, Math.min(left, window.innerWidth - tr.width - 4));
-    tip.style.top = top + "px";
-    tip.style.left = left + "px";
-    tip.classList.add("on");
+    const bottom = this.pos.startsWith("bottom");
+    const style = {
+      left: `${r.left + r.width / 2}px`,
+      top: `${bottom ? r.bottom + 6 : r.top - 6}px`,
+      transform: bottom ? "translateX(-50%)" : "translate(-50%, -100%)",
+    };
+    return <div class="bubble" style={style}>{this.text}</div>;
   }
 }
