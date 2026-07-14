@@ -11,6 +11,7 @@
 //   <button tip="restart">…</button>
 //   <button tip={{ text: "close", pos: "bottom" }}>…</button>
 import { attribute, LoomAttribute, reactive, prop, styles, css, on } from "@toyz/loom";
+import { theme } from "./styles";
 
 declare module "@toyz/loom/jsx-runtime" {
   interface LoomCustomAttributes {
@@ -19,19 +20,24 @@ declare module "@toyz/loom/jsx-runtime" {
 }
 
 // The bubble design travels WITH the attribute — @styles scopes it into the controller's
-// own shadow, which is teleported to the portal target. Theme vars (:root) inherit in.
+// own shadow, which is teleported to the portal target. `theme` MUST be adopted here:
+// its --ink/--line2/--hi/--mono live on :host (styles.ts), so without it the portaled
+// shadow at document.body can't resolve them and the bubble renders unstyled.
 const tipSheet = css`
   .bubble {
     position: fixed; z-index: 3000; pointer-events: none; white-space: nowrap;
     background: var(--ink); border: 1px solid var(--line2); color: var(--hi);
     font: 500 10.5px/1 var(--mono); letter-spacing: .03em; padding: 5px 8px;
+    animation: tipin .1s ease;
   }
+  @keyframes tipin { from { opacity: 0 } to { opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .bubble { animation: none } }
 `;
 
 type TipArg = string | { text?: string; pos?: string } | null | undefined;
 
 @attribute("tip")
-@styles(tipSheet)
+@styles(theme, tipSheet)
 export class Tip extends LoomAttribute<TipArg> {
   // Object form (tip={{ text, pos }}) binds these @prop accessors by key, exactly like
   // component props; a bare string (tip="logs") has no keys, so bareArg() maps value.
@@ -66,10 +72,14 @@ export class Tip extends LoomAttribute<TipArg> {
     // Fresh host rect every render — the bubble follows the button, no stale coords.
     const r = this.el.getBoundingClientRect();
     const bottom = this.pos.startsWith("bottom");
+    // "-end" hugs the host's right edge so the bubble grows leftward instead of
+    // centering (for controls flush against the viewport's right edge, e.g. a docked
+    // panel's toolbar) where a centered tip would clip off-screen.
+    const end = this.pos.endsWith("end");
     const style = {
-      left: `${r.left + r.width / 2}px`,
+      left: `${end ? r.right : r.left + r.width / 2}px`,
       top: `${bottom ? r.bottom + 6 : r.top - 6}px`,
-      transform: bottom ? "translateX(-50%)" : "translate(-50%, -100%)",
+      transform: `translate(${end ? "-100%" : "-50%"}, ${bottom ? "0" : "-100%"})`,
     };
     return <div class="bubble" style={style}>{this.text}</div>;
   }
