@@ -47,13 +47,12 @@ export class Tip extends LoomAttribute<TipArg> {
     this.bareArg();
   }
 
-  // @on routes through CONNECT_HOOKS on an attribute controller exactly like on a
-  // component; the resolver receives the controller, so `c => c.el` binds the host.
-  // Auto-cleaned on disconnect — no manual addEventListener/track bookkeeping.
-  @on((c: Tip) => c.el, "pointerenter") private onEnter() { this.open = true; }
-  @on((c: Tip) => c.el, "focusin") private onFocus() { this.open = true; }
-  @on((c: Tip) => c.el, "pointerleave") private onLeave() { this.open = false; }
-  @on((c: Tip) => c.el, "focusout") private onBlur() { this.open = false; }
+  // Bare @on("event") (loom 0.21.1) binds the host element — this.el on an attribute
+  // controller — and auto-unbinds on disconnect. No manual addEventListener/track.
+  @on("pointerenter") private onEnter() { this.open = true; }
+  @on("focusin") private onFocus() { this.open = true; }
+  @on("pointerleave") private onLeave() { this.open = false; }
+  @on("focusout") private onBlur() { this.open = false; }
 
   private bareArg() {
     if (typeof this.arg !== "object" || this.arg == null) {

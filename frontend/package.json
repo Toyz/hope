@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@toyz/loom": "0.21.0",
+    "@toyz/loom": "0.21.1",
     "@toyz/loom-rpc": "latest"
   },
   "devDependencies": {
@@ -17,6 +17,6 @@
     "vite": "^6.0.0"
   },
   "overrides": {
-    "@toyz/loom": "0.21.0"
+    "@toyz/loom": "0.21.1"
   }
 }
