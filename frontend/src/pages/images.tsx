@@ -510,6 +510,8 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     const reclaim = unusedSz + dangSz;
     const dangling = items.filter((i) => i.dangling).length;
     const unusedAll = items.filter((i) => !i.in_use).length;
+    // in-use dangling images exist — redeploy&prune can free them
+    const hasReclaimUsed = items.some((i) => i.dangling && i.used_by.length);
     const maxSize = Math.max(1, ...vis.map((i) => i.size));
     const pct = (n: number) => (total ? (n / total) * 100 : 0);
     const fcount = (f: Filter) => (f === "all" ? items.length : items.filter((i) => (f === "used" ? i.in_use : f === "unused" ? !i.in_use : i.dangling)).length);
@@ -533,15 +535,15 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
             </>
           ) : fleet ? (
             <>
-              {items.some((i) => i.dangling && i.used_by.length) ? <hope-button slot="actions" onClick={this.redeployAndPruneFleet}>redeploy &amp; prune</hope-button> : null}
-              {dangling > 0 ? <hope-button slot="actions" onClick={() => this.pruneFleet(false)}>prune dangling</hope-button> : null}
-              {unusedAll > 0 ? <hope-button slot="actions" tone="danger" onClick={() => this.pruneFleet(true)}>prune unused</hope-button> : null}
+              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPruneFleet}>redeploy &amp; prune</hope-button>
+              <hope-button slot="actions" disabled={dangling === 0 || busy} tip={dangling ? "" : "no dangling images"} onClick={() => this.pruneFleet(false)}>prune dangling</hope-button>
+              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tip={unusedAll ? "" : "no unused images"} onClick={() => this.pruneFleet(true)}>prune unused</hope-button>
             </>
           ) : (
             <>
-              {items.some((i) => i.dangling && i.used_by.length) ? <hope-button slot="actions" onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button> : null}
-              {dangling > 0 ? <hope-button slot="actions" onClick={() => this.prune(false)}>prune dangling</hope-button> : null}
-              {unusedAll > 0 ? <hope-button slot="actions" tone="danger" onClick={() => this.prune(true)}>prune unused</hope-button> : null}
+              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button>
+              <hope-button slot="actions" disabled={dangling === 0 || busy} tip={dangling ? "" : "no dangling images"} onClick={() => this.prune(false)}>prune dangling</hope-button>
+              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tip={unusedAll ? "" : "no unused images"} onClick={() => this.prune(true)}>prune unused</hope-button>
             </>
           )}
           <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={busy} onClick={this.userRefresh}></hope-button>
