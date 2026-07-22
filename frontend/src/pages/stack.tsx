@@ -16,7 +16,8 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
 import { markClass, stackSeverity, severityMark, healthLabel } from "../styles";
-import { UpdatesApplied, TopologyRemoved, TopologyChanged } from "../events";
+import { UpdatesApplied, TopologyRemoved, TopologyChanged, FavoritesChanged } from "../events";
+import { FavoritesService } from "../favorites";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
@@ -228,6 +229,9 @@ function aggMark(items: ContainerSummary[]): string {
   .ibtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ibtn:hover loom-icon { color: var(--hi); }
   .ibtn:disabled { opacity: .25; cursor: not-allowed; }
+  .ibtn.fav { font: 15px/1 var(--mono); color: var(--dim); }
+  .ibtn.fav:hover { color: var(--warn); }
+  .ibtn.fav.on { color: var(--warn); }
   .ibtn:disabled:hover { border-color: transparent; background: transparent; }
   .ibtn .bdot { font: 12px/1 var(--mono); color: var(--mid); }
   .rmore { position: relative; display: flex; }
@@ -316,6 +320,7 @@ export class StackPage extends LoomElement {
   @inject(DeployIntent) accessor intent!: DeployIntent;
   @inject(HostContext) accessor hostCtx!: HostContext;
   @inject(Inspector) accessor inspector!: Inspector;
+  @inject(FavoritesService) accessor favSvc!: FavoritesService;
   @inject(LogPanel) accessor logPanel!: LogPanel;
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -411,9 +416,20 @@ export class StackPage extends LoomElement {
 
   @mount
   onMount() {
+    void this.favSvc.ensure();
     if (this.routeProject) this.enter(this.routeProject);
     this.syncInspector();
   }
+
+  // Re-render on any favorites change (this page shows favorite stars). favTick is a
+  // reactive nudge; the star state is read live from FavoritesService.
+  @reactive accessor favTick = 0;
+  @on(FavoritesChanged) private onFavs() { this.favTick++; }
+  private favStar(service: string, label: string, kind: "stack" | "container", e?: Event) {
+    e?.stopPropagation();
+    void this.favSvc.toggle({ host: this.hostCtx.token, project: this.project, service, label, kind });
+  }
+  private isFav(service?: string) { return this.favTick >= 0 && this.favSvc.has(this.hostCtx.token, this.project, service); }
 
   // True when arrived from the cross-fleet overview, so "back" labels match.
   get fleetBack() {
@@ -481,6 +497,7 @@ export class StackPage extends LoomElement {
     );
     return (
       <div class="racts">
+        <button class={"ibtn fav" + (this.isFav(g.service) ? " on" : "")} tip={this.isFav(g.service) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(g.service, g.service, "container", e)}>{this.isFav(g.service) ? "★" : "☆"}</button>
         <button class="ibtn" tip="logs" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${project}/${g.service}`, "serviceLogs", [project, g.service]); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}
@@ -1336,6 +1353,7 @@ export class StackPage extends LoomElement {
                   <hope-button slot="actions" tone="danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</hope-button>
                 ) : (
                   <>
+                    <hope-button slot="actions" tip={this.isFav() ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar("", s.project, "stack", e)}>{this.isFav() ? "★ favorited" : "☆ favorite"}</hope-button>
                     <hope-button slot="actions" icon="terminal" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${s.project} · all logs`, "stackLogs", [s.project]); }}>logs</hope-button>
                     <hope-button slot="actions" icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
                     <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>

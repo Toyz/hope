@@ -11,7 +11,8 @@ import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
 import { withHost, stackPath, containerPath } from "../host-url";
 import { toggleIn } from "../util";
-import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable } from "../events";
+import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable, FavoritesChanged } from "../events";
+import { FavoritesService } from "../favorites";
 import { capabilities } from "../caps";
 import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate, Favorite } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
@@ -132,6 +133,7 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
 `)
 export class HopeRail extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
+  @inject(FavoritesService) accessor favSvc!: FavoritesService;
 
   @reactive accessor fleet: FleetHost[] = [];
   @reactive accessor apiOn = false; // API explorer enabled (config) — show its rail link
@@ -170,7 +172,8 @@ export class HopeRail extends LoomElement {
 
   @mount
   async load() {
-    void this.loadFavs();
+    void this.favSvc.ensure();
+    this.favs = this.favSvc.all();
     void capabilities().then((c) => {
       this.apiOn = !!c.api_enabled;
       this.pluginsOn = !!c.plugins_enabled;
@@ -196,23 +199,11 @@ export class HopeRail extends LoomElement {
   // A plugin was enabled/disabled/forgotten — refetch its pages immediately.
   @on(PluginsChanged) private onPluginsChanged() { this.refetchPages(); }
 
-  // --- favorites (server-persisted quick-jump) ---
-  private async loadFavs() {
-    try { this.favs = (await this.rpc.call<Favorite[]>("Favorites", "list", [])) || []; } catch { /* keep last */ }
-  }
-  private favKey(host: string, project: string, service?: string) { return host + " " + project + " " + (service || ""); }
-  private isFav(host: string, project: string, service?: string) {
-    const k = this.favKey(host, project, service);
-    return this.favs.some((f) => this.favKey(f.host, f.project, f.service) === k);
-  }
-  // Toggle a favorite + persist the whole list to the db (optimistic; the UI owns order).
-  private toggleFav(f: Favorite, e?: Event) {
-    e?.stopPropagation();
-    const k = this.favKey(f.host, f.project, f.service);
-    const has = this.favs.some((x) => this.favKey(x.host, x.project, x.service) === k);
-    this.favs = has ? this.favs.filter((x) => this.favKey(x.host, x.project, x.service) !== k) : [...this.favs, f];
-    void this.rpc.call("Favorites", "set", [{ favorites: this.favs }]).catch(() => {});
-  }
+  // --- favorites (delegated to the app-wide FavoritesService; this.favs mirrors it) ---
+  @on(FavoritesChanged) private onFavsChanged() { this.favs = this.favSvc.all(); }
+  private isFav(host: string, project: string, service?: string) { return this.favSvc.has(host, project, service); }
+  private toggleFav(f: Favorite, e?: Event) { e?.stopPropagation(); void this.favSvc.toggle(f); }
+
   // resolveFav checks a favorite against the CURRENT fleet: is its stack/service still
   // present, and (for a service fav) the live container id to jump to — an id churns on
   // every redeploy, so it's resolved here, never stored. A stale favorite (stack gone,

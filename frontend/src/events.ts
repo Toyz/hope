@@ -93,6 +93,10 @@ export class PluginInspectorTarget extends LoomEvent {
 // so the rail (pages) and container inspector (surfaces) refetch immediately.
 export class PluginsChanged extends LoomEvent {}
 
+// The rail favorites changed (added/removed on any surface) — surfaces that show a
+// favorite control re-read FavoritesService on this.
+export class FavoritesChanged extends LoomEvent {}
+
 // Fired by the plugins page to open the marketplace installer for a target host.
 // preselect (optional) is a catalog id to jump straight into installing that plugin.
 export class OpenInstaller extends LoomEvent {
