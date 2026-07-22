@@ -17,7 +17,8 @@ import { PromptService, type PromptField } from "../prompt";
 import { PluginInspectorTarget, PluginsChanged } from "../events";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
-import type { PluginView, PluginConfig, OpFrame } from "../contracts";
+import type { PluginView, PluginConfig, OpFrame, PluginMetric, AuditEntry } from "../contracts";
+import { ago } from "../format";
 import { theme } from "../styles";
 import { scopeLabel, SCOPE_ORDER } from "../scope-labels";
 
@@ -94,6 +95,21 @@ interface PluginManifest {
   .tog.busy { opacity: .5; pointer-events: none; }
   .retry { margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line2); color: var(--mid); cursor: pointer; font: 11px/1.4 var(--mono); }
   .retry:hover { color: var(--upd); }
+  /* operations — metrics tiles + audit trail */
+  .mets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin: 4px 0 2px; background: var(--line); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .met { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; background: var(--panel); min-width: 0; }
+  .met .mv { color: var(--hi); font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .met.bad .mv { color: var(--bad); }
+  .met .mk { color: var(--dim); font: 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .audit { display: flex; flex-direction: column; }
+  .ae { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto auto; align-items: baseline; gap: 10px;
+    padding: 7px 16px; font: 11.5px/1.4 var(--mono); border-bottom: 1px solid var(--line); }
+  .ae .am { color: var(--mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ae .aa { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ae.bad .am { color: var(--bad); }
+  .ae.danger .am::before { content: "! "; color: var(--warn); }
+  .ae .at, .ae .ag { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .ae .ag { min-width: 40px; text-align: right; }
 `)
 export class HopePluginInspector extends LoomElement {
   @inject(HopeTransport) accessor rpc!: HopeTransport;
@@ -120,6 +136,12 @@ export class HopePluginInspector extends LoomElement {
   // spec). Editing env recreates the container; empty for hand-labeled plugins.
   @reactive accessor config: PluginConfig | null = null;
 
+  // Operations — in-memory metrics + the durable audit trail (both already recorded by
+  // hope; this surfaces them). Fetched alongside the manifest for an enabled plugin.
+  @reactive accessor metric: PluginMetric | null = null;
+  @reactive accessor audit: AuditEntry[] = [];
+  @reactive accessor opsBusy = false;
+
   @mount
   onMount() {
     this.host = this.insp.host;
@@ -145,13 +167,15 @@ export class HopePluginInspector extends LoomElement {
     this.settingVals = {};
     this.config = null;
     this.manifestErr = "";
+    this.metric = null;
+    this.audit = [];
     try {
       const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host }])) || [];
       if (host !== this.host || key !== this.key) return; // switched plugin mid-flight
       const v = all.find((p) => p.key === key) || null;
       this.view = v;
       this.error = v ? "" : "plugin not found on this host";
-      if (v?.enabled) { void this.loadManifest(); void this.loadConfig(); }
+      if (v?.enabled) { void this.loadManifest(); void this.loadConfig(); void this.loadOps(); }
     } catch (e: any) {
       if (host !== this.host || key !== this.key) return;
       this.error = e?.message ?? "failed to load plugin";
@@ -167,6 +191,26 @@ export class HopePluginInspector extends LoomElement {
       const cfg = await this.rpc.call<PluginConfig>("Plugins", "config", [{ key }]);
       if (key === this.key) this.config = cfg;
     } catch { if (key === this.key) this.config = null; }
+  }
+
+  // Fetch this plugin's observability: in-memory metrics (returned for all plugins,
+  // filtered to this key) + its audit trail. Non-fatal — no store just means no audit.
+  private async loadOps() {
+    const key = this.key;
+    this.opsBusy = true;
+    try {
+      const [metrics, audit] = await Promise.all([
+        this.rpc.call<PluginMetric[]>("Plugins", "metrics", []),
+        this.rpc.call<AuditEntry[]>("Plugins", "audit", [{ key, limit: 50 }]),
+      ]);
+      if (key !== this.key) return;
+      this.metric = (metrics || []).find((m) => m.key === key) || null;
+      this.audit = audit || [];
+    } catch {
+      if (key === this.key) { this.metric = null; this.audit = []; }
+    } finally {
+      if (key === this.key) this.opsBusy = false;
+    }
   }
 
   // Edit env via the shared prompt form, then stream a recreate (Stream/reconfigurePlugin).
@@ -343,6 +387,7 @@ export class HopePluginInspector extends LoomElement {
                 {!v.present ? <span class="pill bad">missing</span> : v.running ? <span class="pill ok">running</span> : <span class="pill warn">stopped</span>}
                 {v.enabled ? <span class="pill ok">enabled</span> : v.trusted ? <span class="pill">disabled</span> : <span class="pill warn">untrusted</span>}
                 {v.stale ? <span class="pill bad">changed</span> : null}
+                {v.enabled ? (this.manifestBusy && !this.settings.length ? <span class="pill">dialing</span> : this.manifestErr ? <span class="pill bad">unreachable</span> : <span class="pill ok">reachable</span>) : null}
               </span></span></div>
 
               {(() => {
@@ -371,13 +416,13 @@ export class HopePluginInspector extends LoomElement {
                 {v.enabled && this.settings.length ? <button class="edit" onClick={this.editSettings}><loom-icon name="edit" size={12}></loom-icon>edit</button> : null}
               </div>
               {!v.enabled ? (
-                <div class="future"><span>Enable this plugin to configure its settings here.<br />Its panel &amp; live metrics render on the <b>container</b> inspector — it's just a container.</span></div>
+                <div class="future"><span>Enable this plugin to configure its settings &amp; see its operations here.<br />Its rendered panel appears on the <b>container</b> inspector — it's just a container.</span></div>
               ) : this.manifestBusy && !this.settings.length ? (
                 <div class="empty">dialing the plugin…</div>
               ) : this.manifestErr ? (
                 <div class="empty">couldn't reach the plugin — {this.manifestErr} <button class="retry" onClick={() => this.loadManifest()}>retry</button></div>
               ) : !this.settings.length ? (
-                <div class="future"><span>This plugin exposes no settings.<br />Its panel &amp; live metrics render on the <b>container</b> inspector.</span></div>
+                <div class="future"><span>This plugin exposes no settings.<br />Its rendered panel appears on the <b>container</b> inspector.</span></div>
               ) : (
                 <>
                   {this.settings.map((s) => (
@@ -398,6 +443,38 @@ export class HopePluginInspector extends LoomElement {
                       <span class="v">{f.kind === "secret" ? "••••••" : (this.config!.values[f.key] || f.default || "—")}</span>
                     </div>
                   ))}
+                </>
+              ) : null}
+
+              {v.enabled ? (
+                <>
+                  <div class="ctitle sep">operations</div>
+                  {this.opsBusy && !this.metric && !this.audit.length ? (
+                    <div class="empty">loading…</div>
+                  ) : (
+                    <>
+                      <div class="mets">
+                        <div class="met"><span class="mv">{this.metric?.calls ?? 0}</span><span class="mk">calls</span></div>
+                        <div class={"met" + (this.metric?.errors ? " bad" : "")}><span class="mv">{this.metric?.errors ?? 0}</span><span class="mk">errors</span></div>
+                        <div class="met"><span class="mv">{this.metric?.calls ? Math.round(this.metric.avg_ms) + "ms" : "—"}</span><span class="mk">avg</span></div>
+                        <div class="met"><span class="mv">{this.metric?.last_at_ms ? ago(new Date(this.metric.last_at_ms).toISOString()) : "—"}</span><span class="mk">last call</span></div>
+                      </div>
+                      {this.audit.length ? (
+                        <div class="audit">
+                          {this.audit.map((a) => (
+                            <div class={"ae" + (a.ok ? "" : " bad") + (a.danger ? " danger" : "")} title={a.err || undefined}>
+                              <span class="am">{a.method}</span>
+                              <span class="aa">{a.actor || "—"}</span>
+                              <span class="at">{a.ms}ms</span>
+                              <span class="ag">{ago(a.time)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div class="empty">No audited actions yet — mutations a plugin runs through hope appear here.</div>
+                      )}
+                    </>
+                  )}
                 </>
               ) : null}
             </div>

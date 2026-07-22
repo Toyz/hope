@@ -361,6 +361,31 @@ export interface PluginView {
   denied?: string[]; // scopes the operator denied (don't-ask-again)
 }
 
+// PluginMetric is one plugin's in-memory call/latency observability (mirrors
+// pluginhost.PluginMetrics). Reset on hope restart — the audit log is the durable trail.
+export interface PluginMetric {
+  key: string;
+  calls: number;
+  errors: number;
+  avg_ms: number;
+  last_ms: number;
+  last_at_ms: number;
+}
+
+// AuditEntry is one audited plugin action invocation (mirrors store.AuditEntry) — the
+// operator's who/what/where/when trail of proxied plugin mutations (reads aren't logged).
+export interface AuditEntry {
+  time: string;
+  actor: string;
+  plugin: string;
+  host: string;
+  method: string;
+  danger: boolean;
+  ok: boolean;
+  err?: string;
+  ms: number;
+}
+
 // ---- plugin marketplace (catalog + installer) ----
 
 // CatalogEnvField is one machine-readable env/config input for the install wizard.
