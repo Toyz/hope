@@ -1,9 +1,8 @@
 name: CI
 
-# Pre-merge gate for anything landing on main: run the unit tests AND scan for
-# leaked secrets. Runs on every PR (the path code takes to reach main) and on
-# direct pushes to main as a backstop. docker-publish.yml only builds images on
-# push to main/tags — this workflow is the pre-merge quality + secret gate.
+# Pre-merge gate for application changes: run the unit tests AND scan for leaked
+# secrets. Docs-only changes have their own build in docs.yml and do not need to
+# compile the server and product frontend.
 #
 # Deliberately triggered on `pull_request`, NOT `pull_request_target`: a fork PR's
 # code therefore runs WITHOUT access to repo secrets and with a read-only
@@ -11,7 +10,11 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: &docs-only
+      - "site/**"
+      - ".github/workflows/docs.yml"
   pull_request:
+    paths-ignore: *docs-only
 
 # A newer push to the same branch/PR supersedes in-flight runs.
 concurrency:

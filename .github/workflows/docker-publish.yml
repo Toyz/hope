@@ -3,6 +3,11 @@ name: Build and publish images
 on:
   push:
     branches: [main]
+    # The standalone Pages workflow owns docs builds. A mixed commit still runs
+    # this workflow because at least one changed path is outside these entries.
+    paths-ignore:
+      - "site/**"
+      - ".github/workflows/docs.yml"
     # hope release tags only. The Go SDK is a nested module tagged `plugin/vX.Y.Z`;
     # those are SDK versions, not hope images — exclude them so they never build hope.
     # (`v*` already can't match `plugin/…`; the ignore makes the intent explicit.)

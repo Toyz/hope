@@ -12,6 +12,7 @@ import {
     reactive,
     styles,
 } from "@toyz/loom";
+import { api, type ApiState } from "@toyz/loom/query";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HOME, NAV } from "./docs/nav";
 import { searchDocs } from "./docs/search-registry";
@@ -38,7 +39,51 @@ function sectionEntry(slug: string): string {
       ?.items[0]?.slug ?? HOME
   );
 }
-const pluginTag = __HOPE_PLUGIN_TAG__.replace(/^plugin\//, "");
+
+interface PluginRelease {
+  version: string;
+}
+
+interface GitHubTagRef {
+  ref: string;
+}
+
+const pluginTagPattern = /^refs\/tags\/plugin\/v(\d+)\.(\d+)\.(\d+)$/;
+
+async function latestPluginRelease(): Promise<PluginRelease> {
+  const response = await fetch(
+    "https://api.github.com/repos/Toyz/hope/git/matching-refs/tags/plugin/v",
+    { headers: { Accept: "application/vnd.github+json" } },
+  );
+  if (!response.ok) {
+    throw new Error(`GitHub tags request failed (${response.status})`);
+  }
+
+  const releases = ((await response.json()) as GitHubTagRef[])
+    .map(({ ref }) => {
+      const match = pluginTagPattern.exec(ref);
+      return match
+        ? {
+            version: `v${match[1]}.${match[2]}.${match[3]}`,
+            parts: match.slice(1).map(Number),
+          }
+        : null;
+    })
+    .filter(
+      (release): release is { version: string; parts: number[] } =>
+        release !== null,
+    )
+    .sort((left, right) => {
+      for (let index = 0; index < 3; index++) {
+        const difference = right.parts[index] - left.parts[index];
+        if (difference) return difference;
+      }
+      return 0;
+    });
+
+  if (!releases[0]) throw new Error("No plugin SDK release tags found");
+  return { version: releases[0].version };
+}
 
 @component("hope-docs")
 @styles(
@@ -449,6 +494,12 @@ export class HopeDocs extends LoomElement {
   @reactive accessor q = ""; // docs search query
   @reactive accessor navOpen = false;
   @query(".sin") accessor sin!: HTMLInputElement | null;
+  @api<PluginRelease>({
+    fn: latestPluginRelease,
+    staleTime: 60 * 60 * 1000,
+    retry: 2,
+  })
+  accessor pluginRelease!: ApiState<PluginRelease>;
 
   private get router(): LoomRouter {
     return app.get(LoomRouter);
@@ -576,7 +627,11 @@ export class HopeDocs extends LoomElement {
               <div class={"grp" + (i > 0 ? " mt" : "")}>
                 <span class="eyebrow">{sec.section}</span>
                 {sec.section === "plugins" ? (
-                  <span class="scope release">sdk {pluginTag}</span>
+                  <span class="scope release">
+                    sdk{" "}
+                    {this.pluginRelease.data?.version ??
+                      (this.pluginRelease.loading ? "..." : "latest")}
+                  </span>
                 ) : (
                   <span class="scope">{sec.items.length}</span>
                 )}
