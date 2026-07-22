@@ -4,7 +4,11 @@
 import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/loom";
 import { theme } from "../styles";
 import { signalModal } from "../modal";
-import "./plugin-surface"; // registers <hope-plugin-surface> for selector->surface fields
+// NOTE: do NOT import ./plugin-surface here — it's already registered globally in
+// main.tsx, and importing it into this lazy chunk created a circular dependency that
+// silently broke the shared modal machinery (prompt/confirm/proc). The
+// <hope-plugin-surface> tag used for selector->surface fields resolves from that
+// global registration.
 import type { PromptOpts, ResolvedSurface, PromptField } from "../prompt";
 
 @styles(theme, css`

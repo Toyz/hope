@@ -100,6 +100,8 @@ func (m *mockDock) PluginDialCandidates(ctx context.Context, id string, port int
 	return m.dialCandidates(ctx, id, port)
 }
 
+func (m *mockDock) PluginNetworkIP(ctx context.Context, id string) string { return "" }
+
 func (m *mockDock) ContainerMatchInfo(ctx context.Context, id string) (string, map[string]string, error) {
 	if m.matchInfo == nil {
 		return "", nil, nil

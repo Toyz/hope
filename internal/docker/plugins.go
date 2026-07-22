@@ -63,6 +63,24 @@ func PluginNetAlias(containerID string) string {
 	return containerID
 }
 
+// PluginNetworkIP returns the container's IP address on the shared ink-plugins
+// network, or "" if it isn't attached (or can't be inspected). Used as a
+// DNS-INDEPENDENT dial fallback right after a live AttachNetwork: docker's embedded
+// DNS record for the freshly-joined alias can lag the first request (NXDOMAIN),
+// whereas the endpoint IP is present in inspect immediately. A port-less plugin
+// (no published port) has no other fallback, so without this a disable→re-enable
+// races the DNS registration and the schema query fails.
+func (c *Client) PluginNetworkIP(ctx context.Context, id string) string {
+	insp, err := c.sdk().ContainerInspect(ctx, id)
+	if err != nil || insp.NetworkSettings == nil {
+		return ""
+	}
+	if ep := insp.NetworkSettings.Networks[PluginNetwork]; ep != nil {
+		return ep.IPAddress
+	}
+	return ""
+}
+
 // IsLocalSocket reports whether this client talks to a local unix socket (as opposed
 // to a remote tcp:// daemon). Only for a local socket can hope join the plugin's
 // network and reach it by container DNS; a remote tcp daemon needs a published port.

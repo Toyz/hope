@@ -103,6 +103,7 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	// published port, no hairpin. Best-effort; the raw candidates below stay as fallback.
 	// Skipped for a remote tcp:// daemon (hope isn't a container there, so it can't join).
 	alias := ""
+	pluginNetIP := "" // container IP on ink-plugins, resolved AFTER the attach
 	if dock.IsLocalSocket() || (hc.Kind != "local" && r.dialer != nil) {
 		if dock.EnsurePluginNetwork(ctx) == nil {
 			if self := dock.SelfContainerID(ctx); self != "" {
@@ -110,6 +111,11 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 			}
 			if dock.AttachNetwork(ctx, pc.ContainerID, docker.PluginNetwork, nil) == nil {
 				alias = docker.PluginNetAlias(pc.ContainerID) // == the short id docker resolves
+				// DNS-independent fallback: the alias's embedded-DNS record can lag the
+				// first request right after a live connect, and a port-less plugin has no
+				// other candidate — so a disable→re-enable races DNS and the schema query
+				// fails. The endpoint IP is in inspect immediately; dial it directly.
+				pluginNetIP = dock.PluginNetworkIP(ctx, pc.ContainerID)
 			}
 		}
 	}
@@ -124,6 +130,11 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 		// published host port (remote tcp:// daemon — the daemon-host port is routable
 		// while the container IP is not), then the container IP.
 		var urls []string
+		// The ink-plugins IP first: it's resolved fresh from inspect after the attach,
+		// so it skips the embedded-DNS lag the alias name suffers on a re-enable.
+		if pluginNetIP != "" {
+			urls = append(urls, "http://"+net.JoinHostPort(pluginNetIP, strconv.Itoa(pc.Port))+path)
+		}
 		if alias != "" {
 			urls = append(urls, "http://"+alias+":"+strconv.Itoa(pc.Port)+path) // short container id
 			// The container NAME is also auto-registered on the shared network — try it
@@ -152,8 +163,12 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 	if r.dialer == nil {
 		return nil, fmt.Errorf("remote plugin dialing needs the agent hub (or publish the plugin's port so hope can reach it at the docker host)")
 	}
+	// This path dials ONE target with no fallback loop, so prefer the DNS-independent
+	// ink-plugins IP over the alias name (which can NXDOMAIN right after a re-attach).
 	target := ""
 	switch {
+	case pluginNetIP != "":
+		target = net.JoinHostPort(pluginNetIP, strconv.Itoa(pc.Port))
 	case alias != "":
 		target = alias + ":" + strconv.Itoa(pc.Port)
 	case len(netTargets) > 0:

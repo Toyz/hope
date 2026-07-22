@@ -55,6 +55,7 @@ type API interface {
 	Ping(ctx context.Context) error
 	PluginContainers(ctx context.Context) ([]PluginContainer, error)
 	PluginDialCandidates(ctx context.Context, id string, port int) (netTargets, directTargets []string, attachNet string, err error)
+	PluginNetworkIP(ctx context.Context, id string) string
 	ProjectContainerIDs(ctx context.Context, project string) ([]string, error)
 	ProjectContainers(ctx context.Context, project, service string) ([]ContainerRef, error)
 	ProjectSpec(ctx context.Context, project string) (*stackspec.StackSpec, error)
