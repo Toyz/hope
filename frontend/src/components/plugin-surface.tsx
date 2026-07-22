@@ -1075,7 +1075,7 @@ export class HopePluginSurface extends LoomElement {
                   {r.map((cell, ci) => {
                     if (hidden.has(cols[ci])) return null; // hidden column
                     const editable = canEdit(ci);
-                    const isEditing = !!this.editCell && this.editCell.row === i && this.editCell.col === ci;
+                    const isEditing = !!this.editCell && this.editCell.key === key && this.editCell.row === i && this.editCell.col === ci;
                     if (isEditing) {
                       return (
                         <td class="editing"><input class="cellin" autofocus value={this.cellStr(cell)}
