@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// TestBuiltinsInstallable locks that the two shipped first-party entries are complete
-// enough to install (image + a required, secret connection env) and that a service with
-// no remote repos serves exactly them.
+// TestBuiltinsInstallable locks that the shipped first-party entries are complete
+// enough to install (image + a required, secret connection env for the service
+// plugins) and that a service with no remote repos serves exactly them.
 func TestBuiltinsInstallable(t *testing.T) {
 	svc := New(nil, 0, nil) // no repos, no cache
 	entries := svc.Entries()
-	if len(entries) != 3 {
-		t.Fatalf("want 3 built-in entries, got %d", len(entries))
+	if len(entries) != 4 {
+		t.Fatalf("want 4 built-in entries, got %d", len(entries))
 	}
 	byID := map[string]CatalogEntry{}
 	for _, e := range entries {

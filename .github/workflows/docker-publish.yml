@@ -38,6 +38,10 @@ jobs:
             dockerfile: examples/plugins/hope-redis/Dockerfile
           - name: hope-nats
             dockerfile: examples/plugins/hope-nats/Dockerfile
+          # Reference/demo plugin: exercises every surface (views, streams, dynamic
+          # forms, alerts, reverse channel). Self-contained — no external service.
+          - name: kitchen-sink
+            dockerfile: examples/plugins/kitchen-sink/Dockerfile
     steps:
       - uses: actions/checkout@v5
         with:

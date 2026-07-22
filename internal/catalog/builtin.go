@@ -70,5 +70,22 @@ func Builtins() []CatalogEntry {
 			},
 			Settings: []SettingSeed{{Key: "watch_subject", Value: ">"}, {Key: "page_size", Value: "100"}},
 		},
+		{
+			ID:          "kitchen-sink",
+			Title:       "Kitchen Sink",
+			Icon:        "box",
+			Description: "Reference plugin exercising every hope surface — views, tables, streams, dynamic forms, alerts, and the reverse channel. Self-contained (no external service); install it to explore hope or smoke-test a build.",
+			Image:       "ghcr.io/toyz/kitchen-sink:latest",
+			Port:        8080,
+			Path:        "/__hope",
+			// No Env: it serves its own demo data, so it installs and runs with nothing
+			// to configure — the point is a one-click plugin to poke at.
+			Permissions: []CatalogPermission{
+				{Scope: "events:subscribe", Reason: "log and count the fleet events it sees"},
+				{Scope: "events:publish", Reason: "raise the demo alerts"},
+				{Scope: "storage", Reason: "remember how many events it has seen"},
+				{Scope: "spec:label", Reason: "tag its own stack's services on request"},
+			},
+		},
 	}
 }
