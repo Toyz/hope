@@ -53,7 +53,7 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 }
 
 func main() {
-	p := plugin.New("kitchen-sink", "1.1.0").
+	p := plugin.New("kitchen-sink", "1.2.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
 		Icon("box").
 		Icons(map[string]string{

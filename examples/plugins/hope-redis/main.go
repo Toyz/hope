@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hope-redis", "1.1.0").
+	p := plugin.New("hope-redis", "1.2.0").
 		Description("Browse, query, and operate a Redis / Valkey server").
 		Icon("database")
 

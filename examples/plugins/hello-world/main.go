@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hello-world", "1.0.0").
+	p := plugin.New("hello-world", "1.1.0").
 		Description("Every hope view kind, one small plugin").
 		Icon("rocket")
 

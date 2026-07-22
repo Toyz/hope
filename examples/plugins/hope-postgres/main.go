@@ -34,7 +34,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hope-postgres", "2.1.0").
+	p := plugin.New("hope-postgres", "2.2.0").
 		Description("Browse, query, operate, and monitor a Postgres database").
 		Icon("database").
 		// Plugin-scoped icons: names hope doesn't ship as built-ins, registered here so

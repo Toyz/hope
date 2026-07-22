@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hope-nats", "1.0.0").
+	p := plugin.New("hope-nats", "1.1.0").
 		Description("Inspect streams, consumers, and KV; watch subjects; publish and operate a NATS server").
 		Icon("server").
 		// Icons hope doesn't ship as built-ins, registered per-plugin (inner SVG only).
