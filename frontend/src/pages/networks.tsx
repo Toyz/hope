@@ -642,7 +642,6 @@ export class NetworksPage extends ResourcePage<NetworkInfo> {
           <hope-button
             slot="actions"
             icon="plus"
-            disabled={busy}
             onClick={this.createNet}
           >
             create

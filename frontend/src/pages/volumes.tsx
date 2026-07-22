@@ -272,7 +272,7 @@ export class VolumesPage extends ResourcePage<VolumeInfo> {
     return (
       <div>
         <hope-phead heading="Volumes" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker volumes" : fleet ? "aggregated across the fleet" : `${items.length} volume${items.length === 1 ? "" : "s"} on this daemon`}>
-          <hope-button slot="actions" icon="plus" disabled={busy} onClick={this.createVol}>create</hope-button>
+          <hope-button slot="actions" icon="plus" onClick={this.createVol}>create</hope-button>
           {sel > 0 ? (
             <>
               <hope-button slot="actions" tone="danger" onClick={this.removeSelected}>remove {sel}</hope-button>
