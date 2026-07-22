@@ -1355,7 +1355,7 @@ export class StackPage extends LoomElement {
                   <hope-button slot="actions" tone="danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</hope-button>
                 ) : (
                   <>
-                    <hope-button slot="actions" tip={this.isFav() ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar("", s.project, "stack", e)}>{this.isFav() ? "★ favorited" : "☆ favorite"}</hope-button>
+                    <hope-button slot="actions" tooltip={this.isFav() ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar("", s.project, "stack", e)}>{this.isFav() ? "★ favorited" : "☆ favorite"}</hope-button>
                     <hope-button slot="actions" icon="terminal" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${s.project} · all logs`, "stackLogs", [s.project]); }}>logs</hope-button>
                     <hope-button slot="actions" icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
                     <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>

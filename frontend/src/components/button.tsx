@@ -15,10 +15,14 @@ import { theme } from "../styles";
 @component("hope-button")
 @styles(theme, css`
   :host { display: inline-flex; }
-  /* disabled is driven by the host attribute (morph sets it directly), so it
-     works even if a prop re-render lags: block clicks + dim. */
-  :host([disabled]) { pointer-events: none; }
-  :host([disabled]) button { opacity: .4; cursor: not-allowed; }
+  /* Disabled is gated on the INNER native <button disabled={this.disabled}> — set from
+     the prop on every render, always correct. We must NOT gate on :host([disabled]):
+     when hope-button is a slotted child (e.g. slot="actions" in hope-phead) loom updates
+     the disabled PROPERTY but can leave a STALE disabled ATTRIBUTE on the host, so
+     :host([disabled]){pointer-events:none} makes an ENABLED button swallow its own clicks
+     (dead action buttons, no error). A native disabled button blocks the click itself —
+     no pointer-events needed — so the host onClick never fires while disabled. */
+  button:disabled { opacity: .4; cursor: not-allowed; }
 
   button { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center;
     box-sizing: border-box; width: 100%; white-space: nowrap; font: 600 11px/1 var(--mono); letter-spacing: .12em;
@@ -80,11 +84,24 @@ export class HopeButton extends LoomElement {
   @prop accessor icon = "";
   @prop accessor disabled = false;
   @prop accessor spin = false; // spin the icon (e.g. a refresh in flight)
+  // Tooltip — a PROP named `tooltip` (NOT `tip`) so the host attribute is `tooltip`, which
+  // the global `tip` @attribute ignores. Same shape as the tip attribute (a string, or
+  // { text, pos } for placement); it's forwarded verbatim as `tip` to the INNER native
+  // button, so the shared tooltip binds to a plain element instead of this interactive
+  // component host — a `tip` @attribute on the host disrupted its click delegation (dead
+  // action buttons).
+  @prop accessor tooltip: string | { text?: string; pos?: string } = "";
 
   update() {
+    // Read `disabled` from the ATTRIBUTE, not the @prop. When hope-button is a slotted
+    // child (slot="actions" in hope-phead) loom re-renders it on a prop change but its
+    // @prop getter returns a STALE cached value — the attribute morphs correctly while
+    // this.disabled stays frozen, so an enabled button rendered a disabled native button
+    // and swallowed clicks. hasAttribute reflects the live morph (same as `solid` below).
+    const disabled = this.hasAttribute("disabled");
     const cls = [this.tone, this.hasAttribute("solid") ? "solid" : "", this.size === "sm" ? "sm" : ""].filter(Boolean).join(" ");
     return (
-      <button class={cls} disabled={this.disabled}>
+      <button class={cls} disabled={disabled} tip={this.tooltip || undefined}>
         <span class="wipe"></span>
         <span class="inner">{this.icon ? <loom-icon class={this.spin ? "spin" : ""} name={this.icon} size={13}></loom-icon> : null}<slot></slot></span>
       </button>

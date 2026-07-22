@@ -535,15 +535,15 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
             </>
           ) : fleet ? (
             <>
-              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPruneFleet}>redeploy &amp; prune</hope-button>
-              <hope-button slot="actions" disabled={dangling === 0 || busy} tip={dangling ? "" : "no dangling images"} onClick={() => this.pruneFleet(false)}>prune dangling</hope-button>
-              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tip={unusedAll ? "" : "no unused images"} onClick={() => this.pruneFleet(true)}>prune unused</hope-button>
+              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tooltip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPruneFleet}>redeploy &amp; prune</hope-button>
+              <hope-button slot="actions" disabled={dangling === 0 || busy} tooltip={dangling ? "" : "no dangling images"} onClick={() => this.pruneFleet(false)}>prune dangling</hope-button>
+              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tooltip={unusedAll ? "" : "no unused images"} onClick={() => this.pruneFleet(true)}>prune unused</hope-button>
             </>
           ) : (
             <>
-              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button>
-              <hope-button slot="actions" disabled={dangling === 0 || busy} tip={dangling ? "" : "no dangling images"} onClick={() => this.prune(false)}>prune dangling</hope-button>
-              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tip={unusedAll ? "" : "no unused images"} onClick={() => this.prune(true)}>prune unused</hope-button>
+              <hope-button slot="actions" disabled={!hasReclaimUsed || busy} tooltip={hasReclaimUsed ? "" : "no in-use dangling images"} onClick={this.redeployAndPrune}>redeploy &amp; prune</hope-button>
+              <hope-button slot="actions" disabled={dangling === 0 || busy} tooltip={dangling ? "" : "no dangling images"} onClick={() => this.prune(false)}>prune dangling</hope-button>
+              <hope-button slot="actions" tone="danger" disabled={unusedAll === 0 || busy} tooltip={unusedAll ? "" : "no unused images"} onClick={() => this.prune(true)}>prune unused</hope-button>
             </>
           )}
           <hope-button slot="actions" icon="rotate" spin={this.refreshing} disabled={busy} onClick={this.userRefresh}></hope-button>
