@@ -12,6 +12,7 @@ import (
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/events"
@@ -40,10 +41,11 @@ func timeNow() int64 { return time.Now().UnixMilli() }
 // Source/Kind. So a co-located hostile container cannot forge another plugin's events,
 // and no plugin can emit a core hope kind or spoof its Source.
 type PluginIngress struct {
-	store  *store.Store
-	bus    *events.Bus
-	deploy *deploy.Engine // for operator actions (spec mutation); nil = actions unavailable
-	limits Limits
+	store   *store.Store
+	bus     *events.Bus
+	deploy  *deploy.Engine // for operator actions (spec mutation); nil = actions unavailable
+	auditor *audit.Auditor // nil-safe: records plugin-initiated mutations
+	limits  Limits
 
 	mu   sync.Mutex
 	lims map[string]*pluginLimiter // per-plugin publish-rate limiters
@@ -57,8 +59,8 @@ var (
 
 // NewPluginIngress builds the reverse-channel handler. eng enables operator actions
 // (spec mutation); pass nil to leave actions unavailable.
-func NewPluginIngress(st *store.Store, bus *events.Bus, eng *deploy.Engine, limits Limits) *PluginIngress {
-	return &PluginIngress{store: st, bus: bus, deploy: eng, limits: limits.WithDefaults(), lims: map[string]*pluginLimiter{}}
+func NewPluginIngress(st *store.Store, bus *events.Bus, eng *deploy.Engine, aud *audit.Auditor, limits Limits) *PluginIngress {
+	return &PluginIngress{store: st, bus: bus, deploy: eng, auditor: aud, limits: limits.WithDefaults(), lims: map[string]*pluginLimiter{}}
 }
 
 func (h *PluginIngress) PluginName() string { return "plugin-ingress" }
@@ -205,14 +207,11 @@ func (h *PluginIngress) addServiceLabel(ctx context.Context, rec *store.PluginRe
 // audit records a plugin-initiated mutation (actor is the plugin itself — no human
 // subject on the reverse channel).
 func (h *PluginIngress) audit(rec *store.PluginRecord, method string, err error, start int64) {
-	_ = h.store.AppendAudit(store.AuditEntry{
-		Actor:  "plugin:" + rec.Key,
-		Plugin: rec.Key,
-		Host:   rec.Host,
-		Method: method,
-		Danger: true,
-		OK:     err == nil,
-		Err:    errString(err),
+	// Reverse channel: no human subject — the plugin itself is the actor.
+	h.auditor.Record(context.Background(), audit.Entry{
+		Source: audit.SourcePlugin, Category: audit.CatPlugin,
+		Actor:  "plugin:" + rec.Key, Target: rec.Key, Host: rec.Host,
+		Action: method, Danger: true, OK: err == nil, Err: audit.ErrStr(err),
 		Millis: timeNow() - start,
 	})
 }

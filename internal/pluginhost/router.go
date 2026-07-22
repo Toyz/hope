@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
@@ -55,7 +56,8 @@ type PluginsRouter struct {
 	limiters map[string]*pluginLimiter
 
 	metrics metricsRegistry
-	layouts layoutCache // last-good schema+layout per plugin, for degraded-not-skip surfaces
+	layouts layoutCache    // last-good schema+layout per plugin, for degraded-not-skip surfaces
+	auditor *audit.Auditor // nil-safe: records plugin actions + trust changes to the fleet audit log
 }
 
 // limiter returns the per-plugin resource limiter, creating it on first use.
@@ -86,6 +88,11 @@ func NewPluginsRouter(hs *hosts.Set, st *store.Store, dialer ContainerDialer, en
 // package function, not a method — see the note on StartEventFanout (an exported
 // non-RPC method would panic under gw.Register's reflection).
 func SetCallbackURL(r *PluginsRouter, u string) { r.callbackURL = u }
+
+// SetAuditor wires the shared audit engine so plugin actions and trust changes land in
+// the fleet audit log. A package function for the same reflection reason as
+// SetCallbackURL. nil leaves plugin auditing off (records are dropped).
+func SetAuditor(r *PluginsRouter, a *audit.Auditor) { r.auditor = a }
 
 // SetAgentCallback wires the per-host resolver for an AGENT-hosted plugin's
 // reverse-channel base URL (relayed through the tunnel). A package function for the
@@ -357,8 +364,17 @@ func (r *PluginsRouter) Enable(ctx *rpc.Context, p *TargetParams) (any, error) {
 	if ep != nil && rec != nil {
 		r.initPlugin(ctx, ep, rec, func(string) {})
 	}
+	r.auditor.Record(ctx, audit.Entry{Category: audit.CatPlugin, Action: "enable", Target: p.Key, Host: recordHost(rec), OK: true})
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "enabled")})
 	return map[string]any{"ok": true}, nil
+}
+
+// recordHost is the audit host for a plugin record (empty when the record is nil).
+func recordHost(rec *store.PluginRecord) string {
+	if rec != nil {
+		return rec.Host
+	}
+	return ""
 }
 
 // Disable turns a trusted plugin off but keeps its record (and token).
@@ -382,6 +398,7 @@ func (r *PluginsRouter) Disable(ctx *rpc.Context, p *TargetParams) (any, error) 
 	}
 	r.detachPluginNet(ctx, p.Key) // stop sharing hope's network
 	r.layouts.drop(p.Key)         // don't render stale contributions if re-enabled with a changed layout
+	r.auditor.Record(ctx, audit.Entry{Category: audit.CatPlugin, Action: "disable", Target: p.Key, Host: rec.Host, OK: true})
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "disabled")})
 	return map[string]any{"ok": true}, nil
 }
@@ -417,6 +434,7 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 	}
 	_ = r.store.DeletePluginKVAll(p.Key) // wipe the plugin's storage on full removal
 	r.layouts.drop(p.Key)                // forget the cached layout too
+	r.auditor.Record(ctx, audit.Entry{Category: audit.CatPlugin, Action: "forget", Target: p.Key, Danger: true, OK: true})
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
 }
@@ -698,21 +716,16 @@ func (r *PluginsRouter) Call(ctx *rpc.Context, p *CallParams) (json.RawMessage, 
 // audit records an action invocation (best-effort; a failed write must not fail the
 // call). Reads pass Audit=false and never reach here.
 func (r *PluginsRouter) audit(ctx *rpc.Context, rec *store.PluginRecord, p *CallParams, callErr error, d time.Duration) {
-	actor := ""
-	if c := ctx.Claims(); c != nil {
-		actor = c.Subject
-	}
-	e := store.AuditEntry{
-		Actor: actor, Plugin: p.Key, Method: p.Method, Danger: p.Danger,
-		OK: callErr == nil, Millis: d.Milliseconds(),
-	}
+	host := ""
 	if rec != nil {
-		e.Host = rec.Host
+		host = rec.Host
 	}
-	if callErr != nil {
-		e.Err = callErr.Error()
-	}
-	_ = r.store.AppendAudit(e)
+	// An operator ran a plugin action: actor = the operator (filled from ctx), the
+	// target = the plugin, the action = its method.
+	r.auditor.Record(ctx, audit.Entry{
+		Category: audit.CatPlugin, Action: p.Method, Target: p.Key, Host: host, Danger: p.Danger,
+		OK: callErr == nil, Err: audit.ErrStr(callErr), Millis: d.Milliseconds(),
+	})
 }
 
 // AuditParams scopes the audit log to one plugin (optional) and caps the count.
@@ -723,7 +736,7 @@ type AuditParams struct {
 
 // Audit returns recent audited plugin invocations, newest first — the operator's
 // who/what/where/when trail of proxied plugin actions.
-func (r *PluginsRouter) Audit(ctx *rpc.Context, p *AuditParams) ([]store.AuditEntry, error) {
+func (r *PluginsRouter) Audit(ctx *rpc.Context, p *AuditParams) ([]audit.Entry, error) {
 	if err := r.gate(); err != nil {
 		return nil, err
 	}
@@ -731,7 +744,8 @@ func (r *PluginsRouter) Audit(ctx *rpc.Context, p *AuditParams) ([]store.AuditEn
 	if p != nil {
 		key, limit = p.Key, p.Limit
 	}
-	return r.store.AuditLog(key, limit)
+	// This plugin's slice of the unified audit log (its actions, keyed by identity).
+	return r.auditor.Query(audit.Filter{Category: audit.CatPlugin, Target: key, Limit: limit})
 }
 
 // Metrics returns per-plugin in-memory observability (call/error counts + latency)

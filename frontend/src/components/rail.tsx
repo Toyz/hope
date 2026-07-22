@@ -335,6 +335,7 @@ export class HopeRail extends LoomElement {
           <div class="grp mt"><span class="eyebrow">system</span></div>
           <div class={"rlink" + (sel.page === "agents" ? " on" : "")} onClick={() => this.router.navigate("/agents")}><loom-icon name="server" size={13}></loom-icon><span>agents</span></div>
           <div class={"rlink" + (sel.page === "registries" ? " on" : "")} onClick={() => this.router.navigate("/registries")}><loom-icon name="database" size={13}></loom-icon><span>registries</span></div>
+          <div class={"rlink" + (sel.page === "audit" ? " on" : "")} onClick={() => this.router.navigate("/audit")}><loom-icon name="list" size={13}></loom-icon><span>audit</span></div>
           {this.apiOn ? <div class={"rlink" + (sel.page === "api-docs" ? " on" : "")} onClick={() => this.router.navigate("/api-docs")}><loom-icon name="terminal" size={13}></loom-icon><span>api</span></div> : null}
           <a class="rlink" href="https://github.com/toyz/hope" target="_blank" rel="noreferrer"><loom-icon name="link" size={13}></loom-icon><span>github</span></a>
         </div>

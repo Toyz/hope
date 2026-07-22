@@ -95,9 +95,15 @@ func (m *mockAPI) Remove(ctx context.Context, id string) error {
 
 func (m *mockAPI) ContainerName(ctx context.Context, id string) (string, error) {
 	if m.containerName == nil {
-		m.t.Fatalf("unexpected ContainerName(%q)", id)
+		return id, nil // incidental audit-name lookup; tests that care wire containerName
 	}
 	return m.containerName(ctx, id)
+}
+
+// ContainerMatchInfo backs the audit engine's stack (compose project) lookup on a
+// lifecycle op. These tests don't assert the audited project, so return empty.
+func (m *mockAPI) ContainerMatchInfo(ctx context.Context, id string) (string, map[string]string, error) {
+	return "", nil, nil
 }
 
 func (m *mockAPI) ContainerImage(ctx context.Context, id string) (string, error) {
@@ -137,7 +143,7 @@ func newTestRouter(t *testing.T, m *mockAPI) (*ContainersRouter, *rpc.Context, *
 	m.t = t
 	bus := events.New()
 	set := hosts.New(m, true, nil)
-	r := NewContainersRouter(set, bus)
+	r := NewContainersRouter(set, bus, nil)
 	rctx := rpc.NewContext(hosts.WithTarget(context.Background(), hosts.LocalID))
 	return r, rctx, bus
 }

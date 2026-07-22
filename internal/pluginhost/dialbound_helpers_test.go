@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
@@ -333,6 +334,7 @@ func newFixtureWith(t *testing.T, enabled, autoReapprove bool) *fixture {
 	dep := deploy.NewEngine(set, deploy.NewStore(st), nil)
 	bus := events.New()
 	r := NewPluginsRouter(set, st, nil, dep, cat, enabled, autoReapprove, DefaultLimits, bus)
+	SetAuditor(r, audit.New(st)) // so r.Audit() reflects recorded plugin actions in tests
 	ctx := rpc.NewContext(hosts.WithTarget(context.Background(), hosts.LocalID))
 	return &fixture{r: r, dock: dock, st: st, dep: dep, cat: cat, set: set, bus: bus, plugin: plugin, ctx: ctx, pc: pc, key: testKey2}
 }

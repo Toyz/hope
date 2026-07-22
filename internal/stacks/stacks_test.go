@@ -117,7 +117,7 @@ func newTestRouter(t *testing.T, m *mockAPI, c *compose.Manager) (*StacksRouter,
 	t.Helper()
 	m.t = t
 	set := hosts.New(m, true, nil)
-	r := NewStacksRouter(set, c)
+	r := NewStacksRouter(set, c, nil)
 	rctx := rpc.NewContext(hosts.WithTarget(context.Background(), hosts.LocalID))
 	return r, rctx
 }

@@ -444,7 +444,7 @@ func TestCallProxiesMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Audit: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Method != "echo" || !entries[0].OK {
+	if len(entries) == 0 || entries[0].Action != "echo" || !entries[0].OK { // newest first; enable is also audited now
 		t.Fatalf("audit log = %+v, want one OK echo entry", entries)
 	}
 	// Metrics recorded the call.

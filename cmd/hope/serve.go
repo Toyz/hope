@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	hope "github.com/toyz/hope"
 	"github.com/toyz/hope/internal/agent"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/cloudflare"
@@ -323,8 +324,12 @@ func runServe(configPath string) error {
 	gw.MustUse(batchstream.New())           // /rpc/_batchstream — same, but streams each result as it resolves (no head-of-line block)
 	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
-	gw.Register(stacks.NewStacksRouter(hostSet, comp))
-	gw.Register(containers.NewContainersRouter(hostSet, eventBus))
+	// One reusable audit engine every router records into (who did what, where, when) —
+	// durable when the state store is mounted, a no-op otherwise.
+	auditor := audit.New(st)
+	gw.Register(audit.NewAuditRouter(auditor)) // /rpc Audit.List — the fleet audit trail
+	gw.Register(stacks.NewStacksRouter(hostSet, comp, auditor))
+	gw.Register(containers.NewContainersRouter(hostSet, eventBus, auditor))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
 	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare), eventBus))
 	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
@@ -357,6 +362,7 @@ func runServe(configPath string) error {
 	// shared ink-plugins network — the same way hope dials plugins by their container
 	// id. Auto-derived from hope's self container + listen port; no config. Empty when
 	// hope isn't containerized (a plugin couldn't resolve it anyway).
+	pluginhost.SetAuditor(pluginsRouter, auditor) // plugin actions + trust changes -> audit log
 	pluginhost.SetCallbackURL(pluginsRouter, hopeCallbackURL(dock.SelfID(), cfg.Server.Addr))
 	// Agent-hosted plugins get a reverse-channel URL pointing at the agent's own
 	// container id (relayed through the tunnel), resolved per host from the live
@@ -389,7 +395,7 @@ func runServe(configPath string) error {
 	})
 	gw.Register(pluginsRouter)
 	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
-	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
+	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, auditor, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
 	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)

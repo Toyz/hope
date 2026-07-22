@@ -484,7 +484,7 @@ export class HopePluginInspector extends LoomElement {
                         <div class="audit">
                           {this.audit.map((a) => (
                             <div class={"ae" + (a.ok ? "" : " bad") + (a.danger ? " danger" : "")} title={a.err || undefined}>
-                              <span class="am">{a.method}</span>
+                              <span class="am">{a.action}</span>
                               <span class="aa">{a.actor || "—"}</span>
                               <span class="at">{a.ms}ms</span>
                               <span class="ag">{ago(a.time)}</span>

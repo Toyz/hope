@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
@@ -25,12 +26,13 @@ const opTimeout = 15 * time.Minute
 type StacksRouter struct {
 	hosts   *hosts.Set
 	compose *compose.Manager
+	audit   *audit.Auditor // nil-safe: records stack lifecycle mutations to the audit log
 }
 
-// NewStacksRouter wires the router to the host set (active-host aware) and the
-// (file-based) compose manager used only for the compose-file viewer.
-func NewStacksRouter(hs *hosts.Set, c *compose.Manager) *StacksRouter {
-	return &StacksRouter{hosts: hs, compose: c}
+// NewStacksRouter wires the router to the host set (active-host aware), the (file-based)
+// compose manager used only for the compose-file viewer, and the audit engine.
+func NewStacksRouter(hs *hosts.Set, c *compose.Manager, aud *audit.Auditor) *StacksRouter {
+	return &StacksRouter{hosts: hs, compose: c, audit: aud}
 }
 
 // dock is the docker client for the currently-active host.
@@ -84,6 +86,7 @@ func (r *StacksRouter) Pull(ctx *rpc.Context, p *ProjectParams) (*StackResult, e
 	res, err := r.pull(cctx, p.Project)
 	if err == nil {
 		r.dock(ctx).RefreshProjectStatus(cctx, p.Project) // keep update cache fresh
+		r.audit.Record(ctx, audit.Entry{Category: audit.CatStack, Action: "pull", Host: r.hosts.ActiveIDFor(ctx), Project: p.Project, OK: res != nil && res.OK})
 	}
 	return res, err
 }
@@ -119,6 +122,7 @@ func (r *StacksRouter) Redeploy(ctx *rpc.Context, p *ProjectParams) (*StackResul
 	}
 	fmt.Fprintf(&log, "recreated %d container(s)\n", n)
 	r.dock(ctx).RefreshProjectStatus(cctx, p.Project) // images are current — refresh the cache
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatStack, Action: "redeploy", Host: r.hosts.ActiveIDFor(ctx), Project: p.Project, Detail: fmt.Sprintf("recreated %d", n), OK: true})
 	return &StackResult{OK: true, Output: log.String()}, nil
 }
 
@@ -178,11 +182,14 @@ func (r *StacksRouter) eachContainer(ctx *rpc.Context, p *ProjectParams, verb st
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	start := time.Now()
 	for _, id := range ids {
 		if err := fn(cctx, id); err != nil {
+			r.audit.Record(ctx, audit.Entry{Category: audit.CatStack, Action: verb, Host: r.hosts.ActiveIDFor(ctx), Project: p.Project, OK: false, Err: err.Error(), Millis: time.Since(start).Milliseconds()})
 			return &StackResult{OK: false, Error: fmt.Sprintf("%s %s: %v", verb, id[:12], err)}, nil
 		}
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatStack, Action: verb, Host: r.hosts.ActiveIDFor(ctx), Project: p.Project, Detail: fmt.Sprintf("%d container(s)", len(ids)), OK: true, Millis: time.Since(start).Milliseconds()})
 	return &StackResult{OK: true, Output: fmt.Sprintf("%s: %d container(s)", verb, len(ids))}, nil
 }
 

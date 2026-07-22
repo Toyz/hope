@@ -383,18 +383,23 @@ export interface PluginStatus {
   at_ms: number;
 }
 
-// AuditEntry is one audited plugin action invocation (mirrors store.AuditEntry) — the
-// operator's who/what/where/when trail of proxied plugin mutations (reads aren't logged).
+// AuditEntry is one entry in hope's unified audit log (mirrors audit.Entry) — the
+// fleet-wide who/what/where/when trail across core operations and plugin actions.
 export interface AuditEntry {
   time: string;
-  actor: string;
-  plugin: string;
-  host: string;
-  method: string;
-  danger: boolean;
+  actor: string; // authenticated subject, or "plugin:<key>"
+  source: string; // operator | plugin | system
+  category: string; // container | stack | image | volume | network | tunnel | plugin | agent | registry
+  action: string; // restart | redeploy | remove | enable | ...
+  host?: string;
+  project?: string; // the stack (compose project) it came from, when applicable
+  target?: string; // the specific resource: container name, image ref, plugin key, ...
+  detail?: string;
+  meta?: any; // optional structured extra data (rendered in the row flyout)
+  danger?: boolean;
   ok: boolean;
   err?: string;
-  ms: number;
+  ms?: number;
 }
 
 // ---- plugin marketplace (catalog + installer) ----

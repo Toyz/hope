@@ -29,7 +29,7 @@ func ingressFixture(t *testing.T, grants []string) (*PluginIngress, *events.Bus,
 		t.Fatalf("put plugin: %v", err)
 	}
 	bus := events.New()
-	return NewPluginIngress(st, bus, nil, DefaultLimits), bus, st.DeriveToken(testKey)
+	return NewPluginIngress(st, bus, nil, nil, DefaultLimits), bus, st.DeriveToken(testKey)
 }
 
 func publishReq(key, token string, e events.Event) *gateway.Request {

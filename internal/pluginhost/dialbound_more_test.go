@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/gateway"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/events"
@@ -446,7 +447,7 @@ func TestStreamHandlerReconfigureValidation(t *testing.T) {
 func TestIngressRequestPermission(t *testing.T) {
 	f := newFixture(t)
 	_ = f.st.PutPlugin(store.PluginRecord{Key: f.key, Host: "local", Enabled: true})
-	h := NewPluginIngress(f.st, f.bus, nil, DefaultLimits)
+	h := NewPluginIngress(f.st, f.bus, nil, nil, DefaultLimits)
 	token := f.st.DeriveToken(f.key)
 
 	body, _ := json.Marshal(map[string]string{"key": f.key, "scope": "storage", "reason": "save data"})
@@ -469,7 +470,7 @@ func TestIngressRequestPermission(t *testing.T) {
 }
 
 func TestIngressMetadata(t *testing.T) {
-	h := NewPluginIngress(newStore(t), events.New(), nil, DefaultLimits)
+	h := NewPluginIngress(newStore(t), events.New(), nil, nil, DefaultLimits)
 	if h.PluginName() == "" || h.Doc() == "" || len(h.RoutePatterns()) == 0 {
 		t.Fatal("ingress metadata should be populated")
 	}
@@ -537,7 +538,8 @@ func TestIngressAddServiceLabel(t *testing.T) {
 	rec.Grants = append(rec.Grants, scopeSpecLabel)
 	_ = f.st.PutPlugin(*rec)
 
-	h := NewPluginIngress(f.st, f.bus, f.dep, DefaultLimits)
+	aud := audit.New(f.st)
+	h := NewPluginIngress(f.st, f.bus, f.dep, aud, DefaultLimits)
 	token := f.st.DeriveToken(f.key)
 	body, _ := json.Marshal(actionBody{Key: f.key, Op: "addServiceLabel", Service: "svc", LabelKey: "team", LabelValue: "infra"})
 	hdr := gateway.Header{}
@@ -554,7 +556,7 @@ func TestIngressAddServiceLabel(t *testing.T) {
 		t.Fatalf("label not applied to the stored spec: %+v", svc)
 	}
 	// It was audited.
-	entries, _ := f.st.AuditLog(f.key, 0)
+	entries, _ := aud.Query(audit.Filter{Target: f.key})
 	if len(entries) == 0 {
 		t.Fatal("addServiceLabel should be audited")
 	}

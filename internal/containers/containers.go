@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/events"
 	"github.com/toyz/hope/internal/hosts"
@@ -20,13 +21,14 @@ const pullTimeout = 15 * time.Minute
 // ContainersRouter handles single-container operations.
 type ContainersRouter struct {
 	hosts *hosts.Set
-	bus   *events.Bus // nil-safe: publishes lifecycle events to the global feed
+	bus   *events.Bus    // nil-safe: publishes lifecycle events to the global feed
+	audit *audit.Auditor // nil-safe: records lifecycle mutations to the fleet audit log
 }
 
-// NewContainersRouter wires the router to the host set (active-host aware) and the
-// event bus (for live UI updates on container lifecycle).
-func NewContainersRouter(hs *hosts.Set, bus *events.Bus) *ContainersRouter {
-	return &ContainersRouter{hosts: hs, bus: bus}
+// NewContainersRouter wires the router to the host set (active-host aware), the event
+// bus (live UI updates on lifecycle), and the audit engine (records who did what).
+func NewContainersRouter(hs *hosts.Set, bus *events.Bus, aud *audit.Auditor) *ContainersRouter {
+	return &ContainersRouter{hosts: hs, bus: bus, audit: aud}
 }
 
 // dock is the docker client for the currently-active host.
@@ -114,8 +116,24 @@ func (r *ContainersRouter) Pull(ctx *rpc.Context, p *IDParams) (*CtrResult, erro
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock(ctx).RefreshImageStatus(cctx, img) // keep the update cache fresh
+	pname, pproj := r.nameAndProject(ctx, p.ID)
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatContainer, Action: "pulled", Host: r.hosts.ActiveIDFor(ctx), Project: pproj, Target: pname, Detail: img, OK: true})
 	r.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
 	return &CtrResult{OK: true}, nil
+}
+
+// nameAndProject resolves a container's display name and its compose project (stack).
+// Both are recorded on the audit entry — the stack is mission-critical provenance
+// (where an action came from), so it's always captured, not best-effort UI sugar.
+func (r *ContainersRouter) nameAndProject(ctx context.Context, id string) (name, project string) {
+	name = shortID(id)
+	if n, err := r.dock(ctx).ContainerName(ctx, id); err == nil && n != "" {
+		name = n
+	}
+	if _, labels, err := r.dock(ctx).ContainerMatchInfo(ctx, id); err == nil {
+		project = labels[docker.LabelProject]
+	}
+	return
 }
 
 // Redeploy pulls this container's image then recreates it on the new image,
@@ -137,6 +155,8 @@ func (r *ContainersRouter) Redeploy(ctx *rpc.Context, p *IDParams) (*CtrResult, 
 		return nil, rpc.Internal("%v", err)
 	}
 	r.dock(ctx).RefreshImageStatus(cctx, img) // image is now current — refresh the cache
+	rname, rproj := r.nameAndProject(ctx, p.ID)
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatContainer, Action: "redeployed", Host: r.hosts.ActiveIDFor(ctx), Project: rproj, Target: rname, Detail: img, OK: true})
 	r.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}})
 	return &CtrResult{OK: true}, nil
 }
@@ -145,14 +165,18 @@ func (r *ContainersRouter) act(ctx *rpc.Context, p *IDParams, kind events.Kind, 
 	if p.ID == "" {
 		return nil, rpc.BadRequest("id required")
 	}
-	if err := fn(ctx, p.ID); err != nil {
+	// Resolve name + stack BEFORE the op (a removed container can't be named after) —
+	// used for the completion notice and the audit entry's provenance.
+	name, project := r.nameAndProject(ctx, p.ID)
+	start := time.Now()
+	err := fn(ctx, p.ID)
+	r.audit.Record(ctx, audit.Entry{
+		Category: audit.CatContainer, Action: action, Host: r.hosts.ActiveIDFor(ctx), Project: project, Target: name,
+		Danger: kind == events.KindContainerRemoved || action == "killed",
+		OK:     err == nil, Err: audit.ErrStr(err), Millis: time.Since(start).Milliseconds(),
+	})
+	if err != nil {
 		return nil, rpc.Internal("%v", err)
-	}
-	// A friendly name for the completion notice; fall back to the short id if the
-	// inspect fails (e.g. the container is already gone after a remove).
-	name := shortID(p.ID)
-	if n, err := r.dock(ctx).ContainerName(ctx, p.ID); err == nil && n != "" {
-		name = n
 	}
 	r.bus.Publish(events.Event{Kind: kind, Host: r.hosts.ActiveIDFor(ctx), IDs: []string{p.ID}, Data: ctrActionData(action, name)})
 	return &CtrResult{OK: true}, nil

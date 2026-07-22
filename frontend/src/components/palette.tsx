@@ -124,6 +124,7 @@ export class HopePalette extends LoomElement {
 
     push("page", "agents", "server", "/agents");
     push("page", "registries", "database", "/registries");
+    push("page", "audit", "list", "/audit");
 
     for (const h of hosts) push("host", h.id, "server", `/host/${h.id}`, h.kind === "local" ? "local daemon" : "agent");
 
