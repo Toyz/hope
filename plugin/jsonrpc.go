@@ -272,6 +272,13 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		p.finish(w, req.ID, out, err)
 		return
 	}
+	if rf, ok := p.resolvers[req.Method]; ok {
+		// selector->surface provider: current form values arrive as params (Params); it
+		// returns a component node hope renders inline in the form.
+		out, err := rf(ctx)
+		p.finish(w, req.ID, out, err)
+		return
+	}
 	if a, ok := p.actions[req.Method]; ok {
 		var in map[string]any
 		if len(req.Params) > 0 {

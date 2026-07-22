@@ -4,7 +4,8 @@
 import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/loom";
 import { theme } from "../styles";
 import { signalModal } from "../modal";
-import type { PromptOpts } from "../prompt";
+import "./plugin-surface"; // registers <hope-plugin-surface> for selector->surface fields
+import type { PromptOpts, ResolvedSurface } from "../prompt";
 
 @styles(theme, css`
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
@@ -39,12 +40,20 @@ import type { PromptOpts } from "../prompt";
   .acts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 13px 16px; border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .err { margin-right: auto; color: var(--bad); font: 11.5px/1.4 var(--mono); }
+  /* selector->surface: the plugin-resolved surface rendered inline under the fields */
+  .resolved { border-top: 1px solid var(--line); margin: 0 8px; max-height: 42vh; overflow: auto; }
+  .resolved .rmsg { padding: 16px; color: var(--dim); font: 12px/1.4 var(--mono); text-align: center; }
 `)
 export default class PromptModalImpl extends LoomElement {
   @reactive accessor open = false;
   @reactive accessor opts: PromptOpts = { fields: [] };
   @reactive accessor values: Record<string, string> = {};
   @reactive accessor err = "";
+  // selector->surface: the resolved surface rendered inline, and whether a resolve is
+  // in flight. resolveSeq guards against out-of-order responses (last change wins).
+  @reactive accessor resolved: ResolvedSurface | null = null;
+  @reactive accessor resolving = false;
+  private resolveSeq = 0;
 
   @watch("open") private lockBody() { signalModal(this, this.open); }
   @unmount private releaseBody() { signalModal(this, false); }
@@ -56,8 +65,25 @@ export default class PromptModalImpl extends LoomElement {
     for (const f of o.fields) v[f.key] = f.value ?? (f.type === "select" && f.options?.length ? "" : "");
     this.values = v;
     this.err = "";
+    this.resolved = null;
+    this.resolveSeq++;
     this.open = true;
+    if (o.resolve) this.runResolve(); // initial surface (honors any default field values)
     return new Promise((resolve) => (this.resolver = resolve));
+  }
+
+  // Call the plugin's selector->surface resolver with the current values and render the
+  // result inline. Guarded by resolveSeq so a slow earlier response can't overwrite a
+  // newer selection.
+  private runResolve() {
+    if (!this.opts.resolve) return;
+    const seq = ++this.resolveSeq;
+    this.resolving = true;
+    const vals = { ...this.values };
+    this.opts
+      .resolve(vals)
+      .then((s) => { if (seq === this.resolveSeq) { this.resolved = s; this.resolving = false; } })
+      .catch(() => { if (seq === this.resolveSeq) { this.resolved = null; this.resolving = false; } });
   }
 
   private settle(v: Record<string, string> | null) {
@@ -84,6 +110,12 @@ export default class PromptModalImpl extends LoomElement {
       if (f.dependsOn === key) next[f.key] = f.defaultFrom ? f.defaultFrom(next) : "";
     }
     this.values = next;
+    // Re-resolve the inline surface on a DISCRETE change (select/toggle/kv) — not on
+    // every text keystroke, which would storm the plugin with RPCs.
+    if (this.opts.resolve) {
+      const f = this.opts.fields.find((x) => x.key === key);
+      if (f && f.type !== "text" && f.type !== "textarea") this.runResolve();
+    }
   }
 
   private submit = () => {
@@ -132,6 +164,17 @@ export default class PromptModalImpl extends LoomElement {
               </div>
             ))}
           </div>
+          {o.resolve ? (
+            <div class="resolved">
+              {this.resolved ? (
+                <hope-plugin-surface surface={this.resolved}></hope-plugin-surface>
+              ) : this.resolving ? (
+                <div class="rmsg">loading…</div>
+              ) : (
+                <div class="rmsg">select an option to preview</div>
+              )}
+            </div>
+          ) : null}
           <div class="acts">
             {this.err ? <span class="err">{this.err}</span> : null}
             <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>

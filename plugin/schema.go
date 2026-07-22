@@ -228,6 +228,11 @@ type Field struct {
 	// form, instead of using the static Options above. The JSON key is camelCase to
 	// match hope's PromptField, which the fields map onto directly.
 	OptionsMethod string `json:"optionsMethod,omitempty"`
+	// ResolveMethod names a Resolve provider (registered with Plugin.Resolve). When the
+	// form's values change, hope calls it with the current values and renders the
+	// returned component node inline below the fields — a selection can drive a live
+	// preview, confirmation, or result. camelCase for the same PromptField reason.
+	ResolveMethod string `json:"resolveMethod,omitempty"`
 }
 
 // Schema is the plugin's identity + capability manifest — the result of the fixed

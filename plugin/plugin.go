@@ -71,12 +71,13 @@ type Plugin struct {
 	maxBody int64
 
 	// Ordered method names preserve author declaration order in the manifest.
-	order    []string
-	views    map[string]viewEntry
-	actions  map[string]actionEntry
-	streams  map[string]streamEntry
-	options  map[string]OptionsFunc // RPC-populated select providers (dynamic forms)
-	contribs []Contribution
+	order     []string
+	views     map[string]viewEntry
+	actions   map[string]actionEntry
+	streams   map[string]streamEntry
+	options   map[string]OptionsFunc // RPC-populated select providers (dynamic forms)
+	resolvers map[string]ResolveFunc // selector->surface providers (dynamic forms)
+	contribs  []Contribution
 	// pageFns[i] produces the Pages of contribs[i] LIVE at each hope.layout (a
 	// DynamicPageFunc contribution) — kept off the wire Contribution so it stays
 	// pure data. Keyed by index; contribs is append-only, so the index is stable.
@@ -129,6 +130,7 @@ func New(name, version string) *Plugin {
 		actions:     map[string]actionEntry{},
 		streams:     map[string]streamEntry{},
 		options:     map[string]OptionsFunc{},
+		resolvers:   map[string]ResolveFunc{},
 		settingVals: map[string]string{},
 		token:       os.Getenv("HOPE_PLUGIN_TOKEN"),
 	}
@@ -519,6 +521,22 @@ type OptionsFunc func(ctx context.Context) ([]Option, error)
 // and actions), so keep it distinct.
 func (p *Plugin) Options(method string, fn OptionsFunc) *Plugin {
 	p.options[method] = fn
+	return p
+}
+
+// ResolveFunc returns a component node (built with the Box/KeyVal/Heading/Badge/Text
+// primitives) for a selector->surface field. hope renders whatever it returns inline
+// in the form, below the fields, and re-calls it whenever the form values change — so a
+// selection can drive a live preview, a confirmation, or a result. Read the current
+// values with Params(ctx) to render for the chosen option.
+type ResolveFunc func(ctx context.Context) (any, error)
+
+// Resolve registers a selector->surface provider under method. Point a form Field's
+// ResolveMethod at it: when the form's values change, hope calls this with the current
+// values and renders the returned component node inline. The method shares the plugin's
+// method namespace (like views/actions/options), so keep it distinct.
+func (p *Plugin) Resolve(method string, fn ResolveFunc) *Plugin {
+	p.resolvers[method] = fn
 	return p
 }
 

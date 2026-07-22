@@ -53,7 +53,7 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 }
 
 func main() {
-	p := plugin.New("kitchen-sink", "1.2.0").
+	p := plugin.New("kitchen-sink", "1.3.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
 		Icon("box").
 		Icons(map[string]string{
@@ -611,6 +611,45 @@ func main() {
 			return nil, err
 		}
 		return map[string]any{"ok": true}, nil
+	})
+
+	// --- dynamic forms demo: the "command" select is RPC-populated (Options) AND
+	// resolves to a live preview surface as you pick it (Resolve -> selector->surface).
+	// hope calls commandPreview with the current form values on every change and renders
+	// the returned component inline below the field. ---
+	commands := map[string]struct{ what, tone string }{
+		"restart": {"Restart every worker. Brief downtime.", plugin.ToneWarn},
+		"migrate": {"Apply pending migrations, then verify.", plugin.ToneInfo},
+		"backup":  {"Snapshot the database to object storage.", plugin.ToneOK},
+		"vacuum":  {"Reclaim dead tuples. Heavy I/O while it runs.", plugin.ToneWarn},
+	}
+	p.Options("commandList", func(ctx context.Context) ([]plugin.Option, error) {
+		return []plugin.Option{
+			{Label: "Restart workers", Value: "restart"},
+			{Label: "Run migrations", Value: "migrate"},
+			{Label: "Backup database", Value: "backup"},
+			{Label: "Vacuum", Value: "vacuum"},
+		}, nil
+	})
+	p.Resolve("commandPreview", func(ctx context.Context) (any, error) {
+		var vals map[string]any
+		_ = plugin.Params(ctx, &vals)
+		cmd, _ := vals["command"].(string)
+		c, ok := commands[cmd]
+		if !ok {
+			return plugin.Box(plugin.KeyVal("preview", "pick a command above")), nil
+		}
+		return plugin.Box(
+			plugin.Heading(cmd, 4),
+			plugin.KeyVal("impact", plugin.Badge(c.tone, c.tone)),
+			plugin.KeyVal("what it does", c.what),
+		), nil
+	})
+	p.Action("runCommand", "Run a command", []plugin.Field{
+		{Key: "command", Label: "Command", Type: "select", OptionsMethod: "commandList", ResolveMethod: "commandPreview"},
+	}, func(ctx context.Context, in map[string]any) (any, error) {
+		cmd, _ := in["command"].(string)
+		return map[string]any{"message": "ran command: " + cmd}, nil
 	})
 
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —

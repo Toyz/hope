@@ -79,7 +79,21 @@ export async function runPluginAction(
   let values: Record<string, any> | undefined;
   if (a.fields && a.fields.length) {
     const fields = await resolveFieldOptions(deps, surfaceKey, a.fields);
-    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields });
+    // Selector->surface: if a field names a resolve method, wire a resolver that calls
+    // the plugin with the current values and returns a component surface for the modal
+    // to render inline. Closes over the RPC so the generic prompt stays rpc-free.
+    const resolveMethod = a.fields.find((f) => f.resolveMethod)?.resolveMethod;
+    const resolve = resolveMethod
+      ? async (vals: Record<string, string>) => {
+          try {
+            const comp = await deps.rpc.call<any>("Plugins", "call", [{ key: surfaceKey, method: resolveMethod, args: vals, audit: false }]);
+            return comp ? { key: surfaceKey, node: { kind: "component", comp }, schema: {} } : null;
+          } catch {
+            return null;
+          }
+        }
+      : undefined;
+    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields, resolve });
     if (!v) return undefined;
     values = v;
   }

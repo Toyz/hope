@@ -19,6 +19,9 @@ export type PromptField = {
   // A plugin select whose options come from an RPC (Plugin.Options): hope fetches
   // them from this method and fills `options` before the form opens. Plugin-set only.
   optionsMethod?: string;
+  // A plugin selector whose change resolves to an inline surface (Plugin.Resolve):
+  // runPluginAction wires PromptOpts.resolve from this. Plugin-set only.
+  resolveMethod?: string;
   // Dynamic options computed from the current field values (dependent selects).
   // When `dependsOn` changes, this field's value is cleared and options recomputed.
   optionsFrom?: (values: Record<string, string>) => PromptOption[];
@@ -28,6 +31,14 @@ export type PromptField = {
   defaultFrom?: (values: Record<string, string>) => string;
 };
 
+// ResolvedSurface is a plugin-surface returned by a selector->surface resolve call —
+// the {key, node, schema} shape <hope-plugin-surface> renders. node is a component tree.
+export interface ResolvedSurface {
+  key: string;
+  node: any;
+  schema: any;
+}
+
 export interface PromptOpts {
   title?: string;
   icon?: string; // loom-icon name (default "link")
@@ -35,6 +46,10 @@ export interface PromptOpts {
   submitLabel?: string; // default "Save"
   cancelLabel?: string; // default "Cancel"
   fields: PromptField[];
+  // A plugin selector->surface: called with the current field values whenever they
+  // change; the returned surface is rendered inline below the fields. Plugin actions
+  // set this (it closes over the RPC); hope's own prompts leave it unset.
+  resolve?: (values: Record<string, string>) => Promise<ResolvedSurface | null>;
 }
 
 export class PromptService {
