@@ -5,6 +5,7 @@
 // host's dot is the worst of its stacks. Expansion is remembered per session.
 import { LoomElement, component, styles, css, reactive, mount, on, app } from "@toyz/loom";
 import { persist } from "@toyz/loom";
+import { query } from "@toyz/loom/element";
 import { inject } from "@toyz/loom/di";
 import { LoomRouter, RouteChanged } from "@toyz/loom/router";
 import { HopeTransport } from "../transport";
@@ -61,7 +62,11 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 0 8px; }
   /* resources + fleet stay pinned below the (scrolling) topology so a host with a
      lot of stacks can't push them out of reach */
-  .pinned { flex: none; border-top: 1px solid var(--line); padding: 10px 0 8px; }
+  .pinned { flex: none; border-top: 1px solid var(--line); padding: 10px 0 8px; overflow-y: auto; }
+  /* draggable divider to resize the pinned section (height persisted) */
+  .rzp { flex: none; height: 6px; margin-top: -3px; margin-bottom: -3px; cursor: row-resize; position: relative; z-index: 2; }
+  .rzp::after { content: ""; position: absolute; left: 12px; right: 12px; top: 50%; height: 1px; background: transparent; transition: background .12s; }
+  .rzp:hover::after { background: var(--upd); }
   .grp { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; margin: 0 0 6px; }
   .grp.mt { margin-top: 16px; }
   .eyebrow { font: 600 9.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
@@ -126,6 +131,10 @@ export class HopeRail extends LoomElement {
   // Expanded plugin containers + page groups, keyed by plugin key / group path.
   @persist("hope.rail.pages") accessor openPages: string[] = [];
   @persist("hope.rail.fleet") accessor openFleet = true;
+  // Height of the pinned (resources/system) section — 0 = auto (natural height), >0 =
+  // an operator-dragged fixed height, so the topology tree yields the rest. Persisted.
+  @persist("hope.rail.pinnedh") accessor pinnedH = 0;
+  @query(".pinned") accessor pinnedEl!: HTMLElement | null;
 
   // Worst state across the fleet, for the "fleet" root dot (min severity rank).
   private fleetTone(): string {
@@ -308,6 +317,25 @@ export class HopeRail extends LoomElement {
     return { page, host: "", project: "", cid: "" };
   }
 
+  // Drag the divider above the pinned (resources/system) section to resize it: up
+  // grows it (more links visible at once), down shrinks it back toward the topology
+  // tree. The height persists via @persist(pinnedH).
+  private startPinned = (e: PointerEvent) => {
+    e.preventDefault();
+    const sy = e.clientY;
+    const sh = this.pinnedEl?.offsetHeight ?? this.pinnedH ?? 0;
+    const max = Math.max(120, window.innerHeight - 220);
+    const move = (ev: PointerEvent) => { this.pinnedH = Math.max(90, Math.min(max, sh - (ev.clientY - sy))); };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   update() {
     const sel = this.cur();
     return (
@@ -328,7 +356,8 @@ export class HopeRail extends LoomElement {
             </>
           )}
         </div>
-        <div class="pinned">
+        <div class="rzp" onPointerDown={this.startPinned}></div>
+        <div class="pinned" style={this.pinnedH ? `height:${this.pinnedH}px` : undefined}>
           <div class="grp"><span class="eyebrow">resources</span><span class="scope">{sel.host && sel.host !== "all" ? sel.host : "fleet"}</span></div>
           {this.renderResources(sel.host)}
 
