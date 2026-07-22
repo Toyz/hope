@@ -8,7 +8,9 @@
     <style>
       html, body { margin: 0; height: 100%; background: #0A0C11; }
       body { font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
-      hope-docs { display: block; height: 100%; }
+      /* NOTE: no display/height on hope-docs here — an outer rule would override the
+         shadow :host grid (outer author styles beat :host). The component owns its
+         layout via :host { display: grid; height: 100vh }. */
     </style>
   </head>
   <body>
