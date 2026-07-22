@@ -13,7 +13,7 @@ import { withHost, stackPath, containerPath } from "../host-url";
 import { toggleIn } from "../util";
 import { Refreshing, PluginsChanged, UpdatesApplied, TopologyRemoved, TopologyChanged, AgentStatusChanged, UpdateAvailable } from "../events";
 import { capabilities } from "../caps";
-import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate } from "../contracts";
+import type { FleetHost, StackSummary, ContainerSummary, ClusterUpdate, Favorite } from "../contracts";
 import { theme, stackSeverity, severityRank, type Severity } from "../styles";
 import { registerPluginIcons } from "./plugin-icon"; // registers <hope-plugin-icon> + the per-plugin icon namespace
 
@@ -77,8 +77,19 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   .node:hover { background: var(--raised); color: var(--hi); }
   .node.sel { background: color-mix(in srgb, var(--upd) 15%, transparent); color: var(--hi); }
   .node.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
-  .node .label { overflow: hidden; text-overflow: ellipsis; }
-  .node .meta { margin-left: auto; color: var(--dim); font-size: 10.5px; letter-spacing: .04em; }
+  .node .label { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .node .meta { flex: none; color: var(--dim); font-size: 10.5px; letter-spacing: .04em; }
+  /* favorite star: always visible — a dim hollow star to add, solid accent when
+     favorited. flex:none so it sits at the far right whether or not the node has a meta. */
+  .star { flex: none; display: inline-flex; align-items: center; margin-left: 4px; padding: 0 2px;
+    color: var(--dim); font: 12px/1 var(--mono); cursor: pointer; transition: color .1s ease; }
+  .star:hover { color: var(--warn); }
+  .star.on { color: var(--warn); }
+  /* favorites section rows — same tree node language, showing stack + host context */
+  .node.fav .fsvc { color: var(--dim); }
+  .node.fav .meta { text-transform: none; }
+  .node.fav.stale { opacity: .45; cursor: default; }
+  .node.fav.stale .label { text-decoration: line-through; }
   .caret { width: 10px; flex: none; color: var(--dim); font-size: 9px; transition: transform .12s ease; }
   .caret.open { transform: rotate(90deg); }
   .caret.leaf { visibility: hidden; }
@@ -135,6 +146,9 @@ export class HopeRail extends LoomElement {
   // an operator-dragged fixed height, so the topology tree yields the rest. Persisted.
   @persist("hope.rail.pinnedh") accessor pinnedH = 0;
   @query(".pinned") accessor pinnedEl!: HTMLElement | null;
+  // Rail quick-jump favorites (stacks/containers), persisted server-side so they follow
+  // the hope instance, not a browser. Loaded on mount; toggling writes the whole list.
+  @reactive accessor favs: Favorite[] = [];
 
   // Worst state across the fleet, for the "fleet" root dot (min severity rank).
   private fleetTone(): string {
@@ -151,6 +165,7 @@ export class HopeRail extends LoomElement {
 
   @mount
   async load() {
+    void this.loadFavs();
     void capabilities().then((c) => {
       this.apiOn = !!c.api_enabled;
       this.pluginsOn = !!c.plugins_enabled;
@@ -175,6 +190,88 @@ export class HopeRail extends LoomElement {
 
   // A plugin was enabled/disabled/forgotten — refetch its pages immediately.
   @on(PluginsChanged) private onPluginsChanged() { this.refetchPages(); }
+
+  // --- favorites (server-persisted quick-jump) ---
+  private async loadFavs() {
+    try { this.favs = (await this.rpc.call<Favorite[]>("Favorites", "list", [])) || []; } catch { /* keep last */ }
+  }
+  private favKey(host: string, project: string, service?: string) { return host + " " + project + " " + (service || ""); }
+  private isFav(host: string, project: string, service?: string) {
+    const k = this.favKey(host, project, service);
+    return this.favs.some((f) => this.favKey(f.host, f.project, f.service) === k);
+  }
+  // Toggle a favorite + persist the whole list to the db (optimistic; the UI owns order).
+  private toggleFav(f: Favorite, e?: Event) {
+    e?.stopPropagation();
+    const k = this.favKey(f.host, f.project, f.service);
+    const has = this.favs.some((x) => this.favKey(x.host, x.project, x.service) === k);
+    this.favs = has ? this.favs.filter((x) => this.favKey(x.host, x.project, x.service) !== k) : [...this.favs, f];
+    void this.rpc.call("Favorites", "set", [{ favorites: this.favs }]).catch(() => {});
+  }
+  // resolveFav checks a favorite against the CURRENT fleet: is its stack/service still
+  // present, and (for a service fav) the live container id to jump to — an id churns on
+  // every redeploy, so it's resolved here, never stored. A stale favorite (stack gone,
+  // service removed/renamed) returns ok:false and renders dimmed + non-navigable.
+  private resolveFav(f: Favorite): { ok: boolean; id?: string } {
+    const stack = this.fleet.find((h) => h.id === f.host)?.stacks?.find((s) => s.project === f.project);
+    if (!stack) return { ok: false };
+    if (!f.service) return { ok: true }; // stack favorite still present
+    const c = (stack.containers || []).find((x) => (x.service || x.name) === f.service);
+    return c ? { ok: true, id: c.id } : { ok: false };
+  }
+  private gotoFav(f: Favorite) {
+    const r = this.resolveFav(f);
+    if (!r.ok) return; // stale — dimmed, not navigable
+    this.router.navigate(f.service && r.id ? containerPath(f.host, f.project, r.id) : stackPath(f.host, f.project));
+  }
+
+  // Star glyph: a SOLID unicode star when favorited, a hollow one otherwise. A plain
+  // char sizes + colors reliably (loom-icon can only stroke, and inline SVG doesn't get
+  // the SVG namespace through loom's JSX).
+  private starIcon(on: boolean) { return on ? "★" : "☆"; }
+
+  // Favorites as a mini topology tree: a stack node per favorited (host, project), with
+  // any favorited services nested under it (so "postgres" always shows its stack). Live
+  // state dots + the active-selection highlight mirror the topology tree. Stale entries
+  // (stack/service gone) render dimmed; their star still removes them.
+  private renderFavs(sel: { host: string; project: string; cid: string }) {
+    const order: string[] = [];
+    const groups = new Map<string, { host: string; project: string; stackFav: boolean; svcs: Favorite[] }>();
+    for (const f of this.favs) {
+      const k = f.host + "/" + f.project;
+      let g = groups.get(k);
+      if (!g) { g = { host: f.host, project: f.project, stackFav: false, svcs: [] }; groups.set(k, g); order.push(k); }
+      if (f.service) g.svcs.push(f); else g.stackFav = true;
+    }
+    return order.map((k) => {
+      const g = groups.get(k)!;
+      const stack = this.fleet.find((h) => h.id === g.host)?.stacks?.find((s) => s.project === g.project);
+      const stackOn = sel.host === g.host && sel.project === g.project && !sel.cid;
+      return (
+        <>
+          <div class={"node h1 fav" + (stack ? "" : " stale") + (stackOn ? " sel" : "")} onClick={() => this.router.navigate(stackPath(g.host, g.project))} title={g.host}>
+            <span class="caret leaf"></span>
+            <span class={"dot " + (stack ? stackTone(stack, false) : "off")}></span>
+            <span class="label">{g.project}</span>
+            <span class="meta">{g.host}</span>
+            <span class="star on" title={g.stackFav ? "unfavorite stack" : "favorite stack"} onClick={(e: Event) => this.toggleFav({ host: g.host, project: g.project, service: "", label: g.project, kind: "stack" }, e)}>{this.starIcon(g.stackFav)}</span>
+          </div>
+          {g.svcs.map((f) => {
+            const c = (stack?.containers || []).find((x) => (x.service || x.name) === f.service);
+            const svcOn = sel.host === g.host && !!c && sel.cid === c.id;
+            return (
+              <div class={"node h3 fav" + (c ? "" : " stale") + (svcOn ? " sel" : "")} onClick={() => this.gotoFav(f)}>
+                <span class="caret leaf"></span>
+                <span class={"dot " + (c ? ctrTone(c.state, false) : "off")}></span>
+                <span class="label">{f.service}</span>
+                <span class="star on" title="unfavorite" onClick={(e: Event) => this.toggleFav(f, e)}>{this.starIcon(true)}</span>
+              </div>
+            );
+          })}
+        </>
+      );
+    });
+  }
 
   @on(RouteChanged)
   private onRoute(e: RouteChanged) {
@@ -341,7 +438,13 @@ export class HopeRail extends LoomElement {
     return (
       <>
         <div class="scroll">
-          <div class="grp"><span class="eyebrow">topology</span><span class="scope">{this.fleet.length} host{this.fleet.length === 1 ? "" : "s"}</span></div>
+          {this.favs.length ? (
+            <>
+              <div class="grp"><span class="eyebrow">favorites</span></div>
+              {this.renderFavs(sel)}
+            </>
+          ) : null}
+          <div class="grp mt"><span class="eyebrow">topology</span><span class="scope">{this.fleet.length} host{this.fleet.length === 1 ? "" : "s"}</span></div>
           {this.fleet.length === 0 ? (
             <div class="empty">no hosts</div>
           ) : (
@@ -410,6 +513,7 @@ export class HopeRail extends LoomElement {
           <span class={"dot " + stackTone(s, outProjects.has(s.project))}></span>
           <span class="label">{s.project}</span>
           <span class="meta">{s.running}/{s.total}</span>
+          <span class={"star" + (this.isFav(hostId, s.project) ? " on" : "")} title="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: "", label: s.project, kind: "stack" }, e)}>{this.starIcon(this.isFav(hostId, s.project))}</span>
         </div>
         {open ? this.renderContainers(hostId, s, sel, outIds) : null}
       </>
@@ -444,6 +548,7 @@ export class HopeRail extends LoomElement {
                 : <span class="caret leaf"></span>}
               <span class={"dot " + ctrTone(c.state, outIds.has(c.id))}></span>
               <span class="label">{svc}</span>
+              <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} title="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
             </div>
             {pp && pgOpen ? this.renderContainerPages(hostId, s.project, svc, 76) : null}
           </>
@@ -466,6 +571,7 @@ export class HopeRail extends LoomElement {
             <span class={"dot " + worst}></span>
             <span class="label">{svc}</span>
             <span class="meta">{running}/{reps.length}</span>
+            <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} title="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
           </div>
           {rOpen ? reps.map((c) => {
             const con = sel.host === hostId && sel.cid === c.id;

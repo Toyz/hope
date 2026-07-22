@@ -22,15 +22,16 @@ import (
 	"github.com/toyz/hope/internal/agent"
 	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
+	"github.com/toyz/hope/internal/batchstream"
 	"github.com/toyz/hope/internal/catalog"
 	"github.com/toyz/hope/internal/cloudflare"
-	"github.com/toyz/hope/internal/batchstream"
 	"github.com/toyz/hope/internal/compose"
 	"github.com/toyz/hope/internal/config"
 	"github.com/toyz/hope/internal/containers"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/events"
+	"github.com/toyz/hope/internal/favorites"
 	"github.com/toyz/hope/internal/hostguard"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/meme"
@@ -327,7 +328,8 @@ func runServe(configPath string) error {
 	// One reusable audit engine every router records into (who did what, where, when) —
 	// durable when the state store is mounted, a no-op otherwise.
 	auditor := audit.New(st)
-	gw.Register(audit.NewAuditRouter(auditor)) // /rpc Audit.List — the fleet audit trail
+	gw.Register(audit.NewAuditRouter(auditor))    // /rpc Audit.List — the fleet audit trail
+	gw.Register(favorites.NewFavoritesRouter(st)) // /rpc Favorites.List/Set — rail quick-jump
 	gw.Register(stacks.NewStacksRouter(hostSet, comp, auditor))
 	gw.Register(containers.NewContainersRouter(hostSet, eventBus, auditor))
 	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
@@ -394,9 +396,9 @@ func runServe(configPath string) error {
 		_ = cli.AttachNetwork(ctx, h.Info.ContainerID, docker.PluginNetwork, nil)
 	})
 	gw.Register(pluginsRouter)
-	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))    // plugin NDJSON streams
+	gw.MustUse(pluginhost.NewStreamHandler(pluginsRouter, tokens))                             // plugin NDJSON streams
 	gw.MustUse(pluginhost.NewPluginIngress(st, eventBus, deployEngine, auditor, pluginLimits)) // plugin->hope reverse channel (publish/storage/actions)
-	gw.Register(&meme.MemeRouter{})                                // public gag endpoint for the login strip
+	gw.Register(&meme.MemeRouter{})                                                            // public gag endpoint for the login strip
 	if cfg.Cloudflare.Enabled {
 		lg.Info("cloudflare tunnels enabled", "account", cfg.Cloudflare.AccountID)
 	}

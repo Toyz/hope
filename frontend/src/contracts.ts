@@ -402,6 +402,17 @@ export interface AuditEntry {
   ms?: number;
 }
 
+// Favorite is one rail quick-jump target (mirrors store.Favorite) — a whole stack
+// (container empty) or a single container. Persisted server-side so it follows the
+// hope instance, not a browser.
+export interface Favorite {
+  host: string;
+  project: string;
+  service?: string; // empty => the whole stack; else the STABLE compose service (id resolved live)
+  label: string;
+  kind: "stack" | "container";
+}
+
 // ---- plugin marketplace (catalog + installer) ----
 
 // CatalogEnvField is one machine-readable env/config input for the install wizard.
