@@ -95,6 +95,10 @@ type Plugin struct {
 	onEvent func(ctx context.Context, e Event) error
 	perms   []Permission
 
+	// onStatus, if set, returns the plugin's ADVISORY self-reported health when hope
+	// calls the reserved hope.status method (see OnStatus). Pull-only, no grant.
+	onStatus func(ctx context.Context) StatusReport
+
 	// Reverse channel, delivered by hope.init: hopeURL is hope's base URL reachable
 	// by this plugin, pluginKey is this install's stable identity. Both empty until
 	// hope.init delivers them (needs a callback URL configured on hope) — Publish and
@@ -466,6 +470,37 @@ func (p *Plugin) OnEvent(fn EventFunc) *Plugin {
 	if fn != nil {
 		p.RequirePermission(ScopeEventsSubscribe, "react to fleet events")
 	}
+	return p
+}
+
+// Advisory status levels for StatusReport.Level. hope colors the reported status by
+// this and otherwise doesn't interpret the report.
+const (
+	StatusOK    = "ok"
+	StatusInfo  = "info"
+	StatusWarn  = "warn"
+	StatusError = "error"
+)
+
+// StatusReport is a plugin's self-reported health, returned from the OnStatus handler
+// when hope calls the reserved hope.status method. hope owns liveness (whether the
+// plugin is reachable at all) and treats this as ADVISORY domain health it has no
+// knowledge of: it renders Status/Detail and colors by Level, nothing more. hope caps
+// the string lengths and clamps Level to the known set.
+type StatusReport struct {
+	Status string `json:"status"`           // short human status ("primary", "3/3 replicas", "lag 4s")
+	Level  string `json:"level"`            // ok | info | warn | error
+	Detail string `json:"detail,omitempty"` // optional longer explanation
+}
+
+// OnStatus registers a handler hope calls (via the reserved hope.status method) to
+// read the plugin's ADVISORY self-reported health — domain state only the plugin knows
+// (replica count, replication lag, upstream reachability). Pull-only: hope asks, the
+// plugin answers, so no reverse channel or grant is involved. An older hope that lacks
+// the "status" feature simply never calls it — check Caps(ctx).Supports("status") if
+// the plugin wants to know whether this hope will ask.
+func (p *Plugin) OnStatus(fn func(ctx context.Context) StatusReport) *Plugin {
+	p.onStatus = fn
 	return p
 }
 

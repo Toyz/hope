@@ -49,6 +49,20 @@ func main() {
 	registerPublish(p)
 	registerLayout(p)
 
+	// Advisory self-status: hope owns liveness (can it dial us); we report the NATS
+	// connection's own health — connected, which URL, and round-trip time.
+	p.OnStatus(func(ctx context.Context) plugin.StatusReport {
+		nc, _, err := conn(ctx)
+		if err != nil {
+			return plugin.StatusReport{Status: "disconnected", Level: plugin.StatusError, Detail: err.Error()}
+		}
+		if !nc.IsConnected() {
+			return plugin.StatusReport{Status: "reconnecting", Level: plugin.StatusWarn, Detail: nc.ConnectedUrl()}
+		}
+		rtt, _ := nc.RTT()
+		return plugin.StatusReport{Status: "connected", Level: plugin.StatusOK, Detail: nc.ConnectedUrl() + " · RTT " + rtt.Round(time.Millisecond).String()}
+	})
+
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
 		addr = v

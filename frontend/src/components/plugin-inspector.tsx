@@ -17,7 +17,7 @@ import { PromptService, type PromptField } from "../prompt";
 import { PluginInspectorTarget, PluginsChanged } from "../events";
 import { capabilities } from "../caps";
 import { withHost } from "../host-url";
-import type { PluginView, PluginConfig, OpFrame, PluginMetric, AuditEntry } from "../contracts";
+import type { PluginView, PluginConfig, OpFrame, PluginMetric, AuditEntry, PluginStatus } from "../contracts";
 import { ago } from "../format";
 import { theme } from "../styles";
 import { scopeLabel, SCOPE_ORDER } from "../scope-labels";
@@ -95,6 +95,16 @@ interface PluginManifest {
   .tog.busy { opacity: .5; pointer-events: none; }
   .retry { margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line2); color: var(--mid); cursor: pointer; font: 11px/1.4 var(--mono); }
   .retry:hover { color: var(--upd); }
+  /* advisory self-status — plugin-reported health, colored by level (hope owns liveness) */
+  .advis { display: flex; align-items: baseline; gap: 10px; margin: 6px 16px 2px; padding: 8px 12px;
+    border: 1px solid var(--line2); border-left-width: 3px; font: 11.5px/1.5 var(--mono); }
+  .advis .al { color: var(--hi); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; flex: none; }
+  .advis .ad { color: var(--mid); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .advis .age { color: var(--dim); font-variant-numeric: tabular-nums; flex: none; }
+  .advis.ok { border-left-color: var(--ok); } .advis.ok .al { color: var(--ok); }
+  .advis.info { border-left-color: var(--upd); } .advis.info .al { color: var(--upd); }
+  .advis.warn { border-left-color: var(--warn); } .advis.warn .al { color: var(--warn); }
+  .advis.error { border-left-color: var(--bad); } .advis.error .al { color: var(--bad); }
   /* operations — metrics tiles + audit trail */
   .mets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin: 4px 0 2px; background: var(--line); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .met { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; background: var(--panel); min-width: 0; }
@@ -140,6 +150,7 @@ export class HopePluginInspector extends LoomElement {
   // hope; this surfaces them). Fetched alongside the manifest for an enabled plugin.
   @reactive accessor metric: PluginMetric | null = null;
   @reactive accessor audit: AuditEntry[] = [];
+  @reactive accessor status: PluginStatus | null = null; // plugin's advisory self-reported health
   @reactive accessor opsBusy = false;
 
   @mount
@@ -169,6 +180,7 @@ export class HopePluginInspector extends LoomElement {
     this.manifestErr = "";
     this.metric = null;
     this.audit = [];
+    this.status = null;
     try {
       const all = (await this.rpc.call<PluginView[]>("Plugins", "list", [{ host }])) || [];
       if (host !== this.host || key !== this.key) return; // switched plugin mid-flight
@@ -199,15 +211,17 @@ export class HopePluginInspector extends LoomElement {
     const key = this.key;
     this.opsBusy = true;
     try {
-      const [metrics, audit] = await Promise.all([
+      const [metrics, audit, status] = await Promise.all([
         this.rpc.call<PluginMetric[]>("Plugins", "metrics", []),
         this.rpc.call<AuditEntry[]>("Plugins", "audit", [{ key, limit: 50 }]),
+        this.rpc.call<PluginStatus>("Plugins", "status", [{ key }]),
       ]);
       if (key !== this.key) return;
       this.metric = (metrics || []).find((m) => m.key === key) || null;
       this.audit = audit || [];
+      this.status = status && status.level ? status : null;
     } catch {
-      if (key === this.key) { this.metric = null; this.audit = []; }
+      if (key === this.key) { this.metric = null; this.audit = []; this.status = null; }
     } finally {
       if (key === this.key) this.opsBusy = false;
     }
@@ -449,6 +463,13 @@ export class HopePluginInspector extends LoomElement {
               {v.enabled ? (
                 <>
                   <div class="ctitle sep">operations</div>
+                  {this.status ? (
+                    <div class={"advis " + this.status.level}>
+                      <span class="al">{this.status.status || this.status.level}</span>
+                      {this.status.detail ? <span class="ad">{this.status.detail}</span> : <span class="ad"></span>}
+                      <span class="age">{this.status.at_ms ? ago(new Date(this.status.at_ms).toISOString()) : ""}</span>
+                    </div>
+                  ) : null}
                   {this.opsBusy && !this.metric && !this.audit.length ? (
                     <div class="empty">loading…</div>
                   ) : (

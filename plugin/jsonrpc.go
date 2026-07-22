@@ -236,6 +236,18 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// hope.status returns the plugin's advisory self-reported health (see OnStatus).
+	// hope owns liveness; this is domain health hope renders but never interprets. An
+	// unset handler => method-not-found, which hope treats as "no advisory status".
+	if req.Method == "hope.status" {
+		if p.onStatus == nil {
+			writeError(w, req.ID, codeMethodNotFn, "no status handler")
+			return
+		}
+		writeResult(w, req.ID, p.onStatus(r.Context()))
+		return
+	}
+
 	ctx := context.WithValue(r.Context(), paramsKey{}, req.Params)
 	// Carry hope's advertised capabilities into the handler context so Caps(ctx) can
 	// let the plugin adapt its output to what this hope build can render.

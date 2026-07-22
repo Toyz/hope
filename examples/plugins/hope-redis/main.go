@@ -43,6 +43,24 @@ func main() {
 	registerAlerts(p)
 	registerLayout(p)
 
+	// Advisory self-status: hope owns liveness (can it dial us); we report Redis's own
+	// health — reachable, its role, and a warn when clients are blocked.
+	p.OnStatus(func(ctx context.Context) plugin.StatusReport {
+		c, err := getClient(ctx)
+		if err != nil {
+			return plugin.StatusReport{Status: "unreachable", Level: plugin.StatusError, Detail: err.Error()}
+		}
+		info, err := infoMap(ctx, c)
+		if err != nil {
+			return plugin.StatusReport{Status: "no INFO", Level: plugin.StatusError, Detail: err.Error()}
+		}
+		role := orDash(info["role"])
+		if toInt(info["blocked_clients"]) > 0 {
+			return plugin.StatusReport{Status: role, Level: plugin.StatusWarn, Detail: orDash(info["blocked_clients"]) + " clients blocked (BLPOP/WAIT)"}
+		}
+		return plugin.StatusReport{Status: role, Level: plugin.StatusOK, Detail: orDash(info["connected_clients"]) + " clients · " + orDash(info["used_memory_human"])}
+	})
+
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
 		addr = v

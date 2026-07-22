@@ -613,6 +613,17 @@ func main() {
 		return map[string]any{"ok": true}, nil
 	})
 
+	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
+	// the running fleet-event tally it keeps in durable storage. Demonstrates OnStatus.
+	p.OnStatus(func(ctx context.Context) plugin.StatusReport {
+		var count int
+		_, _ = p.Storage().Get(ctx, "eventCount", &count)
+		if count == 0 {
+			return plugin.StatusReport{Status: "idle", Level: plugin.StatusInfo, Detail: "no fleet events seen yet"}
+		}
+		return plugin.StatusReport{Status: "serving", Level: plugin.StatusOK, Detail: fmt.Sprintf("seen %d fleet events", count)}
+	})
+
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
 		addr = v

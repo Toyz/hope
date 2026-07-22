@@ -743,6 +743,78 @@ func (r *PluginsRouter) Metrics(ctx *rpc.Context) ([]PluginMetrics, error) {
 	return r.metrics.snapshot(), nil
 }
 
+// PluginStatus is a plugin's ADVISORY self-reported health (from hope.status) plus
+// hope's fetch stamp. hope owns liveness (reachability) separately; this is domain
+// health only the plugin knows. Empty Level => the plugin reported nothing, is
+// unreachable, or predates the status method — the operator sees no advisory status.
+type PluginStatus struct {
+	Key    string `json:"key"`
+	Status string `json:"status"`
+	Level  string `json:"level"` // ok | info | warn | error | "" (none)
+	Detail string `json:"detail,omitempty"`
+	AtMs   int64  `json:"at_ms"` // unix millis hope fetched it (freshness)
+}
+
+// StatusParams identifies the plugin to query.
+type StatusParams struct {
+	Key string `json:"key"`
+}
+
+// Status dials an enabled plugin and returns its advisory self-reported health via the
+// reserved hope.status method. The plugin owns the content; hope bounds it (string caps
+// + a clamped level enum) so a plugin can't inject arbitrary UI, and stamps the fetch
+// time. An unreachable plugin, or one with no status handler, yields an empty report —
+// never an error, so the ops panel degrades quietly.
+func (r *PluginsRouter) Status(ctx *rpc.Context, p *StatusParams) (PluginStatus, error) {
+	if err := r.gate(); err != nil {
+		return PluginStatus{}, err
+	}
+	if p == nil || p.Key == "" {
+		return PluginStatus{}, rpc.BadRequest("key is required")
+	}
+	ep, _, err := r.enabledEndpoint(ctx, p.Key)
+	if err != nil {
+		return PluginStatus{Key: p.Key}, nil // not enabled / unreachable => no advisory status
+	}
+	raw, err := ep.callRPC(ctx, "hope.status", nil)
+	if err != nil {
+		return PluginStatus{Key: p.Key}, nil // no handler (old plugin) or call failed
+	}
+	var sr struct {
+		Status string `json:"status"`
+		Level  string `json:"level"`
+		Detail string `json:"detail"`
+	}
+	_ = json.Unmarshal(raw, &sr)
+	return PluginStatus{
+		Key:    p.Key,
+		Status: clampRunes(sr.Status, 64),
+		Level:  clampLevel(sr.Level),
+		Detail: clampRunes(sr.Detail, 280),
+		AtMs:   time.Now().UnixMilli(),
+	}, nil
+}
+
+// clampLevel keeps only the known advisory levels; anything else (including "") becomes
+// "" so the frontend renders it as an uncolored/neutral status.
+func clampLevel(s string) string {
+	switch s {
+	case "ok", "info", "warn", "error":
+		return s
+	}
+	return ""
+}
+
+// clampRunes truncates to at most n runes (never splitting a multi-byte rune), bounding
+// a plugin-supplied status/detail string.
+func clampRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
 // SetSettingsParams sets operator-managed setting values for a plugin.
 type SetSettingsParams struct {
 	Key    string            `json:"key"`

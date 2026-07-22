@@ -59,6 +59,22 @@ func main() {
 	registerAlerts(p)
 	registerLayout(p)
 
+	// Advisory self-status: hope owns liveness (can it dial us); we report Postgres's
+	// own health — reachable, the database, and its connection load.
+	p.OnStatus(func(ctx context.Context) plugin.StatusReport {
+		pool, err := getPool(ctx)
+		if err != nil {
+			return plugin.StatusReport{Status: "unreachable", Level: plugin.StatusError, Detail: err.Error()}
+		}
+		var db string
+		if err := pool.QueryRow(ctx, `select current_database()`).Scan(&db); err != nil {
+			return plugin.StatusReport{Status: "query failed", Level: plugin.StatusError, Detail: err.Error()}
+		}
+		var active, total int64
+		_ = pool.QueryRow(ctx, `select count(*), count(*) filter (where state = 'active') from pg_stat_activity`).Scan(&total, &active)
+		return plugin.StatusReport{Status: db, Level: plugin.StatusOK, Detail: strconv.FormatInt(active, 10) + " active / " + strconv.FormatInt(total, 10) + " connections"}
+	})
+
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
 		addr = v

@@ -26,9 +26,9 @@ const (
 
 type capsKey struct{}
 
-// Capabilities is what the connected hope advertised it can render: the supported view
-// kinds (kv/table/…/component) and feature flags (static, empty). Read it with Caps and
-// query it with Supports.
+// Capabilities is what the connected hope advertised: the supported view kinds
+// (kv/table/…/component) and feature flags (static, empty, flyout, status). Read it
+// with Caps and query it with Supports.
 type Capabilities struct {
 	ViewKinds []string `json:"view_kinds"`
 	Features  []string `json:"features"`

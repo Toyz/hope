@@ -151,6 +151,16 @@ func main() {
 		plugin.Section("Actions", plugin.Leaf("greet")),
 	))
 
+	// Advisory self-status: hope owns liveness (can it reach us); this is the plugin's
+	// own health line, which hope renders in the plugin inspector and colors by level.
+	p.OnStatus(func(ctx context.Context) plugin.StatusReport {
+		return plugin.StatusReport{
+			Status: "waving",
+			Level:  plugin.StatusOK,
+			Detail: "up " + time.Since(startedAt).Truncate(time.Second).String(),
+		}
+	})
+
 	addr := ":8080"
 	if v := os.Getenv("HOPE_PLUGIN_ADDR"); v != "" {
 		addr = v

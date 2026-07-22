@@ -372,6 +372,17 @@ export interface PluginMetric {
   last_at_ms: number;
 }
 
+// PluginStatus is a plugin's advisory self-reported health (mirrors
+// pluginhost.PluginStatus). hope owns liveness (reachability); this is domain health
+// only the plugin knows. Empty level => no advisory status (unreachable / old / silent).
+export interface PluginStatus {
+  key: string;
+  status: string;
+  level: "" | "ok" | "info" | "warn" | "error";
+  detail?: string;
+  at_ms: number;
+}
+
 // AuditEntry is one audited plugin action invocation (mirrors store.AuditEntry) — the
 // operator's who/what/where/when trail of proxied plugin mutations (reads aren't logged).
 export interface AuditEntry {
