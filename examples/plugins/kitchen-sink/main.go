@@ -488,7 +488,7 @@ func main() {
 			plugin.Leaf("alerts").Titled("Alerts"), // demoes the author empty state
 			plugin.Leaf("log").Titled("Log"),
 		),
-		plugin.Section("Actions", plugin.Buttons("greet", "wipe")),
+		plugin.Section("Actions", plugin.Buttons("greet", "runCommand", "bulkTag", "fireAlert", "tagService", "wipe")),
 	))
 
 	// --- a dashboard widget: keep it COMPACT. An INLINE component node renders a
@@ -533,7 +533,7 @@ func main() {
 		plugin.Section("Rows", plugin.Leaf("rows")).Collapse(false), // collapsible, starts open
 	)).PageID("dashboard"). // stable id so breadcrumbs/links can target it
 				Subtitle("100,000 users · 60 tables").
-				HeaderActions("greet", "wipe")
+				HeaderActions("greet", "runCommand", "bulkTag", "wipe")
 
 	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
 	//     passes the clicked id as param {id}; userView renders it. ---
