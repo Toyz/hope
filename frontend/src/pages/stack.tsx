@@ -229,7 +229,7 @@ function aggMark(items: ContainerSummary[]): string {
   .ibtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ibtn:hover loom-icon { color: var(--hi); }
   .ibtn:disabled { opacity: .25; cursor: not-allowed; }
-  .ibtn.fav { font: 15px/1 var(--mono); color: var(--dim); }
+  .ibtn.fav { font: 16px/1 system-ui, "Segoe UI Symbol", sans-serif; color: var(--dim); }
   .ibtn.fav:hover { color: var(--warn); }
   .ibtn.fav.on { color: var(--warn); }
   .ibtn:disabled:hover { border-color: transparent; background: transparent; }
@@ -453,8 +453,10 @@ export class StackPage extends LoomElement {
         {this.busy === `${c.id}:${op}` ? <span class="bdot">…</span> : <loom-icon name={icon} size={14}></loom-icon>}
       </button>
     );
+    const svc = c.service || c.name;
     return (
       <div class="racts">
+        <button class={"ibtn fav" + (this.isFav(svc) ? " on" : "")} tip={this.isFav(svc) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(svc, svc, "container", e)}>{this.isFav(svc) ? "★" : "☆"}</button>
         <button class="ibtn" tip="logs" onClick={(e: Event) => { e.stopPropagation(); this.openContainer(c.id, c.service || c.name, "logs"); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}

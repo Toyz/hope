@@ -87,7 +87,7 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   /* favorite star: always visible — a dim hollow star to add, solid accent when
      favorited. flex:none so it sits at the far right whether or not the node has a meta. */
   .star { flex: none; display: inline-flex; align-items: center; margin-left: 4px; padding: 0 2px;
-    color: var(--dim); font: 12px/1 var(--mono); cursor: pointer; transition: color .1s ease; }
+    color: var(--dim); font: 13px/1 system-ui, "Segoe UI Symbol", sans-serif; cursor: pointer; transition: color .1s ease; }
   .star:hover { color: var(--warn); }
   .star.on { color: var(--warn); }
   /* favorites section rows — same tree node language, showing stack + host context */
