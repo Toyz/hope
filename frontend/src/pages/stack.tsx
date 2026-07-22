@@ -16,7 +16,7 @@ import { ToastService } from "../toast";
 import { PromptService, type PromptField } from "../prompt";
 import type { StackSummary, ContainerSummary, ContainerOp, StackOp, OpResult, ComposeFileResult, LogFrame, OpFrame, ContainerStat, ImageUpdate, UpdatesResult, TunnelView, ConnectorView, ZoneView, StackSpec, ContainerSpec, PortMap, HostView } from "../contracts";
 import { markClass, stackSeverity, severityMark, healthLabel } from "../styles";
-import { UpdatesApplied, TopologyRemoved } from "../events";
+import { UpdatesApplied, TopologyRemoved, TopologyChanged } from "../events";
 import { DeployIntent } from "../deploy-intent";
 import { HostContext } from "../host-context";
 import { Inspector } from "../inspector";
@@ -804,6 +804,9 @@ export class StackPage extends LoomElement {
         return ok;
       });
       await this.load();
+      // Redeploy RECREATES the containers (new ids/state), so the rail must reload —
+      // UpdatesApplied only patches the update dot, not the container's live state.
+      if (ok) bus.emit(new TopologyChanged(this.hostCtx.token, this.project));
       // A pull makes these containers current — patch the rail's dots in place.
       if (ok && pull) bus.emit(new UpdatesApplied(this.hostCtx.token, this.project, ids));
     } finally {
@@ -828,6 +831,9 @@ export class StackPage extends LoomElement {
       this.busy = "";
     }
     await this.load();
+    // Redeploy RECREATES the container(s) (new ids/state), so the rail must reload to
+    // show real state — UpdatesApplied below only patches the update dot.
+    if (ok) bus.emit(new TopologyChanged(this.hostCtx.token, this.project));
     // A pull makes the target current — patch the rail's dots in place (whole project for
     // a stack redeploy, one container for a single redeploy).
     if (ok && pull) {
