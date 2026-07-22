@@ -60,35 +60,28 @@ export class HopeSelect extends LoomElement {
   private openMenu(seed = "") {
     this.query = seed;
     this.open = true;
-    // The menu is a top-layer popover positioned to the trigger; do it after render so
-    // the element exists, then reveal it. Focus the filter box if searchable.
-    // The popover attribute is in the JSX (survives loom's reconcile); position it to
-    // the trigger + reveal it in the top layer after render.
+    // Position is declarative (computed in update() from the trigger rect and set as the
+    // menu's style, so loom's morph preserves it across filter re-renders — imperative
+    // m.style was wiped by the morph, dropping the searchable menu to the viewport's
+    // top-left on the first keystroke). Here we only reveal the popover + focus the filter.
     requestAnimationFrame(() => {
-      this.positionMenu();
       (this.menuEl as any)?.showPopover?.();
       this.searchEl?.focus();
     });
   }
 
-  // positionMenu pins the top-layer menu to the trigger with fixed coords, flipping
-  // above when there isn't room below. Runs on open (and could re-run on scroll/resize).
-  private positionMenu() {
+  // Fixed coords pinning the top-layer menu to the trigger, flipping above when there's
+  // no room below. Returned as a style object so it lives in the render (morph-preserved).
+  private menuPos(): Record<string, string> {
     const t = this.triggerEl?.getBoundingClientRect();
-    const m = this.menuEl;
-    if (!t || !m) return;
-    m.style.left = t.left + "px";
-    m.style.minWidth = t.width + "px";
+    if (!t) return {};
     const rows = Math.min(this.options.length, 6);
     const est = Math.min(MENU_EST, rows * 40 + (this.options.length > 6 ? 42 : 0) + 8);
     const roomBelow = window.innerHeight - t.bottom;
-    if (roomBelow < est + 12 && t.top > roomBelow) {
-      m.style.bottom = window.innerHeight - t.top + 3 + "px";
-      m.style.top = "auto";
-    } else {
-      m.style.top = t.bottom + 3 + "px";
-      m.style.bottom = "auto";
-    }
+    const base = { left: t.left + "px", minWidth: t.width + "px" };
+    return roomBelow < est + 12 && t.top > roomBelow
+      ? { ...base, bottom: window.innerHeight - t.top + 3 + "px", top: "auto" }
+      : { ...base, top: t.bottom + 3 + "px", bottom: "auto" };
   }
 
   private close() {
@@ -127,6 +120,8 @@ export class HopeSelect extends LoomElement {
     const cur = this.options.find((o) => o.value === this.value);
     const q = this.query.trim().toLowerCase();
     const shown = q ? this.options.filter((o) => o.label.toLowerCase().includes(q)) : this.options;
+    // Pin the popover to the trigger in the render so the coords survive filter re-renders.
+    const menuStyle = this.open ? this.menuPos() : undefined;
     return (
       <div>
         <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle} onKeyDown={this.onKey}>
@@ -134,7 +129,7 @@ export class HopeSelect extends LoomElement {
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
-          <div class="menu" {...({ popover: "manual" } as any)} onClick={(e: Event) => e.stopPropagation()}>
+          <div class="menu" style={menuStyle} {...({ popover: "manual" } as any)} onClick={(e: Event) => e.stopPropagation()}>
             {this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
