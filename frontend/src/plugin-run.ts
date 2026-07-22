@@ -3,7 +3,7 @@
 // and toast the result. Used by both the surface renderer (leaf + row actions) and
 // the page header (phead action slot), so the flow isn't reimplemented per surface.
 import type { HopeTransport } from "./transport";
-import type { PromptService, PromptField } from "./prompt";
+import type { PromptService, PromptField, PromptOption } from "./prompt";
 import type { ConfirmService } from "./confirm";
 import type { ToastService } from "./toast";
 
@@ -46,6 +46,25 @@ interface PluginResult {
   refetch?: boolean;
 }
 
+// resolveFieldOptions pre-fetches RPC-populated select options: for any field with an
+// optionsMethod, call the plugin (a read — unaudited) to get its choices and inject
+// them as the field's options before the form opens. Fields without one pass through.
+// A failed fetch yields an empty list so the form still opens (the select is just empty).
+async function resolveFieldOptions(deps: RunDeps, surfaceKey: string, fields: PromptField[]): Promise<PromptField[]> {
+  if (!fields.some((f) => f.optionsMethod)) return fields;
+  return Promise.all(
+    fields.map(async (f) => {
+      if (!f.optionsMethod) return f;
+      try {
+        const opts = await deps.rpc.call<PromptOption[]>("Plugins", "call", [{ key: surfaceKey, method: f.optionsMethod, audit: false }]);
+        return { ...f, options: Array.isArray(opts) ? opts : [] };
+      } catch {
+        return { ...f, options: [] };
+      }
+    }),
+  );
+}
+
 // runPluginAction runs an action and returns a structured ActionOutcome, or
 // undefined if the user cancelled a field prompt / danger confirm. Callers use the
 // outcome to decide whether to refetch — the plugin, not hope, owns that decision.
@@ -59,7 +78,8 @@ export async function runPluginAction(
 ): Promise<ActionOutcome | undefined> {
   let values: Record<string, any> | undefined;
   if (a.fields && a.fields.length) {
-    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields: a.fields });
+    const fields = await resolveFieldOptions(deps, surfaceKey, a.fields);
+    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields });
     if (!v) return undefined;
     values = v;
   }

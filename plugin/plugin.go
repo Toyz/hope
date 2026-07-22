@@ -75,6 +75,7 @@ type Plugin struct {
 	views    map[string]viewEntry
 	actions  map[string]actionEntry
 	streams  map[string]streamEntry
+	options  map[string]OptionsFunc // RPC-populated select providers (dynamic forms)
 	contribs []Contribution
 	// pageFns[i] produces the Pages of contribs[i] LIVE at each hope.layout (a
 	// DynamicPageFunc contribution) — kept off the wire Contribution so it stays
@@ -127,6 +128,7 @@ func New(name, version string) *Plugin {
 		views:       map[string]viewEntry{},
 		actions:     map[string]actionEntry{},
 		streams:     map[string]streamEntry{},
+		options:     map[string]OptionsFunc{},
 		settingVals: map[string]string{},
 		token:       os.Getenv("HOPE_PLUGIN_TOKEN"),
 	}
@@ -501,6 +503,22 @@ type StatusReport struct {
 // the plugin wants to know whether this hope will ask.
 func (p *Plugin) OnStatus(fn func(ctx context.Context) StatusReport) *Plugin {
 	p.onStatus = fn
+	return p
+}
+
+// OptionsFunc returns the choices for an RPC-populated select field. hope calls it
+// (proxied like any method) to fill a Field whose OptionsMethod names it, instead of
+// the author hard-coding a static list. The current partial form values are available
+// via Params(ctx), so a later cascading select can narrow its options by an earlier
+// field.
+type OptionsFunc func(ctx context.Context) ([]Option, error)
+
+// Options registers an RPC-populated select provider under method. Reference it from a
+// form Field with OptionsMethod: method, and hope fetches the choices live when it
+// renders the form. The method name shares the plugin's method namespace (like views
+// and actions), so keep it distinct.
+func (p *Plugin) Options(method string, fn OptionsFunc) *Plugin {
+	p.options[method] = fn
 	return p
 }
 

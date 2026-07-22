@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	p := plugin.New("hello-world", "1.1.0").
+	p := plugin.New("hello-world", "1.2.0").
 		Description("Every hope view kind, one small plugin").
 		Icon("rocket")
 
@@ -75,9 +75,20 @@ func main() {
 		}, nil
 	})
 
-	// action: greet, collecting one text field.
+	// RPC-populated select provider: the greet action's "planet" choices come from
+	// this method (fetched live by hope as it renders the form), not a hard-coded list.
+	p.Options("planetOptions", func(ctx context.Context) ([]plugin.Option, error) {
+		return []plugin.Option{
+			{Label: "Earth", Value: "Earth"},
+			{Label: "Mars", Value: "Mars"},
+			{Label: "Jupiter", Value: "Jupiter"},
+		}, nil
+	})
+
+	// action: greet, collecting a name plus an RPC-populated planet select.
 	p.Action("greet", "Greet", []plugin.Field{
 		{Key: "name", Label: "Name", Placeholder: "world"},
+		{Key: "planet", Label: "Planet", Type: "select", OptionsMethod: "planetOptions", Optional: true},
 	}, func(ctx context.Context, in map[string]any) (any, error) {
 		name, _ := in["name"].(string)
 		if name == "" {
@@ -90,6 +101,9 @@ func main() {
 		msg := greeting + ", " + name
 		if p.SettingValue("mood") == "grumpy" {
 			msg = greeting + "... " + name + ", what do you want"
+		}
+		if planet, _ := in["planet"].(string); planet != "" {
+			msg += " (from " + planet + ")"
 		}
 		if p.SettingValue("loud") == "true" {
 			msg = strings.ToUpper(msg)

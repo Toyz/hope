@@ -265,6 +265,13 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		p.finish(w, req.ID, out, err)
 		return
 	}
+	if o, ok := p.options[req.Method]; ok {
+		// RPC-populated select provider: the current partial form values arrive as
+		// params (read via Params) so a cascading select can narrow by an earlier field.
+		out, err := o(ctx)
+		p.finish(w, req.ID, out, err)
+		return
+	}
 	if a, ok := p.actions[req.Method]; ok {
 		var in map[string]any
 		if len(req.Params) > 0 {

@@ -16,6 +16,9 @@ export type PromptField = {
   value?: string;
   optional?: boolean; // required by default
   options?: PromptOption[]; // static options for type: "select"
+  // A plugin select whose options come from an RPC (Plugin.Options): hope fetches
+  // them from this method and fills `options` before the form opens. Plugin-set only.
+  optionsMethod?: string;
   // Dynamic options computed from the current field values (dependent selects).
   // When `dependsOn` changes, this field's value is cleared and options recomputed.
   optionsFrom?: (values: Record<string, string>) => PromptOption[];

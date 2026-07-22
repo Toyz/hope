@@ -223,6 +223,11 @@ type Field struct {
 	Value       string   `json:"value,omitempty"`
 	Optional    bool     `json:"optional,omitempty"`
 	Options     []Option `json:"options,omitempty"`
+	// OptionsMethod names an Options provider (registered with Plugin.Options); when
+	// set, hope fetches this select's choices from that method live as it renders the
+	// form, instead of using the static Options above. The JSON key is camelCase to
+	// match hope's PromptField, which the fields map onto directly.
+	OptionsMethod string `json:"optionsMethod,omitempty"`
 }
 
 // Schema is the plugin's identity + capability manifest — the result of the fixed
