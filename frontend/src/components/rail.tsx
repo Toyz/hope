@@ -259,7 +259,7 @@ export class HopeRail extends LoomElement {
             <span class={"dot " + (stack ? stackTone(stack, false) : "off")}></span>
             <span class="label">{g.project}</span>
             <span class="meta">{g.host}</span>
-            {g.stackFav ? <span class="star on" tip="unfavorite stack" onClick={(e: Event) => this.toggleFav({ host: g.host, project: g.project, service: "", label: g.project, kind: "stack" }, e)}>{this.starIcon(true)}</span> : null}
+            <span class={"star" + (g.stackFav ? " on" : "")} tip={g.stackFav ? "unfavorite" : "favorite"} onClick={(e: Event) => this.toggleFav({ host: g.host, project: g.project, service: "", label: g.project, kind: "stack" }, e)}>{this.starIcon(g.stackFav)}</span>
           </div>
           {g.svcs.map((f) => {
             const c = (stack?.containers || []).find((x) => (x.service || x.name) === f.service);
@@ -521,7 +521,7 @@ export class HopeRail extends LoomElement {
           <span class={"dot " + stackTone(s, outProjects.has(s.project))}></span>
           <span class="label">{s.project}</span>
           <span class="meta">{s.running}/{s.total}</span>
-          <span class={"star" + (this.isFav(hostId, s.project) ? " on" : "")} tip="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: "", label: s.project, kind: "stack" }, e)}>{this.starIcon(this.isFav(hostId, s.project))}</span>
+          <span class={"star" + (this.isFav(hostId, s.project) ? " on" : "")} tip={this.isFav(hostId, s.project) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: "", label: s.project, kind: "stack" }, e)}>{this.starIcon(this.isFav(hostId, s.project))}</span>
         </div>
         {open ? this.renderContainers(hostId, s, sel, outIds) : null}
       </>
@@ -556,7 +556,7 @@ export class HopeRail extends LoomElement {
                 : <span class="caret leaf"></span>}
               <span class={"dot " + ctrTone(c.state, outIds.has(c.id))}></span>
               <span class="label">{svc}</span>
-              <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} tip="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
+              <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} tip={this.isFav(hostId, s.project, svc) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
             </div>
             {pp && pgOpen ? this.renderContainerPages(hostId, s.project, svc, 76) : null}
           </>
@@ -579,7 +579,7 @@ export class HopeRail extends LoomElement {
             <span class={"dot " + worst}></span>
             <span class="label">{svc}</span>
             <span class="meta">{running}/{reps.length}</span>
-            <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} tip="favorite" onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
+            <span class={"star" + (this.isFav(hostId, s.project, svc) ? " on" : "")} tip={this.isFav(hostId, s.project, svc) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.toggleFav({ host: hostId, project: s.project, service: svc, label: svc, kind: "container" }, e)}>{this.starIcon(this.isFav(hostId, s.project, svc))}</span>
           </div>
           {rOpen ? reps.map((c) => {
             const con = sel.host === hostId && sel.cid === c.id;
