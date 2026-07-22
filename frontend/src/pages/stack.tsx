@@ -356,7 +356,6 @@ export class StackPage extends LoomElement {
   get host(): string {
     return this.hostCtx.token; // the host in the URL (/stack/:host/:project)
   }
-  @reactive accessor opLog = "";
   @reactive accessor composeText = "";
   @reactive accessor expanded: Record<string, boolean> = {};
   @reactive accessor stats: Record<string, ContainerStat> = {};
@@ -556,7 +555,6 @@ export class StackPage extends LoomElement {
     this.stats = {};
     this.updates = {};
     this.expanded = {};
-    this.opLog = "";
     this.composeText = "";
     this.load();
   }
@@ -838,18 +836,21 @@ export class StackPage extends LoomElement {
     }
   };
 
+  // Whole-stack lifecycle op. Stacks.<op> is a unary RPC (returns a StackResult, not a
+  // stream), but it still runs INSIDE the shared processing dialog — emit its output
+  // there — so every stack/container action gives the same feedback surface instead of
+  // this one dumping its result into an inline box.
   private runStackOp = async (op: StackOp) => {
     this.busy = `stack:${op}`;
-    this.opLog = "";
-    const t = this.toast.progress(`${op} ${this.project}…`);
     try {
-      const res = await this.rpc.call<OpResult>("Stacks", op, [this.project]);
-      this.opLog = (res.output ?? "") + (res.error ? "\n" + res.error : "");
-      if (res.ok) t.done(`${op} ${this.project} — done`);
-      else t.error(`${op} ${this.project} — failed`);
+      await this.proc.run(`${op} ${this.project}`, async (emit) => {
+        const res = await this.rpc.call<OpResult>("Stacks", op, [this.project]);
+        if (res.output) emit(res.output);
+        if (res.error) emit(res.error);
+        emit("done");
+        return !!res.ok;
+      });
       await this.load();
-    } catch (err: any) {
-      t.error(`${op} ${this.project} — ${err?.message ?? "failed"}`);
     } finally {
       this.busy = "";
     }
@@ -1457,12 +1458,6 @@ export class StackPage extends LoomElement {
                 </tbody>
               </table>
 
-              {this.opLog ? (
-                <div class="blk">
-                  <span class="label">output</span>
-                  <pre>{this.opLog}</pre>
-                </div>
-              ) : null}
               {this.composeText ? (
                 <div class="blk">
                   <span class="label">compose</span>
