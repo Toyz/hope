@@ -332,9 +332,9 @@ func runServe(configPath string) error {
 	gw.Register(favorites.NewFavoritesRouter(st)) // /rpc Favorites.List/Set — rail quick-jump
 	gw.Register(stacks.NewStacksRouter(hostSet, comp, auditor))
 	gw.Register(containers.NewContainersRouter(hostSet, eventBus, auditor))
-	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock))
-	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare), eventBus))
-	gw.Register(deploy.NewDeployRouter(hostSet, deployStore))
+	gw.Register(system.NewSystemRouter(hostSet, cfg.Agent.Token, cfg.Agent.WSPath, apiEnabled, cfg.Plugins.Enabled, st, dock, auditor))
+	gw.Register(tunnels.NewTunnelsRouter(hostSet, cloudflare.New(cfg.Cloudflare), eventBus, auditor))
+	gw.Register(deploy.NewDeployRouter(hostSet, deployStore, auditor))
 	var pluginDialer pluginhost.ContainerDialer
 	if hub != nil {
 		pluginDialer = hub // remote plugin dialing over the agent tunnel

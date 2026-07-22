@@ -118,7 +118,7 @@ func (m *mockAPI) RemoveRegistryCreds(server string) bool {
 // newRouter wires a router over a local-only host set (reg=nil): ActiveFor
 // resolves to m, and All() yields a single-host [{local, m}] fan-out.
 func newRouter(m docker.API, localUp bool, apiEnabled, pluginsOn bool, st *store.Store) *SystemRouter {
-	return NewSystemRouter(hosts.New(m, localUp, nil), "tok", "/agent/ws", apiEnabled, pluginsOn, st, m)
+	return NewSystemRouter(hosts.New(m, localUp, nil), "tok", "/agent/ws", apiEnabled, pluginsOn, st, m, nil)
 }
 
 // ctxLocal builds an rpc.Context whose per-request target is the local host so
@@ -207,7 +207,7 @@ func TestAgentEnroll(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewSystemRouter(hosts.New(&mockAPI{}, true, nil), tt.token, tt.path, false, false, disabledStore(t), &mockAPI{})
+			r := NewSystemRouter(hosts.New(&mockAPI{}, true, nil), tt.token, tt.path, false, false, disabledStore(t), &mockAPI{}, nil)
 			got, err := r.AgentEnroll(ctxLocal())
 			if err != nil {
 				t.Fatalf("AgentEnroll: %v", err)

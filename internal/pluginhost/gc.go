@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/events"
 )
 
@@ -87,14 +88,21 @@ func (r *PluginsRouter) reapStack(host, project string) {
 		if rec.Host != host || rec.Project != project {
 			continue
 		}
-		r.reap(rec.Key, host)
+		r.reap(rec.Key, host, "stack destroyed")
 	}
 }
 
-// reap deletes one record + its storage and announces the change.
-func (r *PluginsRouter) reap(key, host string) {
+// reap deletes one record + its storage and announces the change. reason is the audit
+// detail (why hope reaped it) — this is a SYSTEM action (no operator), so it's recorded
+// with Source=system, never defaulting to operator.
+func (r *PluginsRouter) reap(key, host, reason string) {
 	_ = r.store.DeletePlugin(key)
 	_ = r.store.DeletePluginKVAll(key)
+	r.auditor.Record(context.Background(), audit.Entry{
+		Source: audit.SourceSystem, Actor: audit.SourceSystem,
+		Category: audit.CatPlugin, Action: "reap", Target: key, Host: host,
+		Detail: reason, Danger: true, OK: true,
+	})
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: host, Data: pluginChangeData(key, "reaped")})
 }
 
@@ -149,7 +157,7 @@ func (r *PluginsRouter) reconcileOnce(ctx context.Context) {
 			r.missCount[rec.Key]++
 			if r.missCount[rec.Key] >= reconcileMisses {
 				delete(r.missCount, rec.Key)
-				r.reap(rec.Key, rec.Host)
+				r.reap(rec.Key, rec.Host, "identity absent on reachable host")
 			}
 		}
 	}

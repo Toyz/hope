@@ -640,6 +640,13 @@ func (r *PluginsRouter) Manifest(ctx *rpc.Context, p *TargetParams) (*PluginMani
 	if rec.SchemaHash != "" && hashBytes(schema) != rec.SchemaHash {
 		if !r.autoReapprove {
 			_ = r.store.DisablePlugin(p.Key) // atomic re-read+write; don't clobber a concurrent update
+			// System-initiated trust action (hope's policy auto-disabled it on schema
+			// drift), not an operator choice — Source=system so it's never mislabeled operator.
+			r.auditor.Record(ctx, audit.Entry{
+				Source: audit.SourceSystem, Actor: audit.SourceSystem,
+				Category: audit.CatPlugin, Action: "disable", Target: p.Key, Host: recordHost(rec),
+				Detail: "schema changed since approval — re-approval required", Danger: true, OK: true,
+			})
 			return nil, rpc.BadRequest("plugin schema changed since approval — re-enable to approve the new capabilities")
 		}
 		rec.SchemaHash = hashBytes(schema)
@@ -720,9 +727,11 @@ func (r *PluginsRouter) audit(ctx *rpc.Context, rec *store.PluginRecord, p *Call
 	if rec != nil {
 		host = rec.Host
 	}
-	// An operator ran a plugin action: actor = the operator (filled from ctx), the
-	// target = the plugin, the action = its method.
+	// A plugin action runs INSIDE the plugin, so Source = plugin (source is "where it
+	// ran", not "who clicked"); the operator who invoked it is still recorded as Actor
+	// (filled from ctx). Target = the plugin, Action = its method.
 	r.auditor.Record(ctx, audit.Entry{
+		Source: audit.SourcePlugin,
 		Category: audit.CatPlugin, Action: p.Method, Target: p.Key, Host: host, Danger: p.Danger,
 		OK: callErr == nil, Err: audit.ErrStr(callErr), Millis: d.Milliseconds(),
 	})

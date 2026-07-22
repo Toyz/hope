@@ -42,6 +42,10 @@ function cleanTarget(t: string | undefined): string {
   .chip.on { color: var(--hi); border-color: var(--upd); background: color-mix(in srgb, var(--upd) 12%, var(--panel)); }
   .empty { padding: 60px 28px; color: var(--dim); font: 13px/1.7 var(--mono); text-align: center; }
   .tw { padding: 0 28px; overflow-x: auto; }
+  .more { display: flex; justify-content: center; padding: 16px 0 4px; }
+  .mbtn { padding: 6px 16px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer;
+    font: 11px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .mbtn:hover { color: var(--hi); border-color: var(--upd); }
   table { width: 100%; border-collapse: collapse; min-width: 780px; }
   thead th { position: sticky; top: 0; z-index: 1; background: var(--ink); text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line2);
     color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; }
@@ -92,6 +96,9 @@ export class AuditPage extends LoomElement {
   @reactive accessor loading = true;
   @reactive accessor cat = ""; // active category filter ("" = all)
   @reactive accessor flyout: AuditEntry | null = null;
+  @reactive accessor more = false; // another page is available
+  private offset = 0; // newest already loaded (next page starts here)
+  private static readonly PAGE = 100;
 
   @mount
   onMount() {
@@ -103,15 +110,22 @@ export class AuditPage extends LoomElement {
   }
 
   // Refetch on the shared refresh beat so the log stays live with the rest of the app.
+  // Reloads as many rows as are currently shown, so the user's paging depth is kept.
   @on(Refreshing)
-  private onRefresh(e: Refreshing) { if (!e.active) void this.load(); }
+  private onRefresh(e: Refreshing) { if (!e.active) void this.load(false); }
 
-  private async load() {
+  // load(false) = first page (or refresh the shown depth); load(true) = append next page.
+  private async load(append = false) {
     this.loading = true;
+    const off = append ? this.offset : 0;
+    const want = append ? AuditPage.PAGE : Math.max(AuditPage.PAGE, this.entries.length);
     try {
-      this.entries = (await this.rpc.call<AuditEntry[]>("Audit", "list", [{ category: this.cat, limit: 500 }])) || [];
+      const page = (await this.rpc.call<AuditEntry[]>("Audit", "list", [{ category: this.cat, limit: want, offset: off }])) || [];
+      this.entries = append ? [...this.entries, ...page] : page;
+      this.offset = off + page.length;
+      this.more = page.length === want; // a full page back => there may be more
     } catch {
-      this.entries = [];
+      if (!append) this.entries = [];
     } finally {
       this.loading = false;
     }
@@ -120,7 +134,10 @@ export class AuditPage extends LoomElement {
   private setCat(c: string) {
     if (c === this.cat) return;
     this.cat = c;
-    void this.load();
+    this.offset = 0;
+    this.entries = [];
+    this.more = false;
+    void this.load(false);
   }
 
   private metaText(e: AuditEntry): string {
@@ -171,6 +188,11 @@ export class AuditPage extends LoomElement {
                   ))}
                 </tbody>
               </table>
+              {this.more ? (
+                <div class="more">
+                  <span class="mbtn" onClick={() => void this.load(true)}>{this.loading ? "loading…" : "load more"}</span>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

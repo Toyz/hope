@@ -18,6 +18,7 @@ type ListParams struct {
 	Actor    string `json:"actor"`
 	Target   string `json:"target"`
 	Limit    int    `json:"limit"`
+	Offset   int    `json:"offset"` // skip this many of the newest matches (paging)
 }
 
 // List returns recent audit entries newest-first, optionally filtered. Empty (not an
@@ -25,7 +26,7 @@ type ListParams struct {
 func (r *AuditRouter) List(ctx *rpc.Context, p *ListParams) ([]Entry, error) {
 	var f Filter
 	if p != nil {
-		f = Filter{Category: p.Category, Source: p.Source, Host: p.Host, Actor: p.Actor, Target: p.Target, Limit: p.Limit}
+		f = Filter{Category: p.Category, Source: p.Source, Host: p.Host, Actor: p.Actor, Target: p.Target, Limit: p.Limit, Offset: p.Offset}
 	}
 	entries, err := r.auditor.Query(f)
 	if err != nil {

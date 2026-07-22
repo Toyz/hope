@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/stackspec"
@@ -18,11 +19,12 @@ import (
 type DeployRouter struct {
 	hosts *hosts.Set
 	store *Store
+	audit *audit.Auditor // nil-safe: records network/volume creation
 }
 
 // NewDeployRouter wires the router to the host set + spec store.
-func NewDeployRouter(hs *hosts.Set, store *Store) *DeployRouter {
-	return &DeployRouter{hosts: hs, store: store}
+func NewDeployRouter(hs *hosts.Set, store *Store, aud *audit.Auditor) *DeployRouter {
+	return &DeployRouter{hosts: hs, store: store, audit: aud}
 }
 
 func (r *DeployRouter) dock(ctx context.Context) docker.API { return r.hosts.ActiveFor(ctx) }
@@ -137,6 +139,7 @@ func (r *DeployRouter) CreateNetwork(ctx *rpc.Context, p *CreateNetworkParams) (
 	if _, err := r.dock(ctx).CreateNetwork(ctx, spec); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatNetwork, Action: "create", Host: r.hosts.ActiveIDFor(ctx), Target: p.Name, Detail: p.Driver, OK: true})
 	return r.findNetwork(ctx, p.Name), nil
 }
 
@@ -158,6 +161,7 @@ func (r *DeployRouter) CreateVolume(ctx *rpc.Context, p *CreateVolumeParams) (*d
 	if _, err := r.dock(ctx).CreateVolume(ctx, spec); err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatVolume, Action: "create", Host: r.hosts.ActiveIDFor(ctx), Target: p.Name, Detail: p.Driver, OK: true})
 	return r.findVolume(ctx, p.Name), nil
 }
 

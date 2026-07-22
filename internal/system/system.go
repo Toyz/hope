@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/hosts"
 	"github.com/toyz/hope/internal/store"
@@ -22,14 +23,15 @@ type SystemRouter struct {
 	pluginsOn   bool           // [plugins] enabled -> surface the plugins page
 	store       *store.Store   // persisted registry creds (no-op when unmounted)
 	localDock   docker.API // local daemon — the canonical registry-auth view
+	audit       *audit.Auditor // nil-safe: records destructive operator mutations
 }
 
 // NewSystemRouter wires the router to the host set (active-host aware). The agent
 // token + ws path power the "add an agent" enrollment helper; apiEnabled toggles
 // the API explorer link. st persists UI-added registry creds; localDock is the
 // canonical client for listing them (registries are applied fleet-wide).
-func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled, pluginsOn bool, st *store.Store, localDock docker.API) *SystemRouter {
-	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, pluginsOn: pluginsOn, store: st, localDock: localDock}
+func NewSystemRouter(hs *hosts.Set, agentToken, agentWSPath string, apiEnabled, pluginsOn bool, st *store.Store, localDock docker.API, aud *audit.Auditor) *SystemRouter {
+	return &SystemRouter{hosts: hs, agentToken: agentToken, agentWSPath: agentWSPath, apiEnabled: apiEnabled, pluginsOn: pluginsOn, store: st, localDock: localDock, audit: aud}
 }
 
 // FeatureFlags reports which optional features are on, so the UI can show/hide
@@ -521,6 +523,7 @@ func (r *SystemRouter) RemoveNetwork(ctx *rpc.Context, p *IDParam) (any, error) 
 	if err := r.dock(ctx).RemoveNetwork(cctx, p.ID); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatNetwork, Action: "remove", Host: r.hosts.ActiveIDFor(ctx), Target: p.ID, Danger: true, OK: true})
 	return map[string]bool{"ok": true}, nil
 }
 
@@ -531,6 +534,7 @@ func (r *SystemRouter) RemoveVolume(ctx *rpc.Context, p *IDParam) (any, error) {
 	if err := r.dock(ctx).RemoveVolume(cctx, p.ID, true); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatVolume, Action: "remove", Host: r.hosts.ActiveIDFor(ctx), Target: p.ID, Danger: true, OK: true})
 	return map[string]bool{"ok": true}, nil
 }
 
@@ -553,6 +557,7 @@ func (r *SystemRouter) RemoveImage(ctx *rpc.Context, p *ImageRemoveParams) (any,
 	if err := r.dock(ctx).RemoveImage(cctx, p.ID, p.Force); err != nil {
 		return nil, rpc.BadRequest("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatImage, Action: "remove", Host: r.hosts.ActiveIDFor(ctx), Target: p.ID, Danger: true, OK: true})
 	return map[string]bool{"ok": true}, nil
 }
 
@@ -569,6 +574,11 @@ func (r *SystemRouter) PruneImages(ctx *rpc.Context, p *PruneParams) (*docker.Pr
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	scope := "dangling"
+	if p.All {
+		scope = "unused"
+	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatImage, Action: "prune", Host: r.hosts.ActiveIDFor(ctx), Detail: scope, Danger: true, OK: true})
 	return &res, nil
 }
 
@@ -582,6 +592,7 @@ func (r *SystemRouter) PruneBuildCache(ctx *rpc.Context) (any, error) {
 	if err != nil {
 		return nil, rpc.Internal("%v", err)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatImage, Action: "prune-build-cache", Host: r.hosts.ActiveIDFor(ctx), Danger: true, OK: true})
 	return map[string]any{"ok": true, "reclaimed": reclaimed}, nil
 }
 
@@ -663,6 +674,7 @@ func (r *SystemRouter) AddRegistry(ctx *rpc.Context, p *AddRegistryParams) (any,
 	for _, d := range r.fleetDockers() {
 		d.AddRegistryCreds(p.Server, p.Username, p.Password, docker.RegistrySourceDB)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatRegistry, Action: "add", Target: p.Server, Detail: p.Username, OK: true})
 	return map[string]any{"ok": true, "persisted": r.store.Enabled()}, nil
 }
 
@@ -678,6 +690,7 @@ func (r *SystemRouter) RemoveRegistry(ctx *rpc.Context, p *IDParam) (any, error)
 	for _, d := range r.fleetDockers() {
 		d.RemoveRegistryCreds(p.ID)
 	}
+	r.audit.Record(ctx, audit.Entry{Category: audit.CatRegistry, Action: "remove", Target: p.ID, Danger: true, OK: true})
 	return map[string]bool{"ok": true}, nil
 }
 

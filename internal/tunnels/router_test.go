@@ -321,7 +321,7 @@ func newCF(t *testing.T, f *cfFake) *cloudflare.Client {
 // target on the context.
 func newRouter(m *mockAPI, cf *cloudflare.Client) (*TunnelsRouter, *rpc.Context) {
 	hs := hosts.New(m, true, nil)
-	r := NewTunnelsRouter(hs, cf, nil) // nil bus: Publish is nil-safe
+	r := NewTunnelsRouter(hs, cf, nil, nil) // nil bus: Publish is nil-safe
 	rctx := rpc.NewContext(hosts.WithTarget(context.Background(), hosts.LocalID))
 	return r, rctx
 }
@@ -729,7 +729,7 @@ func TestRemoveConnector_DetachesFromRequestCtx(t *testing.T) {
 	cf := newCF(t, &cfFake{deleteTunnel: func(string) string { sawDelete = true; return "" }})
 
 	hs := hosts.New(m, true, nil)
-	r := NewTunnelsRouter(hs, cf, nil)
+	r := NewTunnelsRouter(hs, cf, nil, nil)
 	base, cancel := context.WithCancel(hosts.WithTarget(context.Background(), hosts.LocalID))
 	rctx := rpc.NewContext(base)
 	cancel() // simulate the operator's connection dropping mid-request

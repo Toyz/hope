@@ -117,6 +117,7 @@ type Filter struct {
 	Actor    string
 	Target   string
 	Limit    int // <=0 or over the cap => the cap
+	Offset   int // skip this many of the newest matches first (paging)
 }
 
 // Query returns matching entries newest-first, capped. Empty when the store is disabled.
@@ -160,9 +161,15 @@ func (a *Auditor) Query(f Filter) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	// all is oldest-first (keys sort chronologically); return newest-first, capped.
+	// all is oldest-first (keys sort chronologically); return newest-first, skipping
+	// Offset of the newest for paging, then up to Limit.
+	skip := f.Offset
 	out := make([]Entry, 0, limit)
 	for i := len(all) - 1; i >= 0 && len(out) < limit; i-- {
+		if skip > 0 {
+			skip--
+			continue
+		}
 		out = append(out, all[i])
 	}
 	return out, nil

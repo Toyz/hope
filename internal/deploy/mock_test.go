@@ -128,7 +128,7 @@ func engineFor(m *mockAPI, store *Store) (*Engine, context.Context) {
 // rpc.Context carrying the local target so dock(ctx)/hostID(ctx) resolve to m.
 func routerFor(m *mockAPI, store *Store) (*DeployRouter, *rpc.Context) {
 	set := hosts.New(m, true, nil)
-	r := NewDeployRouter(set, store)
+	r := NewDeployRouter(set, store, nil)
 	ctx := rpc.NewContext(hosts.WithTarget(context.Background(), hosts.LocalID))
 	return r, ctx
 }

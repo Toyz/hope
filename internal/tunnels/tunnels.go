@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/Toyz/sov/rpc"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/cloudflare"
 	"github.com/toyz/hope/internal/docker"
 	"github.com/toyz/hope/internal/events"
@@ -30,13 +31,14 @@ var (
 type TunnelsRouter struct {
 	hosts *hosts.Set
 	cf    *cloudflare.Client
-	bus   *events.Bus // nil-safe: publishes tunnel.changed to the global feed
+	bus   *events.Bus    // nil-safe: publishes tunnel.changed to the global feed
+	audit *audit.Auditor // nil-safe: records connector/route mutations
 }
 
 // NewTunnelsRouter wires the router to the host set + Cloudflare client (cf may
 // be nil when the integration is disabled) + the event bus.
-func NewTunnelsRouter(hs *hosts.Set, cf *cloudflare.Client, bus *events.Bus) *TunnelsRouter {
-	return &TunnelsRouter{hosts: hs, cf: cf, bus: bus}
+func NewTunnelsRouter(hs *hosts.Set, cf *cloudflare.Client, bus *events.Bus, aud *audit.Auditor) *TunnelsRouter {
+	return &TunnelsRouter{hosts: hs, cf: cf, bus: bus, audit: aud}
 }
 
 // tunnelsChanged fires a tunnel.changed event for the active host after a route
@@ -247,6 +249,7 @@ type CreateConnectorParams struct {
 func (r *TunnelsRouter) CreateConnector(ctx *rpc.Context, p *CreateConnectorParams) (conn *docker.Connector, err error) {
 	defer func() {
 		if err == nil {
+			r.audit.Record(ctx, audit.Entry{Category: audit.CatTunnel, Action: "connector-create", Host: r.hosts.ActiveIDFor(ctx), Target: p.Name, OK: true})
 			r.tunnelsChanged(ctx)
 		}
 	}()
@@ -316,6 +319,7 @@ type RemoveConnectorParams struct {
 func (r *TunnelsRouter) RemoveConnector(ctx *rpc.Context, p *RemoveConnectorParams) (res *RouteResult, err error) {
 	defer func() {
 		if err == nil {
+			r.audit.Record(ctx, audit.Entry{Category: audit.CatTunnel, Action: "connector-remove", Host: r.hosts.ActiveIDFor(ctx), Target: p.ID, Danger: true, OK: true})
 			r.tunnelsChanged(ctx)
 		}
 	}()
@@ -369,6 +373,7 @@ type AddTunnelParams struct {
 func (r *TunnelsRouter) AddTunnel(ctx *rpc.Context, p *AddTunnelParams) (res *RouteResult, err error) {
 	defer func() {
 		if err == nil {
+			r.audit.Record(ctx, audit.Entry{Category: audit.CatTunnel, Action: "route-add", Host: r.hosts.ActiveIDFor(ctx), Project: p.Project, Target: p.Hostname, Detail: p.Port, OK: true})
 			r.tunnelsChanged(ctx)
 		}
 	}()
@@ -421,6 +426,7 @@ type RemoveTunnelParams struct {
 func (r *TunnelsRouter) RemoveTunnel(ctx *rpc.Context, p *RemoveTunnelParams) (res *RouteResult, err error) {
 	defer func() {
 		if err == nil {
+			r.audit.Record(ctx, audit.Entry{Category: audit.CatTunnel, Action: "route-remove", Host: r.hosts.ActiveIDFor(ctx), Target: p.Hostname, Danger: true, OK: true})
 			r.tunnelsChanged(ctx)
 		}
 	}()
