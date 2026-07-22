@@ -652,6 +652,19 @@ func main() {
 		return map[string]any{"message": "ran command: " + cmd}, nil
 	})
 
+	// Repeatable group (forms-builder): one action collects N label rows at once, each
+	// a sub-form of {service, key, value}. The action receives an array of objects.
+	p.Action("bulkTag", "Tag services", []plugin.Field{
+		{Key: "labels", Label: "Labels", Type: "group", AddLabel: "label", Fields: []plugin.Field{
+			{Key: "service", Label: "Service"},
+			{Key: "key", Label: "Label key", Placeholder: "prometheus.io/scrape"},
+			{Key: "value", Label: "Value", Placeholder: "true"},
+		}},
+	}, func(ctx context.Context, in map[string]any) (any, error) {
+		rows, _ := in["labels"].([]any)
+		return map[string]any{"message": fmt.Sprintf("would set %d label(s)", len(rows))}, nil
+	})
+
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
 	// the running fleet-event tally it keeps in durable storage. Demonstrates OnStatus.
 	p.OnStatus(func(ctx context.Context) plugin.StatusReport {

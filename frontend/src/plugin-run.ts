@@ -101,6 +101,13 @@ export async function runPluginAction(
     return undefined;
   }
   const merged = { ...(param || {}), ...(values || {}), ...(extra || {}) };
+  // Group fields arrive as a JSON string (the modal serializes the rows); parse them
+  // back into an array so the plugin action receives an array of objects, not a string.
+  for (const f of a.fields || []) {
+    if (f.type === "group" && typeof merged[f.key] === "string") {
+      try { merged[f.key] = JSON.parse(merged[f.key] as string); } catch { merged[f.key] = []; }
+    }
+  }
   const args = Object.keys(merged).length ? merged : undefined;
   try {
     const res: PluginResult | any = await deps.rpc.call<any>("Plugins", "call", [{ key: surfaceKey, method: a.method, args, audit: true, danger: !!a.danger }]);

@@ -233,6 +233,12 @@ type Field struct {
 	// returned component node inline below the fields — a selection can drive a live
 	// preview, confirmation, or result. camelCase for the same PromptField reason.
 	ResolveMethod string `json:"resolveMethod,omitempty"`
+	// Fields is the per-item sub-schema of a Type:"group" field — a repeatable
+	// array-of-objects the operator adds/removes rows of (a forms-builder). The action
+	// receives the group's value as a []map[string]any, one map per row. AddLabel names
+	// the "+ add" button.
+	Fields   []Field `json:"fields,omitempty"`
+	AddLabel string  `json:"addLabel,omitempty"`
 }
 
 // Schema is the plugin's identity + capability manifest — the result of the fixed

@@ -5,7 +5,7 @@ import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/lo
 import { theme } from "../styles";
 import { signalModal } from "../modal";
 import "./plugin-surface"; // registers <hope-plugin-surface> for selector->surface fields
-import type { PromptOpts, ResolvedSurface } from "../prompt";
+import type { PromptOpts, ResolvedSurface, PromptField } from "../prompt";
 
 @styles(theme, css`
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
@@ -30,6 +30,17 @@ import type { PromptOpts, ResolvedSurface } from "../prompt";
   .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--line2); }
   .field .hint { font: 11px/1.4 var(--mono); color: var(--dim); }
   .field.togfield { margin-bottom: 9px; }
+  /* repeatable group (forms-builder): rows of a sub-form, add/remove */
+  .rows { display: flex; flex-direction: column; gap: 8px; }
+  .rowitem { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line); background: var(--ink); padding: 10px 12px; }
+  .rifields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .rifield { display: flex; flex-direction: column; gap: 5px; }
+  .rifield label { font: 600 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .rirm { flex: none; display: flex; padding: 6px; background: transparent; border: 1px solid var(--line2); color: var(--dim); cursor: pointer; }
+  .rirm:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line2)); }
+  .riadd { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: transparent; border: 1px dashed var(--line2);
+    color: var(--mid); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .riadd:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .tog { display: flex; align-items: center; gap: 11px; cursor: pointer; user-select: none; padding: 3px 0; }
   .tog .tlabel { flex: 1; font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--mid); }
   .tog .sw { width: 34px; height: 18px; border: 1px solid var(--line2); background: var(--ink); position: relative; flex: none; transition: background .12s, border-color .12s; }
@@ -54,6 +65,8 @@ export default class PromptModalImpl extends LoomElement {
   @reactive accessor resolved: ResolvedSurface | null = null;
   @reactive accessor resolving = false;
   private resolveSeq = 0;
+  // Repeatable groups: per group-field key, the array of row value-maps (a forms-builder).
+  @reactive accessor groups: Record<string, Record<string, string>[]> = {};
 
   @watch("open") private lockBody() { signalModal(this, this.open); }
   @unmount private releaseBody() { signalModal(this, false); }
@@ -62,8 +75,13 @@ export default class PromptModalImpl extends LoomElement {
   show(o: PromptOpts): Promise<Record<string, string> | null> {
     this.opts = o;
     const v: Record<string, string> = {};
-    for (const f of o.fields) v[f.key] = f.value ?? (f.type === "select" && f.options?.length ? "" : "");
+    const g: Record<string, Record<string, string>[]> = {};
+    for (const f of o.fields) {
+      if (f.type === "group") g[f.key] = [];
+      else v[f.key] = f.value ?? (f.type === "select" && f.options?.length ? "" : "");
+    }
     this.values = v;
+    this.groups = g;
     this.err = "";
     this.resolved = null;
     this.resolveSeq++;
@@ -118,14 +136,52 @@ export default class PromptModalImpl extends LoomElement {
     }
   }
 
+  // --- repeatable group (forms-builder) row ops ---
+  private addRow(key: string, f: PromptField) {
+    const row: Record<string, string> = {};
+    for (const sf of f.fields || []) row[sf.key] = sf.value ?? "";
+    this.groups = { ...this.groups, [key]: [...(this.groups[key] || []), row] };
+  }
+  private removeRow(key: string, i: number) {
+    const arr = [...(this.groups[key] || [])];
+    arr.splice(i, 1);
+    this.groups = { ...this.groups, [key]: arr };
+  }
+  private setRow(key: string, i: number, sub: string, val: string) {
+    const arr = (this.groups[key] || []).map((r, j) => (j === i ? { ...r, [sub]: val } : r));
+    this.groups = { ...this.groups, [key]: arr };
+  }
+
+  // Renders one field's control (no label/wrapper). Shared by top-level fields and
+  // group rows: `val` is the current value, `onSet` writes it, `scope` feeds optionsFrom.
+  private control(f: PromptField, val: string, onSet: (v: string) => void, scope: Record<string, string>) {
+    if (f.type === "select") return <hope-select options={f.optionsFrom ? f.optionsFrom(scope) : f.options || []} value={val} placeholder={f.placeholder || "—"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
+    if (f.type === "toggle") return (
+      <span class={"tog" + (val === "true" ? " on" : "")} onClick={() => onSet(val === "true" ? "false" : "true")}>
+        <span class="sw"></span><span class="tlabel">{f.label}</span><span class="tl">{val === "true" ? "on" : "off"}</span>
+      </span>
+    );
+    if (f.type === "textarea") return <textarea rows={3} placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)}></textarea>;
+    if (f.type === "kv") return <hope-kv-editor value={val} placeholder={f.placeholder || ""} addLabel={f.addLabel || "entry"} onChange={(e: any) => onSet(e.detail)}></hope-kv-editor>;
+    return <input type="text" placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)} />;
+  }
+
   private submit = () => {
+    const out = { ...this.values };
     for (const f of this.opts.fields) {
-      if (!f.optional && !(this.values[f.key] || "").trim()) {
+      if (f.type === "group") {
+        const rows = this.groups[f.key] || [];
+        if (!f.optional && rows.length === 0) {
+          this.err = `${f.label} needs at least one`;
+          return;
+        }
+        out[f.key] = JSON.stringify(rows); // action runner parses this back to an array
+      } else if (!f.optional && !(this.values[f.key] || "").trim()) {
         this.err = `${f.label} is required`;
         return;
       }
     }
-    this.settle({ ...this.values });
+    this.settle(out);
   };
 
   update() {
@@ -142,27 +198,36 @@ export default class PromptModalImpl extends LoomElement {
           </div>
           {o.message ? <p class="msg">{o.message}</p> : null}
           <div class="fields">
-            {o.fields.map((f) => (
-              <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
-                {f.type !== "toggle" ? <label>{f.label}</label> : null}
-                {f.type === "select" ? (
-                  <hope-select options={f.optionsFrom ? f.optionsFrom(this.values) : f.options || []} value={this.values[f.key]} placeholder={f.placeholder || "—"} onSelect={(e: any) => this.set(f.key, e.detail)}></hope-select>
-                ) : f.type === "toggle" ? (
-                  <span class={"tog" + (this.values[f.key] === "true" ? " on" : "")} onClick={() => this.set(f.key, this.values[f.key] === "true" ? "false" : "true")}>
-                    <span class="sw"></span>
-                    <span class="tlabel">{f.label}</span>
-                    <span class="tl">{this.values[f.key] === "true" ? "on" : "off"}</span>
-                  </span>
-                ) : f.type === "textarea" ? (
-                  <textarea rows={3} placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)}></textarea>
-                ) : f.type === "kv" ? (
-                  <hope-kv-editor value={this.values[f.key]} placeholder={f.placeholder || ""} addLabel={f.addLabel || "entry"} onChange={(e: any) => this.set(f.key, e.detail)}></hope-kv-editor>
-                ) : (
-                  <input type="text" placeholder={f.placeholder || ""} value={this.values[f.key]} onInput={(e: any) => this.set(f.key, e.target.value)} />
-                )}
-                {f.hint ? <span class="hint">{f.hint}</span> : null}
-              </div>
-            ))}
+            {o.fields.map((f) =>
+              f.type === "group" ? (
+                <div class="field group">
+                  <label>{f.label}</label>
+                  <div class="rows">
+                    {(this.groups[f.key] || []).map((row, i) => (
+                      <div class="rowitem">
+                        <div class="rifields">
+                          {(f.fields || []).map((sf) => (
+                            <div class={"rifield" + (sf.type === "toggle" ? " togfield" : "")}>
+                              {sf.type !== "toggle" ? <label>{sf.label}</label> : null}
+                              {this.control(sf, row[sf.key] ?? "", (v) => this.setRow(f.key, i, sf.key, v), row)}
+                            </div>
+                          ))}
+                        </div>
+                        <button class="rirm" title="remove" onClick={() => this.removeRow(f.key, i)}><loom-icon name="trash" size={13}></loom-icon></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button class="riadd" onClick={() => this.addRow(f.key, f)}><loom-icon name="plus" size={12}></loom-icon>{f.addLabel || "add"}</button>
+                  {f.hint ? <span class="hint">{f.hint}</span> : null}
+                </div>
+              ) : (
+                <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
+                  {f.type !== "toggle" ? <label>{f.label}</label> : null}
+                  {this.control(f, this.values[f.key], (v) => this.set(f.key, v), this.values)}
+                  {f.hint ? <span class="hint">{f.hint}</span> : null}
+                </div>
+              ),
+            )}
           </div>
           {o.resolve ? (
             <div class="resolved">

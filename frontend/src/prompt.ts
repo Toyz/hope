@@ -9,9 +9,12 @@ export type PromptOption = Option;
 export type PromptField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "toggle" | "kv";
+  type?: "text" | "textarea" | "select" | "toggle" | "kv" | "group";
   placeholder?: string;
-  addLabel?: string; // for type "kv": the "+ add" button label (e.g. "option", "label")
+  // A repeatable array-of-objects (a forms-builder): each row is a sub-form of `fields`.
+  // The submitted value is a JSON array of the rows' value maps.
+  fields?: PromptField[];
+  addLabel?: string; // for "kv"/"group": the "+ add" button label (e.g. "option", "row")
   hint?: string; // small helper line under the control (e.g. a toggle's meaning)
   value?: string;
   optional?: boolean; // required by default
