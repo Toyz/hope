@@ -322,13 +322,22 @@ export class HopeInspector extends LoomElement {
 
   // Enabled plugins whose container-surface match applies to this container —
   // rendered as extra tabs (the plugin's panel & metrics live here).
+  // A cheap signature of the surface SET (which plugins contribute, and their degraded
+  // state) — NOT their data. Used to keep loadSurfaces idempotent.
+  private surfSig(s: Surface[]): string { return s.map((x) => x.key + ":" + (x.degraded || "")).join("|"); }
+
   private loadSurfaces = async () => {
     const host = this.host, id = this.id;
     try {
-      const s = await this.rpc.call<Surface[]>("Plugins", "surfaces", [{ host, container_id: id }]);
-      if (host === this.host && id === this.id) this.pluginSurfaces = s || [];
+      const s = (await this.rpc.call<Surface[]>("Plugins", "surfaces", [{ host, container_id: id }])) || [];
+      if (host !== this.host || id !== this.id) return;
+      // Only replace when the surface set actually changed. A no-op PluginsChanged (e.g.
+      // a feed resync) otherwise hands the plugin tab a fresh `surface` object every time,
+      // which trips its @watch("surface") -> rebuild() and refetches every table — the
+      // "inspector tables reload on modal close" bug.
+      if (this.surfSig(s) !== this.surfSig(this.pluginSurfaces)) this.pluginSurfaces = s;
     } catch {
-      if (host === this.host && id === this.id) this.pluginSurfaces = [];
+      if (host === this.host && id === this.id && this.pluginSurfaces.length) this.pluginSurfaces = [];
     }
   };
 

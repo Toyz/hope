@@ -401,23 +401,12 @@ func (r *PluginsRouter) Pages(ctx *rpc.Context) ([]PluginPages, error) {
 		if !ok {
 			continue
 		}
-		ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
-		if err != nil {
-			continue
-		}
-		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
-		if err != nil {
-			continue
-		}
-		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
-		if err != nil {
-			continue
-		}
-		var sd schemaDoc
-		_ = json.Unmarshal(schemaRaw, &sd)
-		var ld layoutDoc
-		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
-			continue
+		// Serve the last-good layout when the plugin can't be dialed right now (e.g. its
+		// container was just recreated by a redeploy and isn't ready): a transient failure
+		// otherwise drops the plugin's whole page tree from the rail until a full refresh.
+		_, sd, ld, _, present := r.surfaceLayout(ctx, host, representative(members), rec.Key, rec.Token)
+		if !present {
+			continue // unreachable and never cached — nothing to render
 		}
 		nodes := []PluginPageNode{}
 		for ci, c := range ld.Contributions {
