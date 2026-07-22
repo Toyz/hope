@@ -55,6 +55,7 @@ type PluginsRouter struct {
 	limiters map[string]*pluginLimiter
 
 	metrics metricsRegistry
+	layouts layoutCache // last-good schema+layout per plugin, for degraded-not-skip surfaces
 }
 
 // limiter returns the per-plugin resource limiter, creating it on first use.
@@ -380,6 +381,7 @@ func (r *PluginsRouter) Disable(ctx *rpc.Context, p *TargetParams) (any, error) 
 		return nil, rpc.Internal("persist: %v", err)
 	}
 	r.detachPluginNet(ctx, p.Key) // stop sharing hope's network
+	r.layouts.drop(p.Key)         // don't render stale contributions if re-enabled with a changed layout
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Host: rec.Host, Data: pluginChangeData(p.Key, "disabled")})
 	return map[string]any{"ok": true}, nil
 }
@@ -414,6 +416,7 @@ func (r *PluginsRouter) Forget(ctx *rpc.Context, p *TargetParams) (any, error) {
 		return nil, rpc.Internal("forget: %v", err)
 	}
 	_ = r.store.DeletePluginKVAll(p.Key) // wipe the plugin's storage on full removal
+	r.layouts.drop(p.Key)                // forget the cached layout too
 	r.bus.Publish(events.Event{Kind: events.KindPluginChanged, Data: pluginChangeData(p.Key, "forgot")})
 	return map[string]any{"ok": true}, nil
 }

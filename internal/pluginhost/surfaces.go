@@ -26,6 +26,7 @@ type ContainerSurface struct {
 	Subtitle    string          `json:"subtitle,omitempty"`    // page header sub/meta line (templated)
 	Breadcrumbs []crumbDoc      `json:"breadcrumbs,omitempty"` // page breadcrumb trail (templated)
 	Param       json.RawMessage `json:"param,omitempty"`       // page param merged into calls (dynamic pages)
+	Degraded    string          `json:"degraded,omitempty"`    // non-empty => rendered from last-good cache; plugin is unreachable
 }
 
 // crumbDoc is one breadcrumb (label + optional plugin-relative target).
@@ -127,23 +128,9 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 			continue
 		}
 		rep := representative(members)
-		ep, err := r.dial(ctx, host, rep, rec.Token, false)
-		if err != nil {
-			continue // unreachable plugin — skip, don't fail the whole inspector
-		}
-		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
-		if err != nil {
-			continue
-		}
-		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
-		if err != nil {
-			continue
-		}
-		var sd schemaDoc
-		_ = json.Unmarshal(schemaRaw, &sd)
-		var ld layoutDoc
-		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
-			continue
+		schemaRaw, sd, ld, degraded, ok := r.surfaceLayout(ctx, host, rep, rec.Key, rec.Token)
+		if !ok {
+			continue // unreachable and never cached — nothing to render
 		}
 		ownContainer := p.ContainerID == rep.ContainerID
 		for _, c := range ld.Contributions {
@@ -162,13 +149,14 @@ func (r *PluginsRouter) Surfaces(ctx *rpc.Context, p *SurfacesParams) ([]Contain
 				icon = sd.Icon
 			}
 			out = append(out, ContainerSurface{
-				Key:     rec.Key,
-				Name:    sd.Name,
-				Icon:    icon,
-				Title:   title,
-				Node:    c.Node,
-				Schema:  schemaRaw,
-				Actions: c.Actions,
+				Key:      rec.Key,
+				Name:     sd.Name,
+				Icon:     icon,
+				Title:    title,
+				Node:     c.Node,
+				Schema:   schemaRaw,
+				Actions:  c.Actions,
+				Degraded: degraded,
 			})
 		}
 	}
@@ -184,9 +172,10 @@ type DashboardWidget struct {
 	Stack   string          `json:"stack,omitempty"` // compose project of the plugin container, if any
 	Icon    string          `json:"icon"`
 	Title   string          `json:"title"`
-	Node    json.RawMessage `json:"node"`
-	Schema  json.RawMessage `json:"schema"`
-	Actions []string        `json:"actions,omitempty"`
+	Node     json.RawMessage `json:"node"`
+	Schema   json.RawMessage `json:"schema"`
+	Actions  []string        `json:"actions,omitempty"`
+	Degraded string          `json:"degraded,omitempty"` // non-empty => from last-good cache; plugin unreachable
 }
 
 // Dashboard returns the `dashboard`-surface contributions of every enabled plugin
@@ -212,22 +201,8 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 		if len(members) > 0 {
 			stack = members[0].Project // the plugin container's compose project (its stack)
 		}
-		ep, err := r.dial(ctx, host, representative(members), rec.Token, false)
-		if err != nil {
-			continue
-		}
-		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
-		if err != nil {
-			continue
-		}
-		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
-		if err != nil {
-			continue
-		}
-		var sd schemaDoc
-		_ = json.Unmarshal(schemaRaw, &sd)
-		var ld layoutDoc
-		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
+		schemaRaw, sd, ld, degraded, ok := r.surfaceLayout(ctx, host, representative(members), rec.Key, rec.Token)
+		if !ok {
 			continue
 		}
 		for _, c := range ld.Contributions {
@@ -244,7 +219,7 @@ func (r *PluginsRouter) Dashboard(ctx *rpc.Context) ([]DashboardWidget, error) {
 			}
 			out = append(out, DashboardWidget{
 				Key: rec.Key, Name: sd.Name, Host: rec.Host, Stack: stack, Icon: icon,
-				Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions,
+				Title: title, Node: c.Node, Schema: schemaRaw, Actions: c.Actions, Degraded: degraded,
 			})
 		}
 	}
@@ -259,9 +234,10 @@ type StackSurface struct {
 	Name    string          `json:"name"`
 	Icon    string          `json:"icon"`
 	Title   string          `json:"title"`
-	Node    json.RawMessage `json:"node"`
-	Schema  json.RawMessage `json:"schema"`
-	Actions []string        `json:"actions,omitempty"`
+	Node     json.RawMessage `json:"node"`
+	Schema   json.RawMessage `json:"schema"`
+	Actions  []string        `json:"actions,omitempty"`
+	Degraded string          `json:"degraded,omitempty"` // non-empty => from last-good cache; plugin unreachable
 }
 
 // StackParams identifies the stack (compose project on a host) being viewed.
@@ -307,23 +283,9 @@ func (r *PluginsRouter) StackWidgets(ctx *rpc.Context, p *StackParams) ([]StackS
 		if !ok {
 			continue
 		}
-		ep, err := r.dial(ctx, host, representative(grp), rec.Token, false)
-		if err != nil {
-			continue // unreachable plugin — skip, don't fail the whole stack page
-		}
-		schemaRaw, err := ep.callRPC(ctx, "hope.schema", nil)
-		if err != nil {
-			continue
-		}
-		layoutRaw, err := ep.callRPC(ctx, "hope.layout", nil)
-		if err != nil {
-			continue
-		}
-		var sd schemaDoc
-		_ = json.Unmarshal(schemaRaw, &sd)
-		var ld layoutDoc
-		if err := json.Unmarshal(layoutRaw, &ld); err != nil {
-			continue
+		schemaRaw, sd, ld, degraded, ok := r.surfaceLayout(ctx, host, representative(grp), rec.Key, rec.Token)
+		if !ok {
+			continue // unreachable and never cached — nothing to render
 		}
 		ownStack := len(grp) > 0 && grp[0].Project == p.Project
 		for _, c := range ld.Contributions {
@@ -343,7 +305,7 @@ func (r *PluginsRouter) StackWidgets(ctx *rpc.Context, p *StackParams) ([]StackS
 			}
 			out = append(out, StackSurface{
 				Key: rec.Key, Name: sd.Name, Icon: icon, Title: title,
-				Node: c.Node, Schema: schemaRaw, Actions: c.Actions,
+				Node: c.Node, Schema: schemaRaw, Actions: c.Actions, Degraded: degraded,
 			})
 		}
 	}

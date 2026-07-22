@@ -27,6 +27,10 @@ type Widget = Surface & { host?: string; stack?: string; icon?: string };
   .wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 360px)); gap: 14px; align-items: start; }
   .wcard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; transition: border-color .12s ease; }
   .wcard:hover { border-color: var(--line2); }
+  .wcard.deg { border-color: color-mix(in srgb, var(--warn) 40%, var(--line2)); }
+  /* unreachable tag — plugin down, widget rendered from last-good cache */
+  .wtitle .wdeg { color: var(--warn); font: 9.5px/1.6 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line2)); padding: 1px 6px; }
   /* Two rows so the title breathes: name on top, its meta (plugin · host · stack)
      on a tidy line below instead of everything crammed onto one row. */
   .wtitle { display: flex; flex-direction: column; gap: 6px; padding: 10px 13px; border-bottom: 1px solid var(--line); }
@@ -101,7 +105,7 @@ export class HopePluginWidgets extends LoomElement {
         <div class="whead"><loom-icon name="plugin" size={12}></loom-icon>plugin widgets</div>
         <div class="wgrid">
           {shown.map((w) => (
-            <div class="wcard">
+            <div class={"wcard" + (w.degraded ? " deg" : "")}>
               <div class="wtitle">
                 <div class="wt">
                   <hope-plugin-icon plugin={w.key} name={w.icon || "plugin"} size={14}></hope-plugin-icon>
@@ -111,6 +115,7 @@ export class HopePluginWidgets extends LoomElement {
                   <span class="wsub">{w.name}</span>
                   {!this.host && w.host ? <span class="whost">{w.host}</span> : null}
                   {w.stack ? <span class="wstack">{w.stack}</span> : null}
+                  {w.degraded ? <span class="wdeg" tip={`plugin unreachable (${w.degraded}) — last-known panel`}>unreachable</span> : null}
                 </div>
               </div>
               <div class="wbody"><hope-plugin-surface surface={w}></hope-plugin-surface></div>

@@ -54,7 +54,7 @@ interface ViewDesc { method: string; label: string; kind: string; icon?: string;
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
-export interface Surface { key: string; name: string; title?: string; subtitle?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any> }
+export interface Surface { key: string; name: string; title?: string; subtitle?: string; node: Node; schema: Schema; actions?: string[]; breadcrumbs?: { label: string; to?: string }[]; param?: Record<string, any>; degraded?: string }
 
 type Cell = { loading: boolean; error?: string; data?: any };
 type TableState = { page: number; sort: number; dir: 1 | -1; filter: string };

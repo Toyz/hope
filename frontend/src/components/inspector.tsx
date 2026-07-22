@@ -71,6 +71,11 @@ const TABS: Tab[] = ["info", "logs", "processes", "mounts", "env", "networks", "
     font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; border-bottom: 2px solid transparent; }
   .tab:hover { color: var(--mid); }
   .tab.on { color: var(--hi); border-bottom-color: var(--upd); }
+  .tab.deg { color: var(--warn); }
+  .tab.deg::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--warn); margin-left: 6px; }
+  /* degraded banner — plugin unreachable, panel rendered from last-good cache */
+  .degb { margin: 10px 14px 0; padding: 8px 12px; color: var(--warn); font: 11.5px/1.5 var(--mono);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line2)); background: color-mix(in srgb, var(--warn) 8%, transparent); }
   .grow { flex: 1; }
   .acts { display: flex; align-items: stretch; border-left: 1px solid var(--line); }
   .pa { display: inline-flex; align-items: center; justify-content: center; width: 40px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
@@ -669,7 +674,13 @@ export class HopeInspector extends LoomElement {
     const t = this.tab;
     if (t.startsWith("plugin:")) {
       const s = this.pluginSurfaces.find((x) => `plugin:${x.key}` === t);
-      return s ? <hope-plugin-surface host={this.host} surface={s} reloadTick={this.pluginNonce}></hope-plugin-surface> : <div class="empty">plugin panel unavailable</div>;
+      if (!s) return <div class="empty">plugin panel unavailable</div>;
+      return (
+        <>
+          {s.degraded ? <div class="degb">plugin unreachable ({s.degraded}) — showing its last-known panel; live data is stale until it recovers</div> : null}
+          <hope-plugin-surface host={this.host} surface={s} reloadTick={this.pluginNonce}></hope-plugin-surface>
+        </>
+      );
     }
     if (t === "logs") {
       const term = this.logQ.trim();
@@ -904,7 +915,7 @@ export class HopeInspector extends LoomElement {
             {TABS.map((t) => <span class={"tab" + (this.tab === t ? " on" : "")} onClick={() => this.pick(t)}>{t}</span>)}
             {this.pluginSurfaces.map((s) => {
               const t: Tab = `plugin:${s.key}`;
-              return <span class={"tab" + (this.tab === t ? " on" : "")} onClick={() => this.pick(t)}>{s.title || s.name}</span>;
+              return <span class={"tab" + (this.tab === t ? " on" : "") + (s.degraded ? " deg" : "")} onClick={() => this.pick(t)}>{s.title || s.name}</span>;
             })}
           </div>
           <span class="grow"></span>
