@@ -21,7 +21,7 @@ import { HostContext } from "../host-context";
 import { withHost } from "../host-url";
 import { patchAt as patch } from "../util";
 import { HostChanged } from "../events";
-import { appBar } from "../app-bar";
+import { theme } from "../styles";
 import "../components/service-form";
 
 interface Row { key: number; initial: ContainerSpec; }
@@ -29,26 +29,50 @@ interface ResDecl { name: string; driver: string; }
 
 @route("/deploy/:host")
 @component("hope-deploy")
-@styles(css`
+@styles(theme, css`
   :host { display: block; min-height: 100%; background: var(--ink); }
-  .bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; height: 44px;
-    border-bottom: 1px solid var(--line); background: var(--ink); }
-  .bar .s { display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
-  .bar .back { display: flex; align-items: center; gap: 5px; color: var(--dim); font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
-  .bar .back:hover { color: var(--hi); }
-  .bar .grow { flex: 1; }
-  .bar .act { padding: 0; border-left: 1px solid var(--line); }
-  .bar .act button { height: 44px; padding: 0 16px; background: transparent; border: 0; color: var(--dim);
-    font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
-  .bar .act button:hover { color: var(--hi); background: var(--raised); }
+  .wrap { padding: 16px 28px 130px; }
 
-  main { padding: 28px 40px 96px; max-width: 1340px; margin: 0 auto; }
-  .dtarget { display: flex; align-items: center; gap: 9px; margin-bottom: 18px; padding: 10px 12px;
-    border: 1px solid var(--line); background: var(--raised); color: var(--dim); }
-  .dtarget loom-icon { color: var(--upd); }
-  .dtarget .lbl { font: 600 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
-  .dtarget select { margin-left: auto; padding: 6px 10px; background: var(--ink); color: var(--hi);
-    border: 1px solid var(--line2); font: 600 12px/1 var(--mono); cursor: pointer; }
+  /* deploy-target dropdown, lives in the phead actions slot */
+  .htarget { display: flex; align-items: center; gap: 8px; }
+  .htarget .lbl { font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .htarget hope-select { display: block; height: 30px; min-width: 150px; }
+
+  /* two-pane: form + sticky summary rail */
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 34px; align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .side { display: none; } }
+  .side { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* summary card */
+  .sum { border: 1px solid var(--line); background: var(--panel); }
+  .sum .sh { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line);
+    font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  .sum .sh loom-icon { color: var(--upd); }
+  .sum .sb { padding: 6px 0; }
+  .srow { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; padding: 6px 14px; font: 12px/1.5 var(--mono); }
+  .srow .k { color: var(--dim); }
+  .srow .v { color: var(--hi); min-width: 0; word-break: break-word; }
+  .srow .v.empty { color: var(--faint); }
+  .ssvc { padding: 9px 14px; border-top: 1px solid var(--line); }
+  .ssvc .n { display: flex; align-items: center; gap: 7px; font: 600 12px/1.4 var(--mono); color: var(--hi); }
+  .ssvc .n loom-icon { color: var(--dim); flex: none; }
+  .ssvc .img { margin: 3px 0 0 20px; font: 11px/1.5 var(--mono); color: var(--upd); word-break: break-all; }
+  .ssvc .tags { margin: 5px 0 0 20px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .stag { padding: 1px 7px; border: 1px solid var(--line2); font: 9.5px/1.6 var(--mono); letter-spacing: .04em;
+    text-transform: uppercase; color: var(--dim); }
+  .sempty { padding: 16px 14px; font: 11.5px/1.6 var(--mono); color: var(--faint); text-align: center; }
+  /* readiness pill */
+  .ready { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font: 11.5px/1.4 var(--mono); }
+  .ready::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .ready.ok { color: var(--ok); } .ready.ok::before { background: var(--ok); }
+  .ready.no { color: var(--warn); } .ready.no::before { background: var(--warn); }
+
+  /* sticky action footer, spans the form column */
+  .footbar { position: sticky; bottom: 0; z-index: 15; display: flex; align-items: center; gap: 10px;
+    margin-top: 26px; padding: 14px 0; border-top: 1px solid var(--line2);
+    background: linear-gradient(to top, var(--ink) 72%, transparent); }
+  .footbar .hint { font: 11.5px/1.4 var(--mono); color: var(--warn); }
+  .footbar .grow { flex: 1; }
   .tabs { display: flex; gap: 2px; margin-bottom: 22px; }
   .tab { padding: 9px 16px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer;
     font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
@@ -428,29 +452,134 @@ export class DeployPage extends LoomElement {
   };
 
   update() {
+    const stack = this.tab === "stack";
+    const connected = this.hostList.filter((h) => h.connected);
+    const hostOpts = connected.map((h) => ({ value: h.id, label: h.kind === "local" ? "local" : h.id + " · agent" }));
+    const target = this.host || this.hostCtx.token || "local";
     return (
       <div>
-        {appBar("deploy")}
-        <main>
-          {this.inFleet() ? (
-            <div class="dtarget">
-              <loom-icon name="server" size={13}></loom-icon>
+        <hope-phead
+          heading={this.editing ? "Edit stack" : "Deploy"}
+          scope={target}
+          meta={this.editing ? this.editing : stack ? "compose services into a managed stack" : "run a one-off container"}
+        >
+          {connected.length > 1 ? (
+            <div slot="actions" class="htarget">
               <span class="lbl">deploy to</span>
-              <select value={this.host} onChange={(e: any) => this.pickTarget(e.target.value)}>
-                {this.hostList.filter((h) => h.connected).map((h) => (
-                  <option value={h.id} selected={h.id === this.host}>{h.kind === "local" ? "local" : h.id}{h.kind === "local" ? "" : " · agent"}</option>
-                ))}
-              </select>
+              <hope-select options={hostOpts} value={this.host || target} onSelect={(e: any) => this.pickTarget(e.detail)}></hope-select>
             </div>
           ) : null}
+        </hope-phead>
+        <div class="wrap">
           {this.editing ? null : (
             <div class="tabs">
-              <button class={"tab" + (this.tab === "stack" ? " on" : "")} onClick={() => (this.tab = "stack")}>Stack</button>
-              <button class={"tab" + (this.tab === "container" ? " on" : "")} onClick={() => (this.tab = "container")}>Container</button>
+              <button class={"tab" + (stack ? " on" : "")} onClick={() => (this.tab = "stack")}>Stack</button>
+              <button class={"tab" + (!stack ? " on" : "")} onClick={() => (this.tab = "container")}>Container</button>
             </div>
           )}
-          {this.tab === "stack" ? this.renderStack() : this.renderContainer()}
-        </main>
+          <div class="grid">
+            <div class="formcol" {...{ onFocusout: () => this.syncPreview() }}>
+              {stack ? this.renderStack() : this.renderContainer()}
+              {this.renderFoot(stack)}
+            </div>
+            <aside class="side">{this.renderSummary(stack)}</aside>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // The stack's at-a-glance model, derived from synced state (rows[].initial is
+  // refreshed on focusout via syncPreview, so it tracks edits without racing keystrokes).
+  private stackSummary() {
+    const svcs = this.rows.map((r) => r.initial || { image: "" });
+    const nets = this.netDecls.map((n) => n.name.trim()).filter(Boolean);
+    const vols = this.volDecls.map((v) => v.name.trim()).filter(Boolean);
+    let reason = "";
+    if (!this.project.trim()) reason = "name the stack";
+    else if (!svcs.some((s) => s.image)) reason = "add a service image";
+    else if (svcs.some((s) => s.image && !s.name)) reason = "every service needs a name";
+    return { svcs, nets, vols, ready: !reason, reason };
+  }
+
+  // Re-read the service forms into rows[].initial so the summary reflects the latest
+  // typed values. Fires on focusout (a field lost focus) — never mid-keystroke, so it
+  // can't steal focus or reset a cursor.
+  private syncPreview() { this.syncRows(); }
+
+  private renderSummary(stack: boolean) {
+    if (!stack) {
+      return (
+        <div class="sum">
+          <div class="sh"><loom-icon name="box" size={12}></loom-icon>container</div>
+          <div class="sb">
+            <div class="srow"><span class="k">target</span><span class="v">{this.host || this.hostCtx.token || "local"}</span></div>
+            <div class="srow"><span class="k">image</span><span class={"v" + (this.oneoff.image ? "" : " empty")}>{this.oneoff.image || "not set"}</span></div>
+          </div>
+        </div>
+      );
+    }
+    const m = this.stackSummary();
+    const named = m.svcs.filter((s) => s.image);
+    return (
+      <>
+        <div class="sum">
+          <div class="sh"><loom-icon name="box" size={12}></loom-icon>stack</div>
+          <div class="sb">
+            <div class="srow"><span class="k">target</span><span class="v">{this.host || this.hostCtx.token || "local"}</span></div>
+            <div class="srow"><span class="k">name</span><span class={"v" + (this.project.trim() ? "" : " empty")}>{this.project.trim() || "unnamed"}</span></div>
+            <div class="srow"><span class="k">services</span><span class="v">{named.length || "—"}</span></div>
+          </div>
+          {named.length === 0 ? (
+            <div class="sempty">no services yet — add an image to begin</div>
+          ) : (
+            named.map((s) => {
+              const ports = (s.ports || []).length;
+              const env = Object.keys(s.env || {}).length;
+              const mounts = (s.mounts || []).length;
+              const netc = (s.networks || []).length;
+              return (
+                <div class="ssvc">
+                  <div class="n"><loom-icon name="box" size={12}></loom-icon>{s.name || "service"}</div>
+                  <div class="img">{s.image}</div>
+                  {ports || env || mounts || netc ? (
+                    <div class="tags">
+                      {ports ? <span class="stag">{ports} port{ports > 1 ? "s" : ""}</span> : null}
+                      {env ? <span class="stag">{env} env</span> : null}
+                      {mounts ? <span class="stag">{mounts} vol{mounts > 1 ? "s" : ""}</span> : null}
+                      {netc ? <span class="stag">{netc} net{netc > 1 ? "s" : ""}</span> : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+          {m.nets.length || m.vols.length ? (
+            <>
+              {m.nets.length ? <div class="srow" style="border-top:1px solid var(--line);padding-top:9px"><span class="k">networks</span><span class="v">{m.nets.join(", ")}</span></div> : null}
+              {m.vols.length ? <div class="srow"><span class="k">volumes</span><span class="v">{m.vols.join(", ")}</span></div> : null}
+            </>
+          ) : null}
+        </div>
+        <div class={"ready " + (m.ready ? "ok" : "no")}>{m.ready ? "ready to deploy" : m.reason}</div>
+      </>
+    );
+  }
+
+  private renderFoot(stack: boolean) {
+    const m = stack ? this.stackSummary() : null;
+    return (
+      <div class="footbar">
+        {stack && this.editing ? <hope-button icon="copy" size="sm" onClick={this.doExport}>Copy compose</hope-button> : null}
+        {stack && this.editing ? <hope-button tone="danger" icon="trash" size="sm" onClick={this.deleteStack}>Delete</hope-button> : null}
+        {m && !m.ready ? <span class="hint">{m.reason}</span> : null}
+        <span class="grow"></span>
+        <hope-button onClick={() => this.router.navigate(withHost(this.host || this.hostCtx.token, "/"))}>Cancel</hope-button>
+        {stack ? (
+          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployStack}>{this.editing ? "Apply changes" : "Deploy stack"}</hope-button>
+        ) : (
+          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployContainer}>Deploy container</hope-button>
+        )}
       </div>
     );
   }
@@ -460,10 +589,6 @@ export class DeployPage extends LoomElement {
       <hope-panel label="One-off container" icon="box">
         <p class="sub">Create a single container on the active host. For a grouped, editable app, use the Stack tab.</p>
         <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
-        <div class="foot">
-          <span class="grow"></span>
-          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployContainer}>Deploy container</hope-button>
-        </div>
       </hope-panel>
     );
   }
@@ -524,14 +649,6 @@ export class DeployPage extends LoomElement {
           ))}
           <hope-button icon="plus" size="sm" onClick={() => (this.volDecls = [...this.volDecls, { name: "", driver: "" }])}>volume</hope-button>
         </hope-panel>
-
-        <div class="foot">
-          {this.editing ? <hope-button icon="copy" onClick={this.doExport}>Copy as compose</hope-button> : null}
-          {this.editing ? <hope-button tone="danger" icon="trash" onClick={this.deleteStack}>Delete stack</hope-button> : null}
-          <span class="grow"></span>
-          <hope-button onClick={() => this.router.navigate(withHost(this.host || this.hostCtx.token, "/"))}>Cancel</hope-button>
-          <hope-button tone="primary" solid={true} icon="rocket" onClick={this.deployStack}>{this.editing ? "Apply changes" : "Deploy stack"}</hope-button>
-        </div>
       </div>
     );
   }
