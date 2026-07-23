@@ -28,7 +28,16 @@ export type PromptField = {
   // Dynamic options computed from the current field values (dependent selects).
   // When `dependsOn` changes, this field's value is cleared and options recomputed.
   optionsFrom?: (values: Record<string, string>) => PromptOption[];
+  // Async options from a plugin RPC (Plugin.Options), computed from the CURRENT values —
+  // runPluginAction wires this from `optionsMethod`. Fetched when the form opens and
+  // re-fetched whenever `dependsOn` changes, so a cascading select narrows by an earlier
+  // pick. Returns the choices; the modal caches them per field.
+  optionsFetch?: (values: Record<string, string>) => Promise<PromptOption[]>;
   dependsOn?: string;
+  // With `dependsOn`: the field renders ONLY when values[dependsOn] === dependsValue —
+  // or, when dependsValue is empty, when values[dependsOn] is non-empty. Lets a form
+  // reveal fields based on an earlier choice.
+  dependsValue?: string;
   // When `dependsOn` changes, prefill this field's value from the new values
   // (e.g. auto-populate a detected port) instead of clearing it.
   defaultFrom?: (values: Record<string, string>) => string;

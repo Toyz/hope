@@ -46,23 +46,27 @@ interface PluginResult {
   refetch?: boolean;
 }
 
-// resolveFieldOptions pre-fetches RPC-populated select options: for any field with an
-// optionsMethod, call the plugin (a read — unaudited) to get its choices and inject
-// them as the field's options before the form opens. Fields without one pass through.
-// A failed fetch yields an empty list so the form still opens (the select is just empty).
-async function resolveFieldOptions(deps: RunDeps, surfaceKey: string, fields: PromptField[]): Promise<PromptField[]> {
-  if (!fields.some((f) => f.optionsMethod)) return fields;
-  return Promise.all(
-    fields.map(async (f) => {
-      if (!f.optionsMethod) return f;
-      try {
-        const opts = await deps.rpc.call<PromptOption[]>("Plugins", "call", [{ key: surfaceKey, method: f.optionsMethod, audit: false }]);
-        return { ...f, options: Array.isArray(opts) ? opts : [] };
-      } catch {
-        return { ...f, options: [] };
-      }
-    }),
-  );
+// attachFieldOptions wires an async optionsFetch on any field with an optionsMethod: the
+// modal calls it with the CURRENT values (when the form opens, and again when a dependsOn
+// field changes), so a cascading select narrows its choices by an earlier pick. The
+// plugin's Options(ctx) reads those values via Params(ctx) — same wiring as a resolve
+// method. No static pre-fetch: the modal owns the lifecycle so it stays live.
+function attachFieldOptions(deps: RunDeps, surfaceKey: string, fields: PromptField[]): PromptField[] {
+  return fields.map((f) => {
+    if (!f.optionsMethod) return f;
+    const method = f.optionsMethod;
+    return {
+      ...f,
+      optionsFetch: async (vals: Record<string, string>) => {
+        try {
+          const opts = await deps.rpc.call<PromptOption[]>("Plugins", "call", [{ key: surfaceKey, method, args: vals, audit: false }]);
+          return Array.isArray(opts) ? opts : [];
+        } catch {
+          return [];
+        }
+      },
+    };
+  });
 }
 
 // runPluginAction runs an action and returns a structured ActionOutcome, or
@@ -78,7 +82,7 @@ export async function runPluginAction(
 ): Promise<ActionOutcome | undefined> {
   let values: Record<string, any> | undefined;
   if (a.fields && a.fields.length) {
-    const fields = await resolveFieldOptions(deps, surfaceKey, a.fields);
+    const fields = attachFieldOptions(deps, surfaceKey, a.fields);
     // Selector->surface: if a field names a resolve method, wire a resolver that calls
     // the plugin with the current values and returns a component surface for the modal
     // to render inline. Closes over the RPC so the generic prompt stays rpc-free.

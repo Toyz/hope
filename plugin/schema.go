@@ -242,6 +242,13 @@ type Field struct {
 	// the "+ add" button.
 	Fields   []Field `json:"fields,omitempty"`
 	AddLabel string  `json:"addLabel,omitempty"`
+	// DependsOn conditionally shows this field: it renders ONLY when the field named by
+	// DependsOn currently equals DependsValue — or, when DependsValue is empty, when that
+	// field is non-empty/truthy. Combine with OptionsMethod (which reads Params for the
+	// current values) for cascading selects: choose A, and B's options refetch narrowed by
+	// A — and B can stay hidden until A is set. camelCase to match hope's PromptField.
+	DependsOn    string `json:"dependsOn,omitempty"`
+	DependsValue string `json:"dependsValue,omitempty"`
 }
 
 // Schema is the plugin's identity + capability manifest — the result of the fixed

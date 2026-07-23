@@ -9,7 +9,7 @@ import { signalModal } from "../modal";
 // silently broke the shared modal machinery (prompt/confirm/proc). The
 // <hope-plugin-surface> tag used for selector->surface fields resolves from that
 // global registration.
-import type { PromptOpts, ResolvedSurface, PromptField } from "../prompt";
+import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../prompt";
 
 @styles(theme, css`
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
@@ -71,6 +71,29 @@ export default class PromptModalImpl extends LoomElement {
   private resolveSeq = 0;
   // Repeatable groups: per group-field key, the array of row value-maps (a forms-builder).
   @reactive accessor groups: Record<string, Record<string, string>[]> = {};
+  // RPC-fetched select options per field key (optionsFetch): filled on open + re-fetched
+  // when a field's dependsOn changes, so a cascading select narrows by an earlier pick.
+  @reactive accessor liveOpts: Record<string, PromptOption[]> = {};
+
+  // Fetch options for fields with optionsFetch, using the current values. changedKey
+  // limits it to that field's dependents (after a change); omitted = every such field.
+  private async fetchOpts(changedKey?: string) {
+    const vals = { ...this.values };
+    await Promise.all(this.opts.fields.map(async (f) => {
+      if (!f.optionsFetch) return;
+      if (changedKey && f.dependsOn !== changedKey) return; // only re-fetch dependents
+      try { this.liveOpts = { ...this.liveOpts, [f.key]: (await f.optionsFetch!(vals)) || [] }; }
+      catch { this.liveOpts = { ...this.liveOpts, [f.key]: [] }; }
+    }));
+  }
+
+  // A field shows unless a dependsOn condition hides it: with dependsValue, only when the
+  // dependency equals it; without, only when the dependency is non-empty.
+  private shown(f: PromptField): boolean {
+    if (!f.dependsOn) return true;
+    const dv = this.values[f.dependsOn] ?? "";
+    return f.dependsValue ? dv === f.dependsValue : !!dv;
+  }
 
   @watch("open") private lockBody() { signalModal(this, this.open); }
   @unmount private releaseBody() { signalModal(this, false); }
@@ -86,10 +109,12 @@ export default class PromptModalImpl extends LoomElement {
     }
     this.values = v;
     this.groups = g;
+    this.liveOpts = {};
     this.err = "";
     this.resolved = null;
     this.resolveSeq++;
     this.open = true;
+    if (o.fields.some((f) => f.optionsFetch)) void this.fetchOpts(); // initial RPC options
     if (o.resolve) this.runResolve(); // initial surface (honors any default field values)
     return new Promise((resolve) => (this.resolver = resolve));
   }
@@ -132,6 +157,8 @@ export default class PromptModalImpl extends LoomElement {
       if (f.dependsOn === key) next[f.key] = f.defaultFrom ? f.defaultFrom(next) : "";
     }
     this.values = next;
+    // Cascading: re-fetch options for any field that depends on the one that changed.
+    if (this.opts.fields.some((f) => f.optionsFetch && f.dependsOn === key)) void this.fetchOpts(key);
     // Re-resolve the inline surface on a DISCRETE change (select/toggle/kv) — not on
     // every text keystroke, which would storm the plugin with RPCs.
     if (this.opts.resolve) {
@@ -159,7 +186,7 @@ export default class PromptModalImpl extends LoomElement {
   // Renders one field's control (no label/wrapper). Shared by top-level fields and
   // group rows: `val` is the current value, `onSet` writes it, `scope` feeds optionsFrom.
   private control(f: PromptField, val: string, onSet: (v: string) => void, scope: Record<string, string>) {
-    if (f.type === "select") return <hope-select options={f.optionsFrom ? f.optionsFrom(scope) : f.options || []} value={val} placeholder={f.placeholder || "—"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
+    if (f.type === "select") return <hope-select options={this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || [])} value={val} placeholder={f.placeholder || "—"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
     if (f.type === "toggle") return (
       <span class={"tog" + (val === "true" ? " on" : "")} onClick={() => onSet(val === "true" ? "false" : "true")}>
         <span class="sw"></span><span class="tlabel">{f.label}</span><span class="tl">{val === "true" ? "on" : "off"}</span>
@@ -173,6 +200,8 @@ export default class PromptModalImpl extends LoomElement {
   private submit = () => {
     const out = { ...this.values };
     for (const f of this.opts.fields) {
+      // A hidden (dependsOn unmet) field isn't required and doesn't submit a stale value.
+      if (!this.shown(f)) { delete out[f.key]; continue; }
       if (f.type === "group") {
         const rows = this.groups[f.key] || [];
         if (!f.optional && rows.length === 0) {
@@ -203,6 +232,7 @@ export default class PromptModalImpl extends LoomElement {
           {o.message ? <p class="msg">{o.message}</p> : null}
           <div class="fields">
             {o.fields.map((f) =>
+              !this.shown(f) ? null :
               f.type === "group" ? (
                 <div class="field group">
                   <label>{f.label}</label>
