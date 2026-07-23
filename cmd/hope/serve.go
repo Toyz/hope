@@ -440,7 +440,7 @@ func runServe(configPath string) error {
 	gw.MustUse(hosttarget.New())
 
 	// Live log/stat NDJSON streams for the loom-rpc @stream transport.
-	gw.MustUse(logstream.New(hostSet, tokens, deployEngine, eventBus))
+	gw.MustUse(logstream.New(hostSet, tokens, deployEngine, eventBus, auditor))
 
 	// Global event feed: one long-lived NDJSON stream of state-change events (the
 	// bus fanned out to the UI). Registered beside the other stream handlers.

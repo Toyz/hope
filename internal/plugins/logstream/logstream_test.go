@@ -15,6 +15,7 @@ import (
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
@@ -83,7 +84,7 @@ func (m *mockDock) RecreateFromSpec(ctx context.Context, id string, spec stacksp
 // pluginWith builds a Plugin over a docker.API double plus a token manager and
 // (optional) deploy engine + bus.
 func pluginWith(dock docker.API, tm *auth.TokenManager, eng *deploy.Engine, bus *events.Bus) *Plugin {
-	return New(hosts.New(dock, true, nil), tm, eng, bus)
+	return New(hosts.New(dock, true, nil), tm, eng, bus, nil)
 }
 
 func newTM(t *testing.T) *auth.TokenManager {
@@ -702,7 +703,7 @@ func TestServeRoute_DeployContainerSuccess(t *testing.T) {
 		return "newid", nil
 	}}
 	eng := deploy.NewEngine(hosts.New(engineDock, true, nil), nil, bus)
-	p := New(hosts.New(&mockDock{}, true, nil), tm, eng, bus)
+	p := New(hosts.New(&mockDock{}, true, nil), tm, eng, bus, nil)
 
 	resp := p.ServeRoute(context.Background(), post(t, tm, pathDeployCont, []string{`{"image":"nginx"}`}, hosts.LocalID))
 	frames := decodeNDJSON[opFrame](t, readStream(t, resp))
@@ -736,7 +737,7 @@ func TestStreamLogs(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		}
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamLogs(context.Background(), "cid")
 	frames := decodeNDJSON[logFrame](t, readStream(t, resp))
 	if len(frames) != 2 {
@@ -754,7 +755,7 @@ func TestStreamLogs_OpenError(t *testing.T) {
 	dock := fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamLogs(context.Background(), "cid")
 	if resp.Status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.Status)
@@ -770,7 +771,7 @@ func TestStreamStats(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamStats(context.Background(), "cid")
 	frames := decodeNDJSON[map[string]any](t, readStream(t, resp))
 	if len(frames) != 2 {
@@ -785,7 +786,7 @@ func TestStreamStats_OpenError(t *testing.T) {
 	dock := fakeDockerClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamStats(context.Background(), "cid")
 	if resp.Status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.Status)
@@ -815,7 +816,7 @@ func TestStreamMulti_BacklogMergedAndTagged(t *testing.T) {
 			_, _ = w.Write(stdFrames(stdcopy.Stdout, early))
 		}
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	refs := []docker.ContainerRef{
 		{ID: "web", Name: "web"},
 		{ID: "db", Name: "db"},
@@ -848,7 +849,7 @@ func TestServeRoute_LogsHappyPath(t *testing.T) {
 		}
 	})
 	tm := newTM(t)
-	p := New(hosts.New(dock, true, nil), tm, nil, nil)
+	p := New(hosts.New(dock, true, nil), tm, nil, nil, nil)
 	resp := p.ServeRoute(context.Background(), post(t, tm, pathLogs, []string{"cid"}, hosts.LocalID))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.Status)
@@ -871,7 +872,7 @@ func TestServeRoute_StatsHappyPath(t *testing.T) {
 		}
 	})
 	tm := newTM(t)
-	p := New(hosts.New(dock, true, nil), tm, nil, nil)
+	p := New(hosts.New(dock, true, nil), tm, nil, nil, nil)
 	resp := p.ServeRoute(context.Background(), post(t, tm, pathStats, []string{"cid"}, hosts.LocalID))
 	if resp.Status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.Status)
@@ -927,7 +928,7 @@ func TestStreamMulti_FollowError(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(stdFrames(stdcopy.Stdout, "2021-01-01T00:00:00.000000000Z hi\n"))
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamMulti(context.Background(), []docker.ContainerRef{{ID: "c", Name: "c"}})
 	frames := decodeNDJSON[logFrame](t, readStream(t, resp))
 	if len(frames) != 1 || frames[0].Source != "c" {
@@ -960,7 +961,7 @@ func TestStreamMulti_BacklogErrors(t *testing.T) {
 				}
 				backlog(w)
 			})
-			p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+			p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 			resp := p.streamMulti(context.Background(), []docker.ContainerRef{{ID: "c", Name: "c"}})
 			frames := decodeNDJSON[logFrame](t, readStream(t, resp))
 			if len(frames) != 0 {
@@ -981,7 +982,7 @@ func TestStreamStats_DecodeError(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(dock, true, nil), newTM(t), nil, nil, nil)
 	resp := p.streamStats(context.Background(), "cid")
 	if _, err := io.ReadAll(resp.Stream); err == nil {
 		t.Fatal("expected read error from malformed stats stream")
@@ -1132,10 +1133,10 @@ func TestNdjsonResponse(t *testing.T) {
 // streamOp finishes with a done{ok:false,error} frame when the op returns an
 // error, exercised here directly with a synthetic run func.
 func TestStreamOp_Direct(t *testing.T) {
-	p := New(hosts.New(&mockDock{}, true, nil), newTM(t), nil, nil)
+	p := New(hosts.New(&mockDock{}, true, nil), newTM(t), nil, nil, nil)
 
 	t.Run("success", func(t *testing.T) {
-		resp := p.streamOp(context.Background(), func(_ context.Context, emit func(string)) error {
+		resp := p.streamOp(context.Background(), audit.Entry{}, func(_ context.Context, emit func(string)) error {
 			emit("one")
 			emit("two")
 			return nil
@@ -1147,7 +1148,7 @@ func TestStreamOp_Direct(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		resp := p.streamOp(context.Background(), func(_ context.Context, _ func(string)) error {
+		resp := p.streamOp(context.Background(), audit.Entry{}, func(_ context.Context, _ func(string)) error {
 			return errors.New("nope")
 		})
 		frames := decodeNDJSON[opFrame](t, readStream(t, resp))
@@ -1199,7 +1200,7 @@ func TestConstantsAndMetadata(t *testing.T) {
 		t.Fatalf("multiTail = %q, want 60", multiTail)
 	}
 
-	p := New(nil, nil, nil, nil)
+	p := New(nil, nil, nil, nil, nil)
 	if p.PluginName() != "logstream" {
 		t.Fatalf("PluginName = %q", p.PluginName())
 	}

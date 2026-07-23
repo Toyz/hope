@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -23,6 +24,7 @@ import (
 	"github.com/Toyz/sov/gateway"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/toyz/hope/internal/audit"
 	"github.com/toyz/hope/internal/auth"
 	"github.com/toyz/hope/internal/deploy"
 	"github.com/toyz/hope/internal/docker"
@@ -68,10 +70,11 @@ const multiTail = "60"
 
 // Plugin streams logs/stats for a container.
 type Plugin struct {
-	hosts  *hosts.Set
-	tokens *auth.TokenManager
-	deploy *deploy.Engine
-	bus    *events.Bus // nil-safe: publishes redeploy/pull outcomes to the global feed
+	hosts   *hosts.Set
+	tokens  *auth.TokenManager
+	deploy  *deploy.Engine
+	bus     *events.Bus    // nil-safe: publishes redeploy/pull outcomes to the global feed
+	auditor *audit.Auditor // nil-safe: records the streaming mutation outcomes
 }
 
 // dock is the docker client for the currently-active host.
@@ -87,8 +90,8 @@ var (
 
 // New returns the logstream plugin (active-host aware). eng drives the streaming
 // deploy operations (apply/deploy/destroy).
-func New(hs *hosts.Set, tm *auth.TokenManager, eng *deploy.Engine, bus *events.Bus) *Plugin {
-	return &Plugin{hosts: hs, tokens: tm, deploy: eng, bus: bus}
+func New(hs *hosts.Set, tm *auth.TokenManager, eng *deploy.Engine, bus *events.Bus, aud *audit.Auditor) *Plugin {
+	return &Plugin{hosts: hs, tokens: tm, deploy: eng, bus: bus, auditor: aud}
 }
 
 // PluginName surfaces in /rpc/_introspect.plugins[].
@@ -110,7 +113,8 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 	if req.Method != http.MethodPost {
 		return errResp(http.StatusMethodNotAllowed, "POST required")
 	}
-	if _, err := p.authenticate(req); err != nil {
+	subject, err := p.authenticate(req)
+	if err != nil {
 		return errResp(http.StatusUnauthorized, err.Error())
 	}
 	// Honor a per-request host target (headless streaming) — the RouteHandler path
@@ -172,7 +176,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		id := args[0]
 		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "redeploy", id, "", "", false), func(ctx context.Context, emit func(string)) error {
 			err := p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindStackRedeployed, Host: p.hosts.ActiveIDFor(ctx), IDs: []string{id}})
@@ -187,7 +191,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		project := args[0]
 		pull := !(len(args) > 1 && args[1] == "false")
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatStack, "redeploy", "", project, "", false), func(ctx context.Context, emit func(string)) error {
 			err := p.dock(ctx).RedeployProject(ctx, project, pull, force, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindStackRedeployed, Host: p.hosts.ActiveIDFor(ctx), Project: project})
@@ -200,7 +204,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		ids := append([]string(nil), args...)
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error {
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatImage, "pull", "", "", fmt.Sprintf("%d container(s)", len(ids)), false), func(ctx context.Context, emit func(string)) error {
 			err := p.dock(ctx).PullContainers(ctx, ids, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: p.hosts.ActiveIDFor(ctx), IDs: ids})
@@ -210,7 +214,11 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 
 	case pathPruneImages:
 		all := len(args) > 0 && args[0] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).PruneImagesStream(ctx, all, emit) })
+		scope := "dangling"
+		if all {
+			scope = "unused"
+		}
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatImage, "prune", "", "", scope, true), func(ctx context.Context, emit func(string)) error { return p.dock(ctx).PruneImagesStream(ctx, all, emit) })
 
 	case pathApplyStack:
 		if p.deploy == nil {
@@ -223,7 +231,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad stack spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, false, emit) })
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatStack, "deploy", "", spec.Name, "", false), func(ctx context.Context, emit func(string)) error { return p.deploy.ApplyStack(ctx, &spec, false, emit) })
 
 	case pathDeployCont:
 		if p.deploy == nil {
@@ -236,7 +244,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.DeployContainer(ctx, spec, emit) })
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "deploy", spec.Name, "", "", false), func(ctx context.Context, emit func(string)) error { return p.deploy.DeployContainer(ctx, spec, emit) })
 
 	case pathDestroyStack:
 		if p.deploy == nil {
@@ -247,7 +255,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		}
 		project := args[0]
 		prune := len(args) > 1 && args[1] == "true"
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatStack, "destroy", "", project, "", true), func(ctx context.Context, emit func(string)) error { return p.deploy.Destroy(ctx, project, prune, emit) })
 
 	case pathEditContainer:
 		if len(args) < 2 {
@@ -261,7 +269,7 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[1]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "edit", id, "", "", false), func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
@@ -288,12 +296,23 @@ const keepAlive = 15 * time.Second
 // legitimately minutes long.
 const opTimeout = 30 * time.Minute
 
+// opAudit builds the base audit entry for a streaming mutation — operator-sourced,
+// pinned to the active host and the acting subject. streamOp stamps OK/Err/outcome
+// once the op finishes.
+func (p *Plugin) opAudit(ctx context.Context, subject, cat, action, target, project, detail string, danger bool) audit.Entry {
+	return audit.Entry{
+		Actor: subject, Source: audit.SourceOperator,
+		Category: cat, Action: action, Host: p.hosts.ActiveIDFor(ctx),
+		Target: target, Project: project, Detail: detail, Danger: danger,
+	}
+}
+
 // streamOp runs a long operation, forwarding each progress line as an opFrame and
 // finishing with a terminal done frame (so the client knows the outcome even
 // though the HTTP status is already committed). The op runs in a goroutine so the
 // main loop can emit keepalive pings while it's blocked on a silent step; writes
 // are serialized so the two goroutines never interleave a frame.
-func (p *Plugin) streamOp(ctx context.Context, run func(context.Context, func(string)) error) *gateway.Response {
+func (p *Plugin) streamOp(ctx context.Context, ae audit.Entry, run func(context.Context, func(string)) error) *gateway.Response {
 	// Detach the op from the REQUEST context. net/http cancels r.Context() the moment
 	// the client disconnects — and when the client reaches hope THROUGH the very
 	// tunnel/connector this op is recreating, the first destructive step (stop/remove)
@@ -323,6 +342,12 @@ func (p *Plugin) streamOp(ctx context.Context, run func(context.Context, func(st
 		for {
 			select {
 			case err := <-done:
+				// Record the outcome now that it's known (Actor/Source/Host/Category were
+				// captured when the op started). ctx keeps the request values though its
+				// cancellation is stripped; Record needs neither.
+				ae.OK = err == nil
+				ae.Err = audit.ErrStr(err)
+				p.auditor.Record(ctx, ae)
 				if err != nil {
 					return write(opFrame{Type: "done", OK: false, Error: err.Error()})
 				}
