@@ -66,6 +66,11 @@ interface PluginManifest {
   .col { min-width: 0; min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); }
   .col:last-child { border-right: 0; }
   .ctitle { padding: 13px 15px 9px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+  .tokhint { padding: 2px 15px 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .tokhint .th { color: var(--dim); font: 11px/1.55 var(--mono); }
+  .tokbox { padding: 2px 15px 12px; display: flex; align-items: center; gap: 10px; }
+  .tokbox .tok { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 8px 10px; background: var(--ink);
+    border: 1px solid var(--line2); color: var(--upd); font: 11px/1.4 var(--mono); }
   .ctitle.sep { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 13px; }
   .row { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 14px; padding: 6px 16px; font: 12px/1.5 var(--mono); align-items: baseline; }
   .row .k { color: var(--dim); }
@@ -145,6 +150,8 @@ export class HopePluginInspector extends LoomElement {
   // Configuration (env) — only for a hope-INSTALLED plugin (has a catalog id + stored
   // spec). Editing env recreates the container; empty for hand-labeled plugins.
   @reactive accessor config: PluginConfig | null = null;
+  // Revealed reverse-channel token (HOPE_PLUGIN_TOKEN) for configuring a self-deployed plugin.
+  @reactive accessor revToken = "";
 
   // Operations — in-memory metrics + the durable audit trail (both already recorded by
   // hope; this surfaces them). Fetched alongside the manifest for an enabled plugin.
@@ -177,6 +184,7 @@ export class HopePluginInspector extends LoomElement {
     this.settings = [];
     this.settingVals = {};
     this.config = null;
+    this.revToken = "";
     this.manifestErr = "";
     this.metric = null;
     this.audit = [];
@@ -204,6 +212,20 @@ export class HopePluginInspector extends LoomElement {
       if (key === this.key) this.config = cfg;
     } catch { if (key === this.key) this.config = null; }
   }
+
+  // Reveal the reverse-channel token so a self-deployed plugin can be configured with it.
+  private revealToken = async () => {
+    try {
+      const t = await this.rpc.call<{ env: string; token: string }>("Plugins", "token", [{ key: this.key }]);
+      this.revToken = t?.token || "";
+      if (!this.revToken) this.toast.error("no token — is the state store mounted?");
+    } catch (e: any) { this.toast.error(e?.message ?? "couldn't derive token"); }
+  };
+  private copyToken = () => {
+    if (!this.revToken) return;
+    void navigator.clipboard?.writeText("HOPE_PLUGIN_TOKEN=" + this.revToken);
+    this.toast.ok("copied");
+  };
 
   // Fetch this plugin's observability: in-memory metrics (returned for all plugins,
   // filtered to this key) + its audit trail. Non-fatal — no store just means no audit.
@@ -457,6 +479,23 @@ export class HopePluginInspector extends LoomElement {
                       <span class="v">{f.kind === "secret" ? "••••••" : (this.config!.values[f.key] || f.default || "—")}</span>
                     </div>
                   ))}
+                </>
+              ) : null}
+
+              {v.present && this.storeOn ? (
+                <>
+                  <div class="ctitle sep">reverse-channel token</div>
+                  {this.revToken ? (
+                    <div class="tokbox">
+                      <code class="tok">HOPE_PLUGIN_TOKEN={this.revToken}</code>
+                      <button class="edit" onClick={this.copyToken}><loom-icon name="copy" size={12}></loom-icon>copy</button>
+                    </div>
+                  ) : (
+                    <div class="tokhint">
+                      <span class="th">A plugin deployed OUTSIDE the marketplace sets this env so it can authenticate + call back (publish/storage/actions). Leave it unset to trust-on-first-use, or set this exact value if the image bakes a token.</span>
+                      <button class="edit" onClick={this.revealToken}><loom-icon name="key" size={12}></loom-icon>reveal</button>
+                    </div>
+                  )}
                 </>
               ) : null}
 

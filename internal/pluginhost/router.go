@@ -332,6 +332,33 @@ type TargetParams struct {
 
 func (p *TargetParams) valid() bool { return p != nil && p.Key != "" }
 
+// TokenInfo is the reverse-channel credential a self-deployed plugin needs.
+type TokenInfo struct {
+	Env   string `json:"env"`   // the env var to set ("HOPE_PLUGIN_TOKEN")
+	Token string `json:"token"` // its value, derived from hope's secret + the identity
+}
+
+// Token reveals the reverse-channel bearer for a plugin's stable identity — the value a
+// plugin deployed OUTSIDE the marketplace must set as HOPE_PLUGIN_TOKEN so it can (a)
+// verify hope's calls and (b) call back (publish/storage/actions). hope derives it from
+// its secret, so the operator can't compute it themselves — this surfaces it. Marketplace
+// installs get it injected automatically; a self-hosted plugin that leaves the env UNSET
+// works too (the SDK trust-on-first-use pins hope's token), but a plugin that bakes a
+// WRONG token rejects hope — this is how the operator sets the right one. Operator-gated;
+// the token is never otherwise exposed.
+func (r *PluginsRouter) Token(ctx *rpc.Context, p *TargetParams) (*TokenInfo, error) {
+	if err := r.gate(); err != nil {
+		return nil, err
+	}
+	if !p.valid() {
+		return nil, rpc.BadRequest("key is required")
+	}
+	if !r.store.Enabled() {
+		return nil, rpc.BadRequest("the state store must be mounted ([store] path) to derive a plugin token")
+	}
+	return &TokenInfo{Env: "HOPE_PLUGIN_TOKEN", Token: r.store.DeriveToken(p.Key)}, nil
+}
+
 // pluginChangeData is the optional payload on a plugin.changed event: which plugin
 // and what happened. The frontend's PluginsChanged carries no payload (it just
 // refetches), so this is only for future/plugin consumers.
