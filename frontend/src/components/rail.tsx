@@ -78,7 +78,7 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   .scope { color: var(--dim); font: 500 9.5px/1 var(--mono); letter-spacing: .1em; }
 
   .node { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; cursor: pointer;
-    position: relative; color: var(--mid); white-space: nowrap; font: 500 12.5px/1 var(--mono); }
+    position: relative; color: var(--mid); white-space: nowrap; font: 500 12.5px/1.5 var(--mono); }
   .node:hover { background: var(--raised); color: var(--hi); }
   .node.sel { background: color-mix(in srgb, var(--upd) 15%, transparent); color: var(--hi); }
   .node.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
@@ -111,7 +111,7 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   .dot.off { background: var(--bad); opacity: .4; }
 
   .rlink { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 12px 0 14px; cursor: pointer;
-    color: var(--mid); font: 500 12.5px/1 var(--mono); text-decoration: none; }
+    color: var(--mid); font: 500 12.5px/1.5 var(--mono); text-decoration: none; }
   .rlink:hover { background: var(--raised); color: var(--hi); }
   .rlink.on { background: color-mix(in srgb, var(--upd) 15%, transparent); color: var(--hi); position: relative; }
   .rlink.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--upd); }
