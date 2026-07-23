@@ -31,6 +31,8 @@ export type ConnectorOpt = Option;
     color: var(--hi); font: 13px/1 var(--mono); padding: 0 11px; }
   input::placeholder { color: var(--dim); }
   input:focus { outline: none; border-color: var(--line2); }
+  input[readonly] { color: var(--upd); background: var(--raised); cursor: default; }
+  input[readonly]:focus { border-color: var(--line); }
   hope-select { display: block; height: 38px; }
   .sec { margin-top: 16px; }
   .sec > .lab { display: flex; align-items: center; gap: 8px; font: 600 9.5px/1 var(--mono); letter-spacing: .16em;
@@ -93,7 +95,7 @@ export class HopeServiceForm extends LoomElement {
   @reactive accessor connectors: ConnectorOpt[] = []; // tunnel connectors (empty = hide tunnels)
   @reactive accessor zones: string[] = []; // Cloudflare domains for the subdomain|domain picker
   @reactive accessor showName = true; // one-off container hides the service name
-  @reactive accessor hideImage = false; // Dockerfile-build mode: the image is built, not entered
+  @reactive accessor builtImage = ""; // Dockerfile-build mode: the image is built — show this tag read-only
 
   @reactive accessor name = "";
   @reactive accessor image = "";
@@ -260,17 +262,19 @@ export class HopeServiceForm extends LoomElement {
       <div>
         <div class="grid">
           {this.showName ? (
-            <div class={"f" + (this.hideImage ? " wide" : "")}>
-              <label>{this.hideImage ? "container name" : "service name"}</label>
+            <div class="f">
+              <label>service name</label>
               <input type="text" placeholder="web" value={this.name} onInput={(e: any) => (this.name = e.target.value)} />
             </div>
           ) : null}
-          {this.hideImage ? null : (
-            <div class={"f" + (this.showName ? "" : " wide")}>
-              <label>image</label>
+          <div class={"f" + (this.showName ? "" : " wide")}>
+            <label>{this.builtImage ? "image (built from Dockerfile)" : "image"}</label>
+            {this.builtImage ? (
+              <input type="text" readonly value={this.builtImage} title="hope builds this image from your Dockerfile" />
+            ) : (
               <input type="text" placeholder="nginx:latest" value={this.image} onInput={(e: any) => (this.image = e.target.value)} />
-            </div>
-          )}
+            )}
+          </div>
           <div class="f">
             <label>restart policy</label>
             <hope-select

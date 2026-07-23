@@ -642,11 +642,11 @@ export class DeployPage extends LoomElement {
             ) : null}
             <div class="buildout">
               <loom-icon name="box" size={14}></loom-icon>
-              <span>hope builds this into a local image <b>hope-local/{this.oneoff.name || "‹name›"}</b> and runs it — no registry, no build context.</span>
+              <span>hope builds this Dockerfile into a local image and runs it — no registry, and no build context, so COPY/ADD from local paths won't resolve.</span>
             </div>
           </>
         ) : null}
-        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} hideImage={this.dfMode} connectors={[]}></hope-service-form>
+        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} builtImage={this.dfMode ? "hope-local/" + (this.oneoff.name || "app") : ""} connectors={[]}></hope-service-form>
       </hope-panel>
     );
   }
