@@ -176,7 +176,8 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		id := args[0]
 		pull := !(len(args) > 1 && args[1] == "false") // pull unless explicitly off
 		force := len(args) > 2 && args[2] == "true"
-		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "redeploy", id, "", "", false), func(ctx context.Context, emit func(string)) error {
+		rname, rproj := p.nameProject(ctx, id)
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "redeploy", rname, rproj, "", false), func(ctx context.Context, emit func(string)) error {
 			err := p.dock(ctx).RedeployContainer(ctx, id, pull, force, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindStackRedeployed, Host: p.hosts.ActiveIDFor(ctx), IDs: []string{id}})
@@ -204,7 +205,11 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			return errResp(http.StatusBadRequest, "container id required")
 		}
 		ids := append([]string(nil), args...)
-		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatImage, "pull", "", "", fmt.Sprintf("%d container(s)", len(ids)), false), func(ctx context.Context, emit func(string)) error {
+		ptarget, pproj := "", ""
+		if len(ids) == 1 {
+			ptarget, pproj = p.nameProject(ctx, ids[0])
+		}
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatImage, "pull", ptarget, pproj, fmt.Sprintf("%d container(s)", len(ids)), false), func(ctx context.Context, emit func(string)) error {
 			err := p.dock(ctx).PullContainers(ctx, ids, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: p.hosts.ActiveIDFor(ctx), IDs: ids})
@@ -269,7 +274,8 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 		if err := json.Unmarshal([]byte(args[1]), &spec); err != nil {
 			return errResp(http.StatusBadRequest, "bad container spec: "+err.Error())
 		}
-		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "edit", id, "", "", false), func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
+		ename, eproj := p.nameProject(ctx, id)
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatContainer, "edit", ename, eproj, "", false), func(ctx context.Context, emit func(string)) error { return p.dock(ctx).RecreateFromSpec(ctx, id, spec, true, emit) })
 
 	default:
 		return errResp(http.StatusNotFound, "unknown stream")
@@ -295,6 +301,23 @@ const keepAlive = 15 * time.Second
 // goroutine forever. Generous: a cold multi-image stack pull over a slow link is
 // legitimately minutes long.
 const opTimeout = 30 * time.Minute
+
+// nameProject resolves a container id to its display name + compose project for the
+// audit trail (so a redeploy/edit reads "web" in "my-stack", not a raw sha). Falls
+// back to the short id when the daemon can't name it.
+func (p *Plugin) nameProject(ctx context.Context, id string) (name, project string) {
+	name = id
+	if len(name) > 12 {
+		name = name[:12]
+	}
+	if n, err := p.dock(ctx).ContainerName(ctx, id); err == nil && n != "" {
+		name = n
+	}
+	if _, labels, err := p.dock(ctx).ContainerMatchInfo(ctx, id); err == nil {
+		project = labels[docker.LabelProject]
+	}
+	return
+}
 
 // opAudit builds the base audit entry for a streaming mutation — operator-sourced,
 // pinned to the active host and the acting subject. streamOp stamps OK/Err/outcome

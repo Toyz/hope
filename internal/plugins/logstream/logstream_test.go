@@ -43,6 +43,11 @@ type mockDock struct {
 	recreateFromSpec  func(ctx context.Context, id string, spec stackspec.ContainerSpec, pull bool, emit func(string)) error
 }
 
+func (m *mockDock) ContainerName(_ context.Context, _ string) (string, error) { return "", nil }
+func (m *mockDock) ContainerMatchInfo(_ context.Context, _ string) (string, map[string]string, error) {
+	return "", nil, nil
+}
+
 func (m *mockDock) Exists(_ context.Context, id string) bool {
 	if m.existsFn != nil {
 		return m.existsFn(id)
