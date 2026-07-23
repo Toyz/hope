@@ -95,7 +95,10 @@ export class HopeServiceForm extends LoomElement {
   @reactive accessor connectors: ConnectorOpt[] = []; // tunnel connectors (empty = hide tunnels)
   @reactive accessor zones: string[] = []; // Cloudflare domains for the subdomain|domain picker
   @reactive accessor showName = true; // one-off container hides the service name
-  @reactive accessor builtImage = ""; // Dockerfile-build mode: the image is built — show this tag read-only
+  // Dockerfile-build mode: the image is built, not entered — show its tag read-only.
+  // An OBJECT prop (not a string): loom sets object props as JS properties, which the
+  // accessor receives; a string prop would be set as an attribute the accessor ignores.
+  @reactive accessor built: { image: string } | null = null;
 
   @reactive accessor name = "";
   @reactive accessor image = "";
@@ -268,9 +271,9 @@ export class HopeServiceForm extends LoomElement {
             </div>
           ) : null}
           <div class={"f" + (this.showName ? "" : " wide")}>
-            <label>{this.builtImage ? "image (built from Dockerfile)" : "image"}</label>
-            {this.builtImage ? (
-              <input type="text" readonly value={this.builtImage} title="hope builds this image from your Dockerfile" />
+            <label>{this.built ? "image (built from Dockerfile)" : "image"}</label>
+            {this.built ? (
+              <input type="text" readonly value={this.built.image} title="hope builds this image from your Dockerfile" />
             ) : (
               <input type="text" placeholder="nginx:latest" value={this.image} onInput={(e: any) => (this.image = e.target.value)} />
             )}

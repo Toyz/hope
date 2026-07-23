@@ -646,7 +646,7 @@ export class DeployPage extends LoomElement {
             </div>
           </>
         ) : null}
-        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} builtImage={this.dfMode ? "hope-local/" + (this.oneoff.name || "app") : ""} connectors={[]}></hope-service-form>
+        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} built={this.dfMode ? { image: "hope-local/" + (this.oneoff.name || "app") } : null} connectors={[]}></hope-service-form>
       </hope-panel>
     );
   }
