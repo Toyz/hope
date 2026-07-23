@@ -95,6 +95,12 @@ function dockerfileWarnings(df: string): string[] {
     font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
   .tab:hover { color: var(--hi); border-color: var(--line2); }
   .tab.on { color: var(--hi); border-color: var(--line2); background: var(--raised); }
+  /* Dockerfile-build callout: makes it obvious hope builds + runs a local image */
+  .buildout { display: flex; align-items: center; gap: 9px; margin: 2px 0 14px; padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--upd) 35%, var(--line)); background: color-mix(in srgb, var(--upd) 7%, transparent);
+    font: 11.5px/1.5 var(--mono); color: var(--mid); }
+  .buildout loom-icon { color: var(--upd); flex: none; }
+  .buildout b { color: var(--upd); font-weight: 600; word-break: break-all; }
 
   /* section cards use <hope-panel>; body content below is slotted (light DOM) */
 
@@ -530,7 +536,15 @@ export class DeployPage extends LoomElement {
   // Re-read the service forms into rows[].initial so the summary reflects the latest
   // typed values. Fires on focusout (a field lost focus) — never mid-keystroke, so it
   // can't steal focus or reset a cursor.
-  private syncPreview() { this.syncRows(); }
+  private syncPreview() {
+    this.syncRows();
+    // Container tab: mirror the one-off form's spec so the summary + build callout
+    // (e.g. the hope-local/<name> tag) reflect what's typed. Same seed, so no reset.
+    if (this.tab === "container") {
+      const form = this.serviceForms?.[0] as any;
+      if (form?.getSpec) this.oneoff = form.getSpec();
+    }
+  }
 
   private renderSummary(stack: boolean) {
     if (!stack) {
@@ -626,10 +640,13 @@ export class DeployPage extends LoomElement {
             {dockerfileWarnings(this.dockerfile).length ? (
               <div class="warns">{dockerfileWarnings(this.dockerfile).map((w) => <div class="w">{w}</div>)}</div>
             ) : null}
-            <p class="sub">hope builds the Dockerfile text alone — no build context, so COPY/ADD from local paths won't resolve. Set the name, ports, and env below; the image field is ignored.</p>
+            <div class="buildout">
+              <loom-icon name="box" size={14}></loom-icon>
+              <span>hope builds this into a local image <b>hope-local/{this.oneoff.name || "‹name›"}</b> and runs it — no registry, no build context.</span>
+            </div>
           </>
         ) : null}
-        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
+        <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} hideImage={this.dfMode} connectors={[]}></hope-service-form>
       </hope-panel>
     );
   }

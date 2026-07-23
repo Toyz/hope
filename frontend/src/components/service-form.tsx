@@ -93,6 +93,7 @@ export class HopeServiceForm extends LoomElement {
   @reactive accessor connectors: ConnectorOpt[] = []; // tunnel connectors (empty = hide tunnels)
   @reactive accessor zones: string[] = []; // Cloudflare domains for the subdomain|domain picker
   @reactive accessor showName = true; // one-off container hides the service name
+  @reactive accessor hideImage = false; // Dockerfile-build mode: the image is built, not entered
 
   @reactive accessor name = "";
   @reactive accessor image = "";
@@ -259,15 +260,17 @@ export class HopeServiceForm extends LoomElement {
       <div>
         <div class="grid">
           {this.showName ? (
-            <div class="f">
-              <label>service name</label>
+            <div class={"f" + (this.hideImage ? " wide" : "")}>
+              <label>{this.hideImage ? "container name" : "service name"}</label>
               <input type="text" placeholder="web" value={this.name} onInput={(e: any) => (this.name = e.target.value)} />
             </div>
           ) : null}
-          <div class={"f" + (this.showName ? "" : " wide")}>
-            <label>image</label>
-            <input type="text" placeholder="nginx:latest" value={this.image} onInput={(e: any) => (this.image = e.target.value)} />
-          </div>
+          {this.hideImage ? null : (
+            <div class={"f" + (this.showName ? "" : " wide")}>
+              <label>image</label>
+              <input type="text" placeholder="nginx:latest" value={this.image} onInput={(e: any) => (this.image = e.target.value)} />
+            </div>
+          )}
           <div class="f">
             <label>restart policy</label>
             <hope-select
