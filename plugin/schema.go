@@ -204,9 +204,10 @@ func Tip(text string, pos ...TipPos) *Tooltip {
 type StreamKind string
 
 const (
-	Counter StreamKind = "counter" // number(s) ticking -> stat
-	Log     StreamKind = "log"     // append-only lines
-	Series  StreamKind = "series"  // time series -> sparkline
+	Counter   StreamKind = "counter"   // number(s) ticking -> stat
+	Log       StreamKind = "log"       // append-only lines
+	Series    StreamKind = "series"    // time series -> sparkline
+	StreamComponent StreamKind = "component" // each frame is a component tree (Box/KeyVal/...) hope renders live — full custom output
 )
 
 // Option is a select choice, mirroring hope's PromptOption.

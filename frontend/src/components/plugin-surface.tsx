@@ -1238,6 +1238,12 @@ export class HopePluginSurface extends LoomElement {
 
   private renderStream(d: any, kind?: string, method?: string) {
     if (d && typeof d === "object" && d.error) return <div class="msg bad">{String(d.error)}</div>;
+    if (kind === "component") {
+      // Each frame is a component tree — the plugin fully owns the live output. Render the
+      // latest frame (tolerate a {comp} wrapper, matching the flyout/resolve shape).
+      if (d == null) return <div class="msg">waiting…</div>;
+      return this.renderComponent(d?.comp ?? d, "stream." + (method || ""));
+    }
     if (kind === "log" && method) {
       // Newest line at the top so the latest activity is always visible without scrolling.
       const lines = [...(this.streamLog[method] || [])].reverse();
