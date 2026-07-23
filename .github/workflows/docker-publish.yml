@@ -18,35 +18,112 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # Decide WHICH images to build. On a branch push we diff the commit and build
+  # only the images whose sources actually changed — so a frontend-only change no
+  # longer rebuilds + repushes the DB plugins (whose digest would otherwise churn
+  # from the stamped build-args and trigger a phantom fleet "update"). A release
+  # tag or a manual run forces every image so a release publishes the full set.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      any: ${{ steps.set.outputs.any }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # Per-image path filters. Each plugin depends on the in-repo SDK (plugin/**)
+      # and the module files, so an SDK change rebuilds every plugin; the server
+      # (hope) depends on the Go source + the SPA. Filter keys avoid hyphens (the
+      # `${{ }}` parser reads `-` as minus), so they're mapped to image names below.
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            hope:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'frontend/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Dockerfile'
+            kitchensink:
+              - 'plugin/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'examples/plugins/kitchen-sink/**'
+            postgres:
+              - 'plugin/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'examples/plugins/hope-postgres/**'
+            redis:
+              - 'plugin/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'examples/plugins/hope-redis/**'
+            nats:
+              - 'plugin/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'examples/plugins/hope-nats/**'
+
+      - name: Build the image matrix from what changed
+        id: set
+        env:
+          F_HOPE: ${{ steps.filter.outputs.hope }}
+          F_KITCHENSINK: ${{ steps.filter.outputs.kitchensink }}
+          F_POSTGRES: ${{ steps.filter.outputs.postgres }}
+          F_REDIS: ${{ steps.filter.outputs.redis }}
+          F_NATS: ${{ steps.filter.outputs.nats }}
+        run: |
+          set -euo pipefail
+          # A release tag or a manual dispatch publishes the full set.
+          force=false
+          case "${{ github.ref }}" in refs/tags/*) force=true;; esac
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && force=true
+
+          # filter-key -> "image-name dockerfile"
+          declare -A img=(
+            [hope]="hope Dockerfile"
+            [kitchensink]="kitchen-sink examples/plugins/kitchen-sink/Dockerfile"
+            [postgres]="hope-postgres examples/plugins/hope-postgres/Dockerfile"
+            [redis]="hope-redis examples/plugins/hope-redis/Dockerfile"
+            [nats]="hope-nats examples/plugins/hope-nats/Dockerfile"
+          )
+          inc=()
+          for key in hope kitchensink postgres redis nats; do
+            var="F_${key^^}"
+            if [ "$force" = true ] || [ "${!var}" = "true" ]; then
+              set -- ${img[$key]}
+              inc+=("$(jq -nc --arg n "$1" --arg d "$2" '{name:$n, dockerfile:$d}')")
+            fi
+          done
+
+          if [ ${#inc[@]} -eq 0 ]; then
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo "No image sources changed — nothing to build."
+          else
+            matrix=$(printf '%s\n' "${inc[@]}" | jq -sc '{include: .}')
+            echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            echo "Building: $(printf '%s\n' "${inc[@]}" | jq -r '.name' | paste -sd, -)"
+          fi
+
   build:
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
-      # One image per matrix row, each its own ghcr repo (ghcr.io/<owner>/<name>),
-      # all on the same triggers. Add an image = append a row.
-      matrix:
-        include:
-          # The hope server (root Dockerfile). Only this Dockerfile declares the
-          # VERSION/HOPE_VERSION/REVISION/BUILDTIME ARGs stamped below.
-          - name: hope
-            dockerfile: Dockerfile
-          # First-party reference plugins. Their Dockerfiles build from the repo root
-          # (the go.mod `replace` points at the in-repo SDK), so the context stays `.`.
-          # They don't declare the stamping ARGs, so those build-args are ignored for
-          # them (stdlib+driver only — no sov, no private-repo secrets needed).
-          - name: hope-postgres
-            dockerfile: examples/plugins/hope-postgres/Dockerfile
-          - name: hope-redis
-            dockerfile: examples/plugins/hope-redis/Dockerfile
-          - name: hope-nats
-            dockerfile: examples/plugins/hope-nats/Dockerfile
-          # Reference/demo plugin: exercises every surface (views, streams, dynamic
-          # forms, alerts, reverse channel). Self-contained — no external service.
-          - name: kitchen-sink
-            dockerfile: examples/plugins/kitchen-sink/Dockerfile
+      # One image per matrix entry — only the images `changes` selected. Each is its
+      # own ghcr repo (ghcr.io/<owner>/<name>) on the same triggers.
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v5
         with:
