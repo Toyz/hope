@@ -50,7 +50,7 @@ interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -230,7 +230,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .rmx { display: inline-flex; padding: 4px; background: transparent; border: 0; color: var(--dim); cursor: pointer; }
   .rmx:hover { color: var(--hi); }
   /* lightbox: full-screen image viewer (click backdrop / Esc / X to close) */
-  .lbox { position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--ink) 88%, transparent); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 40px; cursor: zoom-out; animation: lbin .12s ease; }
+  /* z-index above the flyout (.panel is 901) — a lightbox opened from an image INSIDE a
+     flyout must sit over it, not behind (they're siblings in this shadow, so 70 lost). */
+  .lbox { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, var(--ink) 88%, transparent); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 40px; cursor: zoom-out; animation: lbin .12s ease; }
   @keyframes lbin { from { opacity: 0; } to { opacity: 1; } }
   .lbfig { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 94vw; max-height: 92vh; margin: 0; cursor: default; }
   .lbfig img { max-width: 94vw; max-height: 82vh; object-fit: contain; border: 1px solid var(--line2); background: var(--ink); box-shadow: 0 24px 70px rgba(0,0,0,.6); image-rendering: crisp-edges; }
@@ -327,7 +329,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor modal: { title: string; data: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
   // Right-side drawer for a row_flyout: the plugin's returned component tree + the row's
   // actions. Distinct from `modal` (row_method) — a row opens one or the other.
-  @reactive accessor flyout: { title: string; comp: any; row?: Record<string, any>; actions?: RowAction[]; view?: string } | null = null;
+  @reactive accessor flyout: { title: string; comp: any; row?: Record<string, any>; actions?: RowAction[]; view?: string; width?: string } | null = null;
   @reactive accessor editCell: { key: string; row: number; col: number } | null = null; // inline-edit target
   @reactive accessor lightbox: { src: string; alt: string } | null = null; // full-screen image viewer
   @reactive accessor search: Record<string, { q: string; items: any[]; loading: boolean }> = {}; // per Search-view autocomplete state
@@ -960,6 +962,7 @@ export class HopePluginSurface extends LoomElement {
     const colLabel = (c: string): any => (colTips[c] ? <span class="tw" tip={{ text: colTips[c].text, pos: colTips[c].pos || "top" }}>{c}</span> : c);
     const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const flyoutMethod: string | undefined = v?.row_flyout || data?.row_flyout;
+    const flyoutWidth: string | undefined = v?.row_flyout_width || data?.row_flyout_width;
     const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
     // Whole-row click opens the flyout drawer when declared, else the row-detail modal
     // (unless the modal is button-triggered). Flyout wins when both are set.
@@ -1071,7 +1074,7 @@ export class HopePluginSurface extends LoomElement {
             <tbody>{shown.map((i) => {
               const r = rows[i];
               return (
-                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => (flyoutMethod ? this.openRowFlyout(flyoutMethod, cols, r, acts, v?.method, hidden) : this.openRow(onRow, cols, r, acts, v?.method, hidden)) : undefined}>
+                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => (flyoutMethod ? this.openRowFlyout(flyoutMethod, cols, r, acts, v?.method, hidden, flyoutWidth) : this.openRow(onRow, cols, r, acts, v?.method, hidden)) : undefined}>
                   {r.map((cell, ci) => {
                     if (hidden.has(cols[ci])) return null; // hidden column
                     const editable = canEdit(ci);
@@ -1155,14 +1158,14 @@ export class HopePluginSurface extends LoomElement {
   // Like openRow, but the plugin's method returns a COMPONENT tree rendered in the
   // right-side drawer instead of a modal (row_flyout). The row's actions ride along and
   // render as a button bar under the component.
-  private openRowFlyout = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string, hidden?: Set<string>) => {
+  private openRowFlyout = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string, hidden?: Set<string>, width?: string) => {
     const s = this.surface;
     if (!s) return;
     const obj = this.rowObj(cols, row);
     const titleCol = cols.find((c) => !hidden?.has(c)) ?? cols[0];
     try {
       const comp = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs({ row: obj }) }]);
-      this.flyout = { title: this.cellStr(obj[titleCol]) || "Row", comp, row: obj, actions: acts, view: viewMethod };
+      this.flyout = { title: this.cellStr(obj[titleCol]) || "Row", comp, row: obj, actions: acts, view: viewMethod, width };
     } catch (e: any) {
       this.toast.error(`row — ${e?.message ?? "failed"}`);
     }
@@ -1610,7 +1613,7 @@ export class HopePluginSurface extends LoomElement {
     // prop reactively hiding it, which left it stuck open with an empty "Details" body.
     if (!f) return null;
     return (
-      <hope-flyout open title={f.title || "Details"} onClose={this.closeFlyout}>
+      <hope-flyout open title={f.title || "Details"} width={f.width || ""} onClose={this.closeFlyout}>
         {this.renderComponent(f.comp?.comp ?? f.comp, "fly")}
         {f.actions && f.actions.length && f.row ? (
           <div class="flyacts">{f.actions.map((a) => (

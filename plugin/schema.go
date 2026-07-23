@@ -89,6 +89,9 @@ type TableData struct {
 	// renders in the flyout. Data-side equivalent of the RowFlyout table option. When both
 	// RowFlyout and RowMethod are set, the flyout wins.
 	RowFlyout string `json:"row_flyout,omitempty"`
+	// RowFlyoutWidth sizes the drawer the flyout opens in: a preset ("small" | "large" |
+	// "xlarge") or an explicit px value ("680"). Empty = the default (~460px).
+	RowFlyoutWidth string `json:"row_flyout_width,omitempty"`
 	// Flush renders the table full-height with no toolbar (filter/pager) and no inner scroll
 	// box — it flows and the containing panel/flyout scrolls instead. Meant for an embedded
 	// CTable showing a bounded list (e.g. the badges on a canvas), not a big paged view.
@@ -361,6 +364,9 @@ type ViewDesc struct {
 	// of a modal. The method receives {row} and returns a component tree hope renders in
 	// the flyout. When both are set, the flyout wins.
 	RowFlyout string `json:"row_flyout,omitempty"`
+	// RowFlyoutWidth sizes the drawer: a preset ("small" | "large" | "xlarge") or an
+	// explicit px value ("680"). Empty = the default (~460px).
+	RowFlyoutWidth string `json:"row_flyout_width,omitempty"`
 	// RowDetailButton triggers RowMethod from a dedicated per-row button instead of a
 	// whole-row click. Use when the row body is otherwise interactive (e.g. inline-
 	// editable cells) so the two don't fight.

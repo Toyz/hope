@@ -18,6 +18,8 @@ import { signalModal } from "../modal";
   .panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 901; width: 460px; max-width: 92vw;
     background: var(--panel); border-left: 1px solid var(--line2); display: flex; flex-direction: column;
     box-shadow: -18px 0 48px rgba(0, 0, 0, .4); animation: fslide .16s cubic-bezier(.2, .8, .2, 1) both; }
+  /* width presets; an explicit px value wins via the inline style set in update() */
+  .panel.small { width: 360px; } .panel.large { width: 720px; } .panel.xlarge { width: 960px; }
   .head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); flex: none; }
   .head .t { font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--hi);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -34,6 +36,18 @@ import { signalModal } from "../modal";
 export class HopeFlyout extends LoomElement {
   @prop accessor open = false;
   @prop accessor title = "";
+  // Drawer width: a preset name (small | medium | large | xlarge) OR an explicit px
+  // value ("680" / "680px"). Empty = the default 460px. A plugin sets this per row_flyout.
+  @prop accessor width = "";
+
+  // Resolve `width` into a preset class + an optional explicit-px inline style.
+  private sizing(): { cls: string; px: string } {
+    const w = String(this.width || "").trim().toLowerCase();
+    if (w === "small" || w === "large" || w === "xlarge") return { cls: " " + w, px: "" };
+    const m = /^(\d+)(px)?$/.exec(w);
+    if (m) return { cls: "", px: `width:${Math.min(Math.max(Number(m[1]), 240), 2000)}px;` };
+    return { cls: "", px: "" }; // "", "medium", or unknown -> default 460px from CSS
+  }
 
   // Lifecycle-driven, not open-prop-driven: the OWNER mounts the flyout only when it should
   // be visible (renders it conditionally) and unmounts to close, so we lock the body scroll
@@ -55,7 +69,7 @@ export class HopeFlyout extends LoomElement {
     return (
       <>
         <div class="scrim" onClick={this.close}></div>
-        <div class="panel" role="dialog" aria-modal="true" aria-label={this.title || "panel"}>
+        <div class={"panel" + this.sizing().cls} style={this.sizing().px || undefined} role="dialog" aria-modal="true" aria-label={this.title || "panel"}>
           <div class="head">
             <span class="t">{this.title || "Details"}</span>
             <span class="grow"></span>

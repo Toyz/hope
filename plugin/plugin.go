@@ -232,6 +232,10 @@ func RowDetail(method string) TableOpt { return func(v *ViewDesc) { v.RowMethod 
 // RowFlyout and RowDetail are set, the flyout wins.
 func RowFlyout(method string) TableOpt { return func(v *ViewDesc) { v.RowFlyout = method } }
 
+// RowFlyoutWidth sizes the row-flyout drawer: a preset ("small" | "large" | "xlarge")
+// or an explicit px value ("680"). Empty = the default (~460px). Pair with RowFlyout.
+func RowFlyoutWidth(width string) TableOpt { return func(v *ViewDesc) { v.RowFlyoutWidth = width } }
+
 // RowDetailButton is like RowDetail but triggers from a per-row button instead of a
 // whole-row click — use it when the row is also inline-editable so the click to
 // edit a cell and the click to open the detail don't collide.
