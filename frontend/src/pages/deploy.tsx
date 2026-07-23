@@ -621,7 +621,7 @@ export class DeployPage extends LoomElement {
           <>
             <div class="f">
               <label>Dockerfile</label>
-              <textarea style="min-height:180px" placeholder={"FROM alpine:3\nRUN apk add --no-cache curl\nCMD [\"sleep\", \"infinity\"]"} value={this.dockerfile} onInput={(e: any) => (this.dockerfile = e.target.value)}></textarea>
+              <hope-code lang="dockerfile" style="--code-min-h:180px" placeholder={"FROM alpine:3\nRUN apk add --no-cache curl\nCMD [\"sleep\", \"infinity\"]"} value={this.dockerfile} onInput={(e: any) => (this.dockerfile = e.detail)}></hope-code>
             </div>
             {dockerfileWarnings(this.dockerfile).length ? (
               <div class="warns">{dockerfileWarnings(this.dockerfile).map((w) => <div class="w">{w}</div>)}</div>
@@ -651,7 +651,7 @@ export class DeployPage extends LoomElement {
               <hope-button size="sm" icon="download" onClick={() => this.composeFileInput?.click()}>Choose a compose file</hope-button>
               <span class="or">or paste it below</span>
             </div>
-            <div class="f"><label>compose.yml</label><textarea placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.target.value)}></textarea></div>
+            <div class="f"><label>compose.yml</label><hope-code lang="yaml" style="--code-min-h:150px" placeholder={"services:\n  web:\n    image: nginx\n    ports:\n      - \"8080:80\""} value={this.importText} onInput={(e: any) => (this.importText = e.detail)}></hope-code></div>
             <div class="f"><label>.env (optional, for ${"{VAR}"})</label><textarea style="min-height:90px" placeholder="TAG=1.25" value={this.importEnv} onInput={(e: any) => (this.importEnv = e.target.value)}></textarea></div>
             <hope-button tone="primary" icon="box" onClick={this.doImport}>Parse into builder</hope-button>
           </hope-panel>

@@ -11,6 +11,12 @@ const SQL_KW = new Set(
   ("select from where and or not in like limit offset order by group having join left right inner outer full cross on as insert into values update set delete create table drop alter view index distinct count sum avg min max null is asc desc between union all exists case when then else end with returning primary key foreign references default").split(" "),
 );
 
+// Dockerfile instructions for lang="dockerfile" (matched only when UPPERCASE, the
+// convention — so a lowercase word that happens to collide isn't miscolored).
+const DOCKERFILE_KW = new Set(
+  ("FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ARG ONBUILD STOPSIGNAL HEALTHCHECK SHELL AS").split(" "),
+);
+
 type Tok = { t: string; c: string };
 
 // tokenize splits code into highlight tokens. One pass, string/comment/number/word
@@ -30,6 +36,7 @@ function tokenize(code: string, lang: string): Tok[] {
     else if (/^[A-Za-z_]/.test(t)) {
       const lw = t.toLowerCase();
       if (lang === "sql" && SQL_KW.has(lw)) c = "kw";
+      else if (lang === "dockerfile" && t === t.toUpperCase() && DOCKERFILE_KW.has(t)) c = "kw";
       else if (lang === "json") c = "word";
       else if (lw === "true" || lw === "false" || lw === "null") c = "kw";
     }
@@ -37,6 +44,16 @@ function tokenize(code: string, lang: string): Tok[] {
     if (c === "" && /\S/.test(t)) prevWord = t;
   }
   void prevWord;
+  // YAML: color a bare word as a key when the next non-space token is a colon —
+  // the dominant structure in a compose file.
+  if (lang === "yaml") {
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].c !== "" || !/^[A-Za-z_][\w-]*$/.test(out[i].t)) continue;
+      let j = i + 1;
+      while (j < out.length && /^\s+$/.test(out[j].t)) j++;
+      if (j < out.length && out[j].t === ":") out[i].c = "key";
+    }
+  }
   return out;
 }
 
@@ -50,9 +67,10 @@ function tokenize(code: string, lang: string): Tok[] {
     font: 12.5px/1.6 var(--mono); tab-size: 2; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word;
   }
   pre { position: absolute; inset: 0; pointer-events: none; overflow: auto; color: var(--mid); }
-  textarea { position: relative; background: transparent; color: transparent; caret-color: var(--hi); resize: vertical; min-height: 64px; outline: none; }
+  textarea { position: relative; background: transparent; color: transparent; caret-color: var(--hi); resize: vertical; min-height: var(--code-min-h, 64px); outline: none; }
   textarea::selection { background: color-mix(in srgb, var(--upd) 30%, transparent); }
   .kw { color: var(--upd); font-weight: 600; }
+  .key { color: var(--upd); }
   .str { color: var(--ok); }
   .num { color: var(--warn); }
   .com { color: var(--dim); font-style: italic; }
