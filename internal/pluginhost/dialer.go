@@ -73,9 +73,14 @@ func (r *PluginsRouter) dial(ctx context.Context, host string, pc docker.PluginC
 		return nil, fmt.Errorf("host %q is not connected", host)
 	}
 	dock := hc.Client
-	netTargets, directTargets, netName, err := dock.PluginDialCandidates(ctx, pc.ContainerID, pc.Port)
-	if err != nil {
-		return nil, fmt.Errorf("resolve plugin address: %w", err)
+	// Non-fatal: a port-less plugin that's currently on no user network (e.g. detached
+	// on disable) has no candidate here — but attaching it to ink-plugins below gives it
+	// a routable IP, so don't abort. Only a total absence of routes is fatal (checked
+	// once the urls are assembled). Its error would otherwise surface as the misleading
+	// "plugin unreachable" even though the plugin is running.
+	netTargets, directTargets, netName, cerr := dock.PluginDialCandidates(ctx, pc.ContainerID, pc.Port)
+	if cerr != nil {
+		netTargets, directTargets, netName = nil, nil, ""
 	}
 	path := pc.Path
 	if path == "" {
