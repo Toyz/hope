@@ -32,18 +32,12 @@ import (
 
 	"github.com/Toyz/sov/gateway"
 	"github.com/Toyz/sov/rpc"
-	"github.com/toyz/hope/internal/auth"
 )
 
 // Handler owns /rpc/_batchstream. It holds the gateway pointer (via Apply) to dispatch
-// each entry through the full request chain, plus the token manager to authenticate the
-// envelope itself (a RouteHandler on a /rpc/_* framework path does NOT get req.User from
-// the gateway auth chain — sov's auth middleware bypasses every framework path except the
-// exact /rpc/_batch, so req.User stays nil here and we must verify the bearer directly,
-// like the events/logstream handlers do).
+// each entry through the full request chain.
 type Handler struct {
-	gw     *gateway.Gateway
-	tokens *auth.TokenManager
+	gw *gateway.Gateway
 }
 
 // Compile-time proof of the hooks bound — a signature drift is a build error here, not a
@@ -55,9 +49,8 @@ var (
 	_ gateway.RouteHandler  = (*Handler)(nil)
 )
 
-// New returns the streaming-batch route handler. tokens verifies the envelope's bearer
-// (see the Handler doc — req.User is nil for this framework path).
-func New(tokens *auth.TokenManager) *Handler { return &Handler{tokens: tokens} }
+// New returns the streaming-batch route handler.
+func New() *Handler { return &Handler{} }
 
 func (h *Handler) PluginName() string { return "batchstream" }
 
@@ -78,21 +71,6 @@ type streamFrame struct {
 	Result json.RawMessage `json:"result"`
 }
 
-// authenticated verifies the operator's bearer token directly, for when req.User was
-// never resolved (this /rpc/_* framework path is bypassed by the gateway auth chain).
-// Mirrors events.Handler.authenticated / logstream.authenticate.
-func (h *Handler) authenticated(req *gateway.Request) bool {
-	if h.tokens == nil {
-		return false
-	}
-	tok, err := auth.Bearer(req.Header.Get("Authorization"))
-	if err != nil {
-		return false
-	}
-	_, _, err = h.tokens.Verify(tok)
-	return err == nil
-}
-
 // hasSubject reports whether the request carries an authenticated subject — set by the
 // gateway's edge auth middleware. req.User is a subject string or *gateway.Claims; an
 // anonymous request leaves it nil.
@@ -111,15 +89,11 @@ func (h *Handler) ServeRoute(ctx context.Context, req *gateway.Request) *gateway
 	if req.Method != http.MethodPost {
 		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusMethodNotAllowed, Code: "BAD_REQUEST", Message: "method not allowed"})
 	}
-	// Require an authenticated subject for the whole envelope. Unlike a normal RPC route,
-	// this /rpc/_* framework path is BYPASSED by sov's auth middleware (it only resolves
-	// the bearer for /rpc/_batch, exact-match — /rpc/_batchstream never gets req.User set),
-	// so we can't rely on hasSubject alone: without this it 401s every time and the client
-	// silently falls back to the buffered/direct path, defeating the whole endpoint. Verify
-	// the bearer directly here, exactly as the events/logstream handlers do. Each proxied
-	// entry is still re-authed through gw.Handle (its non-framework path DOES run the auth
-	// middleware over the cloned Authorization header), so this is fail-fast, not the only gate.
-	if !hasSubject(req) && !h.authenticated(req) {
+	// Require an authenticated subject for the whole envelope. sov's auth middleware
+	// resolves req.User for framework paths too (it no longer bypasses /rpc/_*), so
+	// hasSubject is reliable here — fail fast for an anonymous caller. Each proxied entry
+	// is still re-authed through gw.Handle regardless (belt-and-suspenders).
+	if !hasSubject(req) {
 		return gateway.ErrorResponse(&rpc.Error{Status: http.StatusUnauthorized, Code: "UNAUTHENTICATED", Message: "authentication required"})
 	}
 	var br gateway.BatchRequest

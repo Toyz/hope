@@ -322,7 +322,7 @@ func runServe(configPath string) error {
 	}
 	gw.MustUse(lg)                          // same instance → unified log sink, captures every dispatch
 	gw.MustUse(batch.New(batch.Config{}))   // /rpc/_batch — coalesce a page's many calls into one round-trip
-	gw.MustUse(batchstream.New(tokens))     // /rpc/_batchstream — same, but streams each result as it resolves (no head-of-line block)
+	gw.MustUse(batchstream.New())           // /rpc/_batchstream — same, but streams each result as it resolves (no head-of-line block)
 	gw.RegisterAuth(authRouter)             // binds AuthService → bearer verification
 	gw.RegisterAuthz(auth.NewAuthzRouter()) // one authz gate → replaces per-handler RequireSubject
 	// One reusable audit engine every router records into (who did what, where, when) —
