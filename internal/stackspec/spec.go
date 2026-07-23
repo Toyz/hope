@@ -59,6 +59,11 @@ type TunnelRoute struct {
 type ContainerSpec struct {
 	Name       string            `json:"name,omitempty"` // compose service name / container name
 	Image      string            `json:"image"`
+	// Dockerfile, when set, is a CONTEXTLESS Dockerfile the deploy engine builds into
+	// a local image before running (one-off "bring your own Dockerfile"). It builds
+	// with no context, so COPY/ADD from local paths won't resolve — the UI warns on
+	// those. Empty for the normal pre-built-image path. Never persisted in a stack spec.
+	Dockerfile string            `json:"dockerfile,omitempty"`
 	Command    []string          `json:"command,omitempty"`
 	Entrypoint []string          `json:"entrypoint,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`

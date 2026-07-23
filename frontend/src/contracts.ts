@@ -565,6 +565,8 @@ export interface TunnelRoute {
 export interface ContainerSpec {
   name?: string;
   image: string;
+  /** Contextless Dockerfile to build then run (one-off "bring your own Dockerfile"). */
+  dockerfile?: string;
   command?: string[];
   entrypoint?: string[];
   env?: Record<string, string>;

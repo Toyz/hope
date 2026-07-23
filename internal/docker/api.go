@@ -26,6 +26,7 @@ type API interface {
 	ContainerImage(ctx context.Context, id string) (string, error)
 	ContainerMatchInfo(ctx context.Context, id string) (image string, labels map[string]string, err error)
 	ContainerName(ctx context.Context, id string) (string, error)
+	BuildImageStream(ctx context.Context, dockerfile, tag string, emit func(string)) error
 	ContainerNetworks(ctx context.Context, id string) ([]string, error)
 	ContainerSpecOf(ctx context.Context, id string) (*stackspec.ContainerSpec, error)
 	CreateContainer(ctx context.Context, name string, spec stackspec.ContainerSpec, pull bool, emit func(string)) (string, error)

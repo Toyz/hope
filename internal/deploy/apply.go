@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
@@ -226,8 +228,25 @@ func (e *Engine) DeployContainer(ctx context.Context, spec stackspec.ContainerSp
 	if emit == nil {
 		emit = func(string) {}
 	}
+	// Bring-your-own-Dockerfile: build it into a local image first, then run that.
+	// Contextless (no COPY/ADD from local paths — the UI rejects those). The tag is
+	// derived from the content hash so an identical Dockerfile reuses the built image.
+	if df := strings.TrimSpace(spec.Dockerfile); df != "" {
+		base := sanitizeName(spec.Name)
+		if base == "" {
+			base = "app"
+		}
+		sum := sha256.Sum256([]byte(df))
+		tag := "hope-local/" + base + ":" + hex.EncodeToString(sum[:])[:12]
+		emit("building " + tag + " from Dockerfile")
+		if err := e.dock(ctx).BuildImageStream(ctx, df, tag, emit); err != nil {
+			return err
+		}
+		spec.Image = tag
+		spec.Dockerfile = ""
+	}
 	if strings.TrimSpace(spec.Image) == "" {
-		return fmt.Errorf("image is required")
+		return fmt.Errorf("image (or a Dockerfile) is required")
 	}
 	name := sanitizeName(spec.Name)
 	spec.Labels = docker.WithManaged(spec.Labels)

@@ -27,6 +27,23 @@ import "../components/service-form";
 interface Row { key: number; initial: ContainerSpec; }
 interface ResDecl { name: string; driver: string; }
 
+// A contextless Dockerfile build (no files uploaded) can't resolve COPY/ADD from a
+// local path — flag those so the user isn't surprised by a build that fails on the
+// daemon. COPY --from=<stage> (multi-stage) and ADD <url> need no context, so skip them.
+function dockerfileWarnings(df: string): string[] {
+  const bad = df.split("\n").some((raw) => {
+    const line = raw.trim();
+    const m = /^(COPY|ADD)\s+(.+)$/i.exec(line);
+    if (!m) return false;
+    if (/--from=/i.test(m[2])) return false; // multi-stage: source is another build stage
+    if (/^ADD\s+https?:\/\//i.test(line)) return false; // ADD from a URL
+    return true;
+  });
+  return bad
+    ? ["COPY/ADD from a local path won't work — no build context is uploaded. Use a stack with a build context, or a git-based image."]
+    : [];
+}
+
 @route("/deploy/:host")
 @component("hope-deploy")
 @styles(theme, css`
@@ -124,6 +141,8 @@ export class DeployPage extends LoomElement {
   @reactive accessor seed = 0;
   @reactive accessor oneoff: ContainerSpec = { image: "" };
   @reactive accessor oneoffSeed = 0;
+  @reactive accessor dfMode = false; // container tab: build from a Dockerfile instead of an image
+  @reactive accessor dockerfile = "";
 
   @reactive accessor host = "";
   @reactive accessor hostList: HostView[] = [];
@@ -396,7 +415,13 @@ export class DeployPage extends LoomElement {
   private deployContainer = async () => {
     const form = this.serviceForms?.[0] as any;
     const spec: ContainerSpec = form ? form.getSpec() : { image: "" };
-    if (!spec.image) { this.toast.error("image is required"); return; }
+    if (this.dfMode) {
+      if (!this.dockerfile.trim()) { this.toast.error("paste a Dockerfile"); return; }
+      if (dockerfileWarnings(this.dockerfile).length) { this.toast.error("remove COPY/ADD from local paths — no build context is uploaded"); return; }
+      spec.dockerfile = this.dockerfile; // backend builds this into a local image, then runs it
+    } else if (!spec.image) {
+      this.toast.error("image is required"); return;
+    }
     if (!spec.name) { this.toast.error("container name is required"); return; }
     if (!this.ensureTargetHost()) return;
     let success = false;
@@ -514,7 +539,7 @@ export class DeployPage extends LoomElement {
           <div class="sh"><loom-icon name="box" size={12}></loom-icon>container</div>
           <div class="sb">
             <div class="srow"><span class="k">target</span><span class="v">{this.host || this.hostCtx.token || "local"}</span></div>
-            <div class="srow"><span class="k">image</span><span class={"v" + (this.oneoff.image ? "" : " empty")}>{this.oneoff.image || "not set"}</span></div>
+            <div class="srow"><span class="k">source</span>{this.dfMode ? <span class={"v" + (this.dockerfile.trim() ? "" : " empty")}>{this.dockerfile.trim() ? "Dockerfile build" : "empty Dockerfile"}</span> : <span class={"v" + (this.oneoff.image ? "" : " empty")}>{this.oneoff.image || "not set"}</span>}</div>
           </div>
         </div>
       );
@@ -588,6 +613,22 @@ export class DeployPage extends LoomElement {
     return (
       <hope-panel label="One-off container" icon="box">
         <p class="sub">Create a single container on the active host. For a grouped, editable app, use the Stack tab.</p>
+        <div class="tabs" style="margin-bottom:16px">
+          <button class={"tab" + (!this.dfMode ? " on" : "")} onClick={() => (this.dfMode = false)}>Use an image</button>
+          <button class={"tab" + (this.dfMode ? " on" : "")} onClick={() => (this.dfMode = true)}>Build a Dockerfile</button>
+        </div>
+        {this.dfMode ? (
+          <>
+            <div class="f">
+              <label>Dockerfile</label>
+              <textarea style="min-height:180px" placeholder={"FROM alpine:3\nRUN apk add --no-cache curl\nCMD [\"sleep\", \"infinity\"]"} value={this.dockerfile} onInput={(e: any) => (this.dockerfile = e.target.value)}></textarea>
+            </div>
+            {dockerfileWarnings(this.dockerfile).length ? (
+              <div class="warns">{dockerfileWarnings(this.dockerfile).map((w) => <div class="w">{w}</div>)}</div>
+            ) : null}
+            <p class="sub">hope builds the Dockerfile text alone — no build context, so COPY/ADD from local paths won't resolve. Set the name, ports, and env below; the image field is ignored.</p>
+          </>
+        ) : null}
         <hope-service-form initial={this.oneoff} seed={this.oneoffSeed} networks={this.existingNets} volumes={this.existingVols} showName={true} connectors={[]}></hope-service-form>
       </hope-panel>
     );
