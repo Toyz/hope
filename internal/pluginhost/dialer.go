@@ -41,7 +41,7 @@ const (
 	// renderView switch + the feature flags the renderer honors.
 	headerViewKinds = "X-Hope-View-Kinds"
 	headerFeatures  = "X-Hope-Features"
-	capViewKinds    = "kv,table,query,tree,chart,cards,stat,text,search,component"
+	capViewKinds    = "kv,table,query,tree,chart,cards,stat,text,search,component,graph"
 	capFeatures     = "static,empty,flyout,status,row-actions-conditional,flyout-refresh"
 )
 

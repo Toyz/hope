@@ -51,8 +51,14 @@ interface Comp {
 interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
+// Graph (blueprint) view wire types — mirror plugin/schema.go GraphData/GraphNode/Port/GraphEdge.
+interface GPort { id: string; label?: string; kind?: string; tone?: string }
+interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any> }
+interface GEdge { from: string; to: string; tone?: string; label?: string }
+interface GraphData { nodes?: GNode[]; edges?: GEdge[]; directed?: boolean }
+interface NodeType { type: string; label?: string; icon?: string; tone?: string; category?: string; desc?: string }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean; graph_move?: string; graph_connect?: string; graph_disconnect?: string; graph_delete?: string; graph_add?: string; graph_node_flyout?: string; graph_validate_connect?: string; graph_run?: string; graph_sidebar?: string; graph_toolbar?: string; graph_select?: string; graph_palette?: string; palette?: NodeType[]; graph_directed?: boolean; graph_snap?: number }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -146,6 +152,59 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ctlval.ok { color: var(--ok); } .ctlval.warn { color: var(--warn); } .ctlval.bad { color: var(--bad); }
   .ctlval.info, .ctlval.upd { color: var(--upd); }
   .ctlbody { grid-column: 2 / -1; margin-top: 6px; }
+  /* ── graph / blueprint canvas ── */
+  .graphwrap { display: flex; flex-direction: column; height: 100%; min-height: 420px; }
+  .gbar { flex: none; border-bottom: 1px solid var(--line); padding: 8px 12px; background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
+  .gmain { flex: 1; display: flex; min-height: 0; }
+  .gside { flex: none; width: 210px; border-right: 1px solid var(--line); overflow: auto; padding: 10px; background: color-mix(in srgb, var(--ink) 40%, var(--panel)); }
+  .gcanvas { position: relative; flex: 1; overflow: hidden; background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--line2) 60%, transparent) 1px, transparent 0) 0 0 / 22px 22px, var(--ink);
+    cursor: grab; touch-action: none; }
+  .gcanvas:active { cursor: grabbing; }
+  .gload { color: var(--dim); font: 12px/1.4 var(--mono); padding: 8px; }
+  .gempty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 12px/1.4 var(--mono); pointer-events: none; }
+  .gviewport { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  .gedges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+  .gedge { fill: none; stroke: var(--line2); stroke-width: 1.5; pointer-events: stroke; cursor: pointer; }
+  .gedge:hover { stroke: var(--upd); stroke-width: 2; }
+  .gedge.ghost { stroke: var(--upd); stroke-dasharray: 4 3; opacity: .8; }
+  .gedge.ok { stroke: var(--ok); } .gedge.warn { stroke: var(--warn); } .gedge.bad { stroke: var(--bad); } .gedge.info, .gedge.upd { stroke: var(--upd); }
+  .gnode { position: absolute; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line2);
+    box-shadow: 0 2px 10px rgba(0,0,0,.35); font: 12px/1.4 var(--mono); user-select: none; }
+  .gnode.sel { border-color: var(--upd); box-shadow: 0 0 0 1px var(--upd), 0 2px 14px rgba(0,0,0,.45); }
+  .gnode.ok { border-top: 2px solid var(--ok); } .gnode.warn { border-top: 2px solid var(--warn); }
+  .gnode.bad { border-top: 2px solid var(--bad); } .gnode.info, .gnode.upd { border-top: 2px solid var(--upd); }
+  .gnode.gst-running { box-shadow: 0 0 0 1px var(--upd), 0 0 16px color-mix(in srgb, var(--upd) 55%, transparent); }
+  .gnode.gst-done { border-color: color-mix(in srgb, var(--ok) 60%, var(--line2)); }
+  .gnode.gst-error { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
+  .gnhd { display: flex; align-items: center; gap: 7px; height: 34px; box-sizing: border-box; padding: 0 10px; cursor: grab;
+    border-bottom: 1px solid var(--line); color: var(--hi); font-weight: 600; }
+  .gnhd .gntt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gpband { position: relative; display: flex; justify-content: space-between; padding: 6px 0; }
+  .gpcol { display: flex; flex-direction: column; }
+  .gport { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; cursor: crosshair; color: var(--mid); }
+  .gport.out { flex-direction: row-reverse; }
+  .gpdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink); border: 1.5px solid var(--line2); flex: none; margin: 0 -13px; }
+  .gport:hover .gpdot { border-color: var(--upd); background: var(--upd); }
+  .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); } .gport.bad .gpdot { border-color: var(--bad); }
+  .gplbl { font: 10.5px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gnbody { padding: 8px 10px; border-top: 1px solid var(--line); }
+  /* node-type palette (drag a type onto the canvas) */
+  .gpalette { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 7px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line2);
+    backdrop-filter: blur(4px); max-height: 40%; overflow: auto; }
+  .gpchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--ink); border: 1px solid var(--line2);
+    color: var(--mid); cursor: grab; font: 600 11px/1 var(--mono); user-select: none; }
+  .gpchip:hover { color: var(--txt); border-color: var(--upd); }
+  .gpchip:active { cursor: grabbing; }
+  .gpchip.ok { border-left: 2px solid var(--ok); } .gpchip.warn { border-left: 2px solid var(--warn); }
+  .gpchip.bad { border-left: 2px solid var(--bad); } .gpchip.info, .gpchip.upd { border-left: 2px solid var(--upd); }
+  /* run toggle */
+  .grun { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+    background: var(--panel); border: 1px solid var(--line2); color: var(--mid); cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .grun:hover { color: var(--upd); border-color: var(--upd); }
+  .grun.on { color: var(--on-accent); background: var(--upd); border-color: var(--upd); }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -395,6 +454,13 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor editCell: { key: string; row: number; col: number } | null = null; // inline-edit target
   @reactive accessor lightbox: { src: string; alt: string } | null = null; // full-screen image viewer
   @reactive accessor search: Record<string, { q: string; items: any[]; loading: boolean }> = {}; // per Search-view autocomplete state
+  // Graph view: pan/zoom per view method, active DAG id per method (sidebar select), and
+  // optimistic drag/connect state (Part 3). Keyed by view method so multiple graphs coexist.
+  @reactive accessor graphView: Record<string, { panX: number; panY: number; zoom: number }> = {};
+  @reactive accessor graphActive: Record<string, string> = {};
+  @reactive accessor graphPos: Record<string, Record<string, { x: number; y: number }>> = {}; // optimistic drag overrides
+  @reactive accessor graphSel: string | null = null; // selected node id
+  @reactive accessor graphConnect: { method: string; from: string; d: string } | null = null; // live connect ghost (Part 3)
   private searchDeb = new Map<string, any>(); // per Search-view debounce timers
 
   private views: Record<string, ViewDesc> = {};
@@ -410,6 +476,15 @@ export class HopePluginSurface extends LoomElement {
   // Esc closes the lightbox, then the row modal, then any open autocomplete dropdown —
   // so every transient overlay is keyboard-dismissible, innermost first.
   private onKeydown = (e: KeyboardEvent) => {
+    // Delete/Backspace removes the selected graph node (unless typing in a field).
+    if ((e.key === "Delete" || e.key === "Backspace") && this.graphSel && !this.flyout && !this.modal) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      const gv = Object.values(this.views).find((x) => x.kind === "graph" && x.graph_delete);
+      if (gv) { e.preventDefault(); const id = this.graphSel; this.gDeleteNode(gv, id); }
+      return;
+    }
+    if (e.key === "Escape" && this.graphSel) { this.graphSel = null; return; }
     if (e.key !== "Escape") return;
     if (this.lightbox) { this.lightbox = null; e.stopPropagation(); return; }
     if (this.flyout) { this.stopFlyoutRefresh(); this.flyout = null; e.stopPropagation(); return; }
@@ -606,6 +681,9 @@ export class HopePluginSurface extends LoomElement {
   private async fetch(method: string, extra?: any) {
     const s = this.surface;
     if (!s) return;
+    // A graph view carries the sidebar-selected DAG id ({graph:id}) on every fetch, so
+    // selecting a DAG and any later refetch load the same one.
+    if (this.views[method]?.kind === "graph" && this.graphActive[method]) extra = { graph: this.graphActive[method], ...(extra || {}) };
     const gen = this.curKey; // stable surface identity — survives the host's poll re-renders
     // Keep the prior data while refetching (stale-while-revalidate) so a filter/page
     // change on a server table doesn't blank the table and flash "loading…".
@@ -903,6 +981,9 @@ export class HopePluginSurface extends LoomElement {
   private renderView(v: ViewDesc, data: any) {
     // Paged manages its own paging state — it ignores the eager single-shot `data`.
     if (v.kind === "paged") return this.renderPaged(v);
+    // Graph owns its own frame (regions + canvas) and renders even with no nodes yet
+    // (e.g. before a DAG is picked in the sidebar), so it runs before the null/empty guards.
+    if (v.kind === "graph") return this.renderGraph(v, data || {});
     // Author-controlled empty state: when the view resolves to no data AND the plugin
     // set an EmptyState, show it instead of the generic "no data"/"empty" text.
     if (v.empty && this.isEmptyData(v.kind, data)) return this.renderEmpty(v.empty);
@@ -1070,6 +1151,301 @@ export class HopePluginSurface extends LoomElement {
         return null;
     }
   }
+
+  // ── Graph (blueprint) view ────────────────────────────────────────────────
+  // hope ships no node types: the plugin returns nodes at x/y with Comp bodies + ports and
+  // edges between them; hope renders the canvas (pan/zoom/drag/connect) and calls the plugin's
+  // mutation methods, then re-fetches. Node bodies reuse renderComponent; node click reuses the
+  // flyout; mutations reuse runPluginAction. Port coords are analytic (no per-frame measuring).
+  private gGeom = { hh: 34, ps: 22, pad: 6, w: 190 };
+  private gview(m: string) { return this.graphView[m] || { panX: 0, panY: 0, zoom: 1 }; }
+  private setGview(m: string, patch: Partial<{ panX: number; panY: number; zoom: number }>) {
+    this.graphView = { ...this.graphView, [m]: { ...this.gview(m), ...patch } };
+  }
+  // Effective node position: an optimistic drag override wins over the fetched x/y until the
+  // reconciling re-fetch clears it.
+  private gEff(m: string, n: GNode): GNode {
+    const o = this.graphPos[m]?.[n.id];
+    return o ? { ...n, x: o.x, y: o.y } : n;
+  }
+  // Analytic port center in world coords: input ports down the left edge, outputs down the right.
+  private gPortXY(n: GNode, portId: string, side: "in" | "out") {
+    const W = n.w || this.gGeom.w;
+    const list = side === "out" ? n.out || [] : n.in || [];
+    const i = Math.max(0, list.findIndex((p) => p.id === portId));
+    return { x: side === "out" ? n.x + W : n.x, y: n.y + this.gGeom.hh + this.gGeom.pad + (i + 0.5) * this.gGeom.ps };
+  }
+  private gEdgePath(from: string, to: string, nodes: GNode[]): string {
+    const [fn, fp] = from.split(":");
+    const [tn, tp] = to.split(":");
+    const a = nodes.find((n) => n.id === fn);
+    const b = nodes.find((n) => n.id === tn);
+    if (!a || !b) return "";
+    const p1 = this.gPortXY(a, fp, "out");
+    const p2 = this.gPortXY(b, tp, "in");
+    const dx = Math.max(30, Math.abs(p2.x - p1.x) * 0.4);
+    return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
+  }
+  // A plugin-controlled chrome region (sidebar/toolbar): a Comp fetched lazily into cells.
+  private gRegion(method?: string) {
+    if (!method) return null;
+    const c = this.cells[method];
+    if (!c) { void this.fetch(method); return <div class="gload">…</div>; }
+    if (c.data == null) return c.loading ? <div class="gload">…</div> : null;
+    return this.renderComponent(c.data?.comp ?? c.data, "greg." + method);
+  }
+
+  private renderGraph(v: ViewDesc, data: GraphData) {
+    const m = v.method;
+    const gv = this.gview(m);
+    // While a run stream is active, render its live GraphData frames (node States drive the
+    // glow) instead of the fetched graph; on stop we re-fetch the authoritative graph.
+    const live = v.graph_run && this.streamOn[v.graph_run] ? (this.streamData[v.graph_run] as GraphData | undefined) : null;
+    const gdata: GraphData = live && live.nodes ? live : data;
+    const nodes = (gdata.nodes || []).map((n) => this.gEff(m, n));
+    const edges = gdata.edges || [];
+    let maxX = 900, maxY = 620;
+    for (const n of nodes) { maxX = Math.max(maxX, n.x + (n.w || this.gGeom.w) + 320); maxY = Math.max(maxY, n.y + 320); }
+    const cn = this.graphConnect; // live connect ghost (Part 3)
+    return (
+      <div class="graphwrap">
+        {v.graph_toolbar ? <div class="gbar">{this.gRegion(v.graph_toolbar)}</div> : null}
+        <div class="gmain">
+          {v.graph_sidebar ? <div class="gside">{this.gRegion(v.graph_sidebar)}</div> : null}
+          <div class="gcanvas" onPointerDown={(e: any) => this.gPanStart(e, m)} onWheel={(e: any) => this.gWheel(e, m)}
+            onDblClick={(e: any) => this.gDblAdd(e, v)} onDrop={(e: any) => this.gDrop(e, v)} onDragOver={(e: any) => e.preventDefault()}>
+            <div class="gviewport" style={`transform:translate(${gv.panX}px,${gv.panY}px) scale(${gv.zoom})`}>
+              <svg class="gedges" style={`width:${maxX}px;height:${maxY}px`}>
+                {edges.map((e) => {
+                  const d = this.gEdgePath(e.from, e.to, nodes);
+                  const t = this.toneClass(e.tone);
+                  return d ? <path d={d} class={"gedge" + (t ? " " + t : "")} onClick={(ev: any) => this.gEdgeClick(ev, v, e)}></path> : null;
+                })}
+                {cn && cn.method === m && cn.d ? <path d={cn.d} class="gedge ghost"></path> : null}
+              </svg>
+              {nodes.map((n) => this.renderGNode(v, n))}
+            </div>
+            {this.renderPalette(v)}
+            {v.graph_run ? (
+              <button class={"grun" + (this.streamOn[v.graph_run] ? " on" : "")} onClick={() => this.gRunToggle(v)}>
+                <loom-icon name={this.streamOn[v.graph_run] ? "stop" : "play"} size={12}></loom-icon>
+                {this.streamOn[v.graph_run] ? "stop" : "run"}
+              </button>
+            ) : null}
+            {!nodes.length ? <div class="gempty">{v.empty ? this.renderEmpty(v.empty) : "empty graph"}</div> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  private renderGNode(v: ViewDesc, n: GNode) {
+    const W = n.w || this.gGeom.w;
+    const tone = this.toneClass(n.tone);
+    const bandH = Math.max((n.in || []).length, (n.out || []).length) * this.gGeom.ps;
+    return (
+      <div class={"gnode" + (tone ? " " + tone : "") + (n.state ? " gst-" + n.state : "") + (this.graphSel === n.id ? " sel" : "")}
+        style={`left:${n.x}px;top:${n.y}px;width:${W}px`} onPointerDown={(e: any) => this.gNodeDown(e, v, n)}>
+        <div class="gnhd">{n.icon ? this.leafIcon(n.icon) : null}<span class="gntt">{n.title || n.id}</span></div>
+        {(n.in || []).length || (n.out || []).length ? (
+          <div class="gpband" style={`min-height:${bandH}px`}>
+            <div class="gpcol in">{(n.in || []).map((p) => this.renderPort(v, n, p, "in"))}</div>
+            <div class="gpcol out">{(n.out || []).map((p) => this.renderPort(v, n, p, "out"))}</div>
+          </div>
+        ) : null}
+        {n.body ? <div class="gnbody">{this.renderComponent(n.body, "gn." + n.id)}</div> : null}
+      </div>
+    );
+  }
+  private renderPort(v: ViewDesc, n: GNode, p: GPort, side: "in" | "out") {
+    const t = this.toneClass(p.tone);
+    return (
+      <span class={"gport " + side + (t ? " " + t : "")} data-node={n.id} data-port={p.id}
+        onPointerDown={(e: any) => this.gPortDown(e, v, n, p, side)}>
+        <span class="gpdot"></span>{p.label ? <span class="gplbl">{p.label}</span> : null}
+      </span>
+    );
+  }
+
+  // Pan the canvas by dragging the background (window-pointer idiom; transform lives in render).
+  private gPanStart = (e: PointerEvent, m: string) => {
+    if (e.button !== 0) return;
+    this.graphSel = null; // clicking empty canvas deselects
+    const gv = this.gview(m);
+    const sx = e.clientX, sy = e.clientY, p0x = gv.panX, p0y = gv.panY;
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => this.setGview(m, { panX: p0x + (ev.clientX - sx), panY: p0y + (ev.clientY - sy) });
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.style.userSelect = ""; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  // Wheel-zoom around the cursor (keeps the world point under the cursor fixed).
+  private gWheel = (e: WheelEvent, m: string) => {
+    e.preventDefault();
+    const gv = this.gview(m);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    const wx = (sx - gv.panX) / gv.zoom, wy = (sy - gv.panY) / gv.zoom;
+    const z = Math.min(2.5, Math.max(0.3, gv.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+    this.setGview(m, { zoom: z, panX: sx - wx * z, panY: sy - wy * z });
+  };
+  // Node pointerdown: a click (no move) opens the node flyout; a drag (when graph_move is set)
+  // moves it optimistically and persists on release.
+  private gNodeDown = (e: PointerEvent, v: ViewDesc, n: GNode) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const m = v.method, gv = this.gview(m);
+    const sx = e.clientX, sy = e.clientY;
+    const start = this.gEff(m, n), p0x = start.x, p0y = start.y;
+    let moved = false;
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) moved = true;
+      if (!moved || !v.graph_move) return;
+      let nx = p0x + (ev.clientX - sx) / gv.zoom, ny = p0y + (ev.clientY - sy) / gv.zoom;
+      if (v.graph_snap) { nx = Math.round(nx / v.graph_snap) * v.graph_snap; ny = Math.round(ny / v.graph_snap) * v.graph_snap; }
+      this.graphPos = { ...this.graphPos, [m]: { ...(this.graphPos[m] || {}), [n.id]: { x: nx, y: ny } } };
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.style.userSelect = "";
+      if (!moved) { this.graphSel = n.id; void this.openGraphFlyout(v, n); return; }
+      const pos = this.graphPos[m]?.[n.id];
+      if (v.graph_move && pos) void this.gMutate(v, v.graph_move, { id: n.id, x: pos.x, y: pos.y, type: n.type });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  // Port pointerdown → drag from an OUT port to an IN port to connect. Draws a live ghost
+  // bezier; on release hit-tests the drop target for an in-port and calls graph_connect.
+  private gPortDown = (e: PointerEvent, v: ViewDesc, n: GNode, p: GPort, side: "in" | "out") => {
+    e.stopPropagation();
+    if (side !== "out" || !v.graph_connect) return;
+    const m = v.method, gv = this.gview(m);
+    const canvas = (e.currentTarget as HTMLElement).closest(".gcanvas") as HTMLElement | null;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const from = n.id + ":" + p.id;
+    const p1 = this.gPortXY(this.gEff(m, n), p.id, "out");
+    const move = (ev: PointerEvent) => {
+      const wx = (ev.clientX - rect.left - gv.panX) / gv.zoom, wy = (ev.clientY - rect.top - gv.panY) / gv.zoom;
+      const dx = Math.max(30, Math.abs(wx - p1.x) * 0.4);
+      this.graphConnect = { method: m, from, d: `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${wx - dx} ${wy}, ${wx} ${wy}` };
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      this.graphConnect = null;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const port = el?.closest(".gport.in") as HTMLElement | null;
+      if (port) {
+        const to = port.getAttribute("data-node") + ":" + port.getAttribute("data-port");
+        if (!to.startsWith(n.id + ":")) void this.gConnect(v, from, to); // no self-loop on the same node
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  private gConnect = async (v: ViewDesc, from: string, to: string) => {
+    if (v.graph_validate_connect) {
+      try {
+        const r = await this.rpc.call<any>("Plugins", "call", [{ key: this.surface?.key, method: v.graph_validate_connect, args: this.callArgs({ row: { from, to } }), audit: false }]);
+        if (r && r.ok === false) { this.toast.warn(r.reason || "connection not allowed"); return; }
+      } catch { /* validator unavailable → allow */ }
+    }
+    if (v.graph_connect) void this.gMutate(v, v.graph_connect, { from, to });
+  };
+  // Click an edge → confirm → disconnect.
+  private gEdgeClick = async (e: Event, v: ViewDesc, edge: GEdge) => {
+    e.stopPropagation();
+    if (!v.graph_disconnect) return;
+    if (await this.confirm.ask({ title: "Disconnect", message: "Remove this connection?", confirmLabel: "Disconnect", danger: true })) {
+      void this.gMutate(v, v.graph_disconnect, { from: edge.from, to: edge.to });
+    }
+  };
+  // Sidebar select: set the active DAG id and re-fetch the canvas for it (fetch injects {graph:id}).
+  private gSelect(id: string) {
+    const gv = Object.values(this.views).find((x) => x.kind === "graph");
+    if (!gv) return;
+    this.graphActive = { ...this.graphActive, [gv.method]: id };
+    this.graphPos = { ...this.graphPos, [gv.method]: {} };
+    this.graphSel = null;
+    void this.fetch(gv.method);
+  }
+  // Palette drop / double-click background → create a node at the drop point.
+  private gDrop = (e: DragEvent, v: ViewDesc) => {
+    e.preventDefault();
+    const type = e.dataTransfer?.getData("text/hope-node") || "";
+    if (!type || !v.graph_add) return;
+    const { x, y } = this.gCanvasWorld(e, v.method);
+    void this.gMutate(v, v.graph_add, { type, x, y });
+  };
+  private gDblAdd = (e: MouseEvent, v: ViewDesc) => {
+    if (!v.graph_add || (e.target as HTMLElement)?.closest(".gnode")) return;
+    const { x, y } = this.gCanvasWorld(e, v.method);
+    void this.gMutate(v, v.graph_add, { type: "", x, y });
+  };
+  private gCanvasWorld(e: { clientX: number; clientY: number; currentTarget: EventTarget | null }, m: string) {
+    const canvas = (e.currentTarget as HTMLElement).closest?.(".gcanvas") as HTMLElement || (e.currentTarget as HTMLElement);
+    const rect = canvas.getBoundingClientRect();
+    const gv = this.gview(m);
+    return { x: (e.clientX - rect.left - gv.panX) / gv.zoom, y: (e.clientY - rect.top - gv.panY) / gv.zoom };
+  }
+  // The node-type palette (static Palette or the graph_palette method, lazy-fetched).
+  private gPaletteTypes(v: ViewDesc): NodeType[] {
+    if (v.palette?.length) return v.palette;
+    if (!v.graph_palette) return [];
+    const c = this.cells[v.graph_palette];
+    if (!c) { void this.fetch(v.graph_palette); return []; }
+    return Array.isArray(c.data) ? c.data : [];
+  }
+  private renderPalette(v: ViewDesc) {
+    const pal = this.gPaletteTypes(v);
+    if (!pal.length || !v.graph_add) return null;
+    return (
+      <div class="gpalette">
+        {pal.map((nt) => {
+          const t = this.toneClass(nt.tone);
+          return (
+            <span class={"gpchip" + (t ? " " + t : "")} draggable={true} tip={nt.desc || nt.label || nt.type}
+              onDragStart={(e: any) => e.dataTransfer.setData("text/hope-node", nt.type)}>
+              {nt.icon ? this.leafIcon(nt.icon) : null}<span class="gpchtx">{nt.label || nt.type}</span>
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
+
+  private openGraphFlyout = async (v: ViewDesc, n: GNode) => {
+    const s = this.surface;
+    if (!s || !v.graph_node_flyout) return;
+    try {
+      const comp = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method: v.graph_node_flyout, args: this.callArgs({ row: { id: n.id, ...(n.data || {}) } }) }]);
+      this.flyout = { title: n.title || n.id, comp, view: v.method };
+    } catch (e: any) {
+      this.toast.error(`node — ${e?.message ?? "failed"}`);
+    }
+  };
+  // Run a graph mutation quietly, then re-fetch the canvas and drop optimistic overrides.
+  private gMutate = async (v: ViewDesc, method: string, row: Record<string, any>) => {
+    if (!method) return;
+    const out = await runPluginAction(this.deps(), this.surface?.key || "", { method, label: "graph" }, { row }, this.surface?.param, { quiet: true });
+    if (out && out.ok) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; }
+  };
+  // Toggle the run stream: start it (live GraphData frames drive the node glow) or stop it
+  // and re-fetch the authoritative graph.
+  private gRunToggle = (v: ViewDesc) => {
+    const rm = v.graph_run;
+    if (!rm) return;
+    if (this.streamOn[rm]) { this.stopStream(rm); void this.fetch(v.method); }
+    else this.startStream(rm);
+  };
+  private gDeleteNode = async (v: ViewDesc, id: string) => {
+    if (!v.graph_delete) return;
+    if (await this.confirm.ask({ title: "Delete node", message: `Delete node "${id}"?`, confirmLabel: "Delete", danger: true })) {
+      this.graphSel = null;
+      void this.gMutate(v, v.graph_delete, { id });
+    }
+  };
 
   // queryDefault fills the view's Default template with the page param, e.g.
   // "select * from {table}" -> "select * from table_00" on that table's page.
@@ -1770,6 +2146,9 @@ export class HopePluginSurface extends LoomElement {
   private navCell(cell: any) {
     if (cell.to) {
       const to = String(cell.to);
+      // "graph:<id>" selects a DAG in place (a graph view's sidebar Link) instead of
+      // navigating — the plugin renders its DAG list as ordinary Link cells.
+      if (to.startsWith("graph:")) { this.gSelect(to.slice(6)); return; }
       // In-app nav only. An absolute `to` must be a single-slash path (reject
       // protocol-relative "//host" which routers treat as off-site); relative `to`
       // is resolved under this plugin.
