@@ -2,6 +2,10 @@
 // (mono, hairline borders, no radius) instead of the native <select>. Set the
 // `options` and `value` properties; it emits a "select" CustomEvent (detail =
 // chosen value) and reflects the choice on its own `value`.
+//
+// With `multiple`, it is a multi-select: `value` is a JSON array string, the menu
+// stays open across picks, options show a check, and the trigger shows the selected
+// labels (or "N selected"). The "select" event's detail is the JSON array string.
 import { LoomElement, component, styles, css, reactive, on } from "@toyz/loom";
 import { query } from "@toyz/loom/element";
 
@@ -38,12 +42,16 @@ export type SelectOption = Option;
   .opt:last-child { border-bottom: 0; }
   .opt:hover { background: var(--raised); color: var(--hi); }
   .opt.on { color: var(--hi); background: color-mix(in srgb, var(--upd) 10%, transparent); }
+  .opt .ck { flex: none; width: 14px; text-align: center; color: var(--upd); }
+  .opt .ol { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .opt { display: flex; align-items: center; gap: 8px; }
   .empty { padding: 12px; font: 12px/1 var(--mono); color: var(--dim); }
 `)
 export class HopeSelect extends LoomElement {
   @reactive accessor options: SelectOption[] = [];
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
+  @reactive accessor multiple = false;
   @reactive accessor open = false;
   @reactive accessor query = "";
   @query(".msearch") accessor searchEl!: HTMLInputElement | null;
@@ -109,23 +117,44 @@ export class HopeSelect extends LoomElement {
     }
   };
 
+  // The selected set. Single: 0-or-1 of `value`. Multiple: `value` is a JSON array string.
+  private sel(): string[] {
+    if (!this.multiple) return this.value ? [this.value] : [];
+    try { const a = JSON.parse(this.value || "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; }
+  }
+
   private pick = (v: string, e: Event) => {
     e.stopPropagation();
+    if (this.multiple) {
+      const cur = this.sel();
+      const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+      this.value = JSON.stringify(next);
+      // Keep the menu open for more picks; emit the array so the form value updates live.
+      this.dispatchEvent(new CustomEvent("select", { detail: this.value, bubbles: true, composed: true }));
+      this.searchEl?.focus();
+      return;
+    }
     this.value = v;
     this.close();
     this.dispatchEvent(new CustomEvent("select", { detail: v, bubbles: true, composed: true }));
   };
 
   update() {
-    const cur = this.options.find((o) => o.value === this.value);
+    const sel = this.sel();
     const q = this.query.trim().toLowerCase();
     const shown = q ? this.options.filter((o) => o.label.toLowerCase().includes(q)) : this.options;
     // Pin the popover to the trigger in the render so the coords survive filter re-renders.
     const menuStyle = this.open ? this.menuPos() : undefined;
+    // Trigger label: the single choice, or the multi-select summary (labels, then "N selected").
+    const lbl = ((): string => {
+      if (!sel.length) return this.placeholder;
+      const labels = sel.map((v) => this.options.find((o) => o.value === v)?.label ?? v);
+      return this.multiple && sel.length > 2 ? `${sel.length} selected` : labels.join(", ");
+    })();
     return (
       <div>
         <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle} onKeyDown={this.onKey}>
-          <span class={"lbl" + (cur ? "" : " ph")}>{cur ? cur.label : this.placeholder}</span>
+          <span class={"lbl" + (sel.length ? "" : " ph")}>{lbl}</span>
           <loom-icon name="chevron-down" size={13}></loom-icon>
         </button>
         {this.open ? (
@@ -134,9 +163,15 @@ export class HopeSelect extends LoomElement {
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
             {shown.length === 0 ? <div class="empty">{this.options.length === 0 ? "nothing to pick" : "no match"}</div> : null}
-            {shown.map((o) => (
-              <div class={"opt" + (o.value === this.value ? " on" : "")} onClick={(e: Event) => this.pick(o.value, e)}>{o.label}</div>
-            ))}
+            {shown.map((o) => {
+              const on = sel.includes(o.value);
+              return (
+                <div class={"opt" + (on ? " on" : "")} onClick={(e: Event) => this.pick(o.value, e)}>
+                  {this.multiple ? <span class="ck">{on ? "✓" : ""}</span> : null}
+                  <span class="ol">{o.label}</span>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </div>
