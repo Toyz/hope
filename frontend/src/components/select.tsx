@@ -73,6 +73,17 @@ export class HopeSelect extends LoomElement {
     this.close();
   }
 
+  // Escape closes the dropdown FIRST and consumes the event, so a parent modal's own
+  // window keydown doesn't also close on the same Escape (no double-close). Only when
+  // we're actually open — otherwise let Escape fall through to the modal.
+  @on(document, "keydown")
+  onDocKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || !this.open) return;
+    this.close();
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
   private openMenu(seed = "") {
     this.query = seed;
     this.open = true;
@@ -171,7 +182,7 @@ export class HopeSelect extends LoomElement {
     if (this.allowsCustom) { this.value = this.query; this.emitSel(this.value); }
   };
   private cbKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { this.close(); return; }
+    // Escape is handled by onDocKey (closes + stops propagation); here we only act on Enter.
     if (e.key !== "Enter") return;
     e.preventDefault();
     const q = this.query.trim().toLowerCase();
@@ -230,7 +241,7 @@ export class HopeSelect extends LoomElement {
               const on = sel.includes(o.value);
               return (
                 <div class={"opt" + (on ? " on" : "")} onClick={(e: Event) => this.pick(o.value, e)}>
-                  {this.isMulti ? <span class="ck">{on ? "✓" : ""}</span> : null}
+                  {this.isMulti ? <span class="ck">{on ? <loom-icon name="check" size={12} color="var(--upd)"></loom-icon> : null}</span> : null}
                   <span class="ol">{o.label}</span>
                 </div>
               );
