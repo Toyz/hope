@@ -648,6 +648,12 @@ func main() {
 				Subtitle("100,000 users · 60 tables").
 				HeaderActions("greet", "runCommand", "issueCommand", "connect", "bulkTag", "wipe")
 
+	// --- a dedicated full page for the blueprint/DAG editor (a rail entry). The graph
+	//     leaf is Filled() so the canvas takes the whole page height. ---
+	p.Page("Pipeline", plugin.Section("",
+		plugin.Leaf("pipeline").Filled(),
+	)).PageID("pipeline").Subtitle("blueprint / DAG editor")
+
 	// --- master-detail: a hidden "user" page the Big Table + cards link to. hope
 	//     passes the clicked id as param {id}; userView renders it. ---
 	p.DetailPage("user", "User", "id", plugin.Section("",
