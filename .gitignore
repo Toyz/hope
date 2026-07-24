@@ -61,3 +61,6 @@ Thumbs.db
 
 # dev-only plugin publish helper (poison-free rebuild+push+recreate)
 scripts/dev-publish-ks.sh
+
+# scratch wishlist / design notes, not shipped
+needed.md
