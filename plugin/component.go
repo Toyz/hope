@@ -69,6 +69,19 @@ type Comp struct {
 	Gap      int        `json:"gap,omitempty"`   // container child gap, px
 	Size     int        `json:"size,omitempty"`  // row/grid child weight | spacer height px
 	Table    *TableData `json:"table,omitempty"` // embedded table (CompTable)
+	// Tip is an optional hover tooltip (an info icon) on a labeled node — a Heading, a
+	// KeyVal (by its key), or a Card title. Set with .Help(text). Lets a plugin attach
+	// explanatory help ANYWHERE it renders a custom surface, the same way table headers use
+	// ColumnTips and fields use Help.
+	Tip *Tooltip `json:"tip,omitempty"`
+}
+
+// Help attaches a hover tooltip (an info icon) to this node — works on Heading, KeyVal,
+// and Card-title nodes. Chainable: plugin.Heading("Throughput", 4).Help("bytes/sec over
+// the last minute"). Optional placement like Tip.
+func (c *Comp) Help(text string, pos ...TipPos) *Comp {
+	c.Tip = Tip(text, pos...)
+	return c
 }
 
 // Box builds a vertical container (a tile/card body) from children.

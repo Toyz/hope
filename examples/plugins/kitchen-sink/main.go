@@ -734,9 +734,9 @@ func main() {
 	p.View("fleet", "Fleet cards", plugin.CompView, func(ctx context.Context) (any, error) {
 		card := func(name, img, tone, region string) *plugin.Comp {
 			return plugin.CCard(name,
-				plugin.KeyVal("region", region),
-				plugin.KeyVal("status", plugin.Badge("healthy", tone)),
-			).Ico("box").Sub(img).Toned(tone)
+				plugin.KeyVal("region", region).Help("the AWS region this replica runs in"),
+				plugin.KeyVal("status", plugin.Badge("healthy", tone)).Help("rolls up liveness + last health check"),
+			).Ico("box").Sub(img).Toned(tone).Help("click through for the replica's full lifecycle")
 		}
 		return plugin.CGrid(
 			card("web-01", "nginx:1.27", "ok", "us-east-1"),

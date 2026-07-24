@@ -44,6 +44,7 @@ interface Comp {
   gap?: number;
   size?: number;
   table?: any; // embedded TableData (kind "table")
+  tip?: Tip;   // hover help on a labeled node (heading / keyval key / card title)
 }
 // EmptyState mirrors the SDK's plugin.EmptyState — an author-set "no data" view.
 interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
@@ -114,6 +115,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .crow > .ccell, .cgrid > .ccell { min-width: 0; }
   .chead { color: var(--hi); font-weight: 600; }
+  /* help: an info icon carrying a node's tip on a heading / keyval key / card title */
+  .chelp { display: inline-flex; vertical-align: middle; margin-left: 5px; color: var(--line2); cursor: help; transition: color .12s; }
+  .chelp:hover { color: var(--upd); }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -934,6 +938,11 @@ export class HopePluginSurface extends LoomElement {
   // is typed data, never markup, and inherits the same rails as cells: toneClass
   // allowlists tones, cellNode/navCell reject non-http(s) URLs, icons are sanitized.
   // Unknown kinds render nothing (forward-compatible); depth is bounded defensively.
+  // An info icon carrying a node's `tip` help, shown next to a labeled primitive.
+  private compHelp(t?: Tip) {
+    return t?.text ? <loom-icon class="chelp" name="info" size={11} tip={t}></loom-icon> : null;
+  }
+
   private renderComponent(c: Comp | undefined, idKey: string, depth = 0): any {
     if (!c || depth > 32) return null;
     const tone = this.toneClass(c.tone);
@@ -957,16 +966,16 @@ export class HopePluginSurface extends LoomElement {
       }
       case "heading": {
         const lvl = Math.min(4, Math.max(1, Number(c.level) || 2));
-        return <div class={"chead h" + lvl + (tone ? " " + tone : "")}>{c.text}</div>;
+        return <div class={"chead h" + lvl + (tone ? " " + tone : "")}>{c.text}{this.compHelp(c.tip)}</div>;
       }
       case "text":
-        return <div class={"ctext" + (tone ? " " + tone : "")}>{c.text}</div>;
+        return <div class={"ctext" + (tone ? " " + tone : "")}>{c.text}{this.compHelp(c.tip)}</div>;
       case "divider":
         return <div class="cdiv"></div>;
       case "spacer":
         return <div class="cspacer" style={`height:${Math.max(0, Number(c.size) || 0)}px`}></div>;
       case "keyval":
-        return <div class="pkvr"><span class="pkvk">{c.label}</span><span class={"pkvv" + (tone ? " " + tone : "")}>{this.cellNode(c.value ?? c.cell)}</span></div>;
+        return <div class="pkvr"><span class="pkvk">{c.label}{this.compHelp(c.tip)}</span><span class={"pkvv" + (tone ? " " + tone : "")}>{this.cellNode(c.value ?? c.cell)}</span></div>;
       case "icon":
         return c.icon ? this.leafIcon(c.icon) : null;
       case "sparkline": {
@@ -987,7 +996,7 @@ export class HopePluginSurface extends LoomElement {
               <div class="cchd">
                 {c.icon ? this.leafIcon(c.icon) : null}
                 <div class="cchtx">
-                  {c.text ? <div class="ccttl">{c.text}</div> : null}
+                  {c.text ? <div class="ccttl">{c.text}{this.compHelp(c.tip)}</div> : null}
                   {c.label ? <div class="ccsub">{c.label}</div> : null}
                 </div>
               </div>
