@@ -189,6 +189,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); } .gport.bad .gpdot { border-color: var(--bad); }
   .gplbl { font: 10.5px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gnbody { padding: 8px 10px; border-top: 1px solid var(--line); }
+  /* node-type palette (drag a type onto the canvas) */
+  .gpalette { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 7px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line2);
+    backdrop-filter: blur(4px); max-height: 40%; overflow: auto; }
+  .gpchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--ink); border: 1px solid var(--line2);
+    color: var(--mid); cursor: grab; font: 600 11px/1 var(--mono); user-select: none; }
+  .gpchip:hover { color: var(--txt); border-color: var(--upd); }
+  .gpchip:active { cursor: grabbing; }
+  .gpchip.ok { border-left: 2px solid var(--ok); } .gpchip.warn { border-left: 2px solid var(--warn); }
+  .gpchip.bad { border-left: 2px solid var(--bad); } .gpchip.info, .gpchip.upd { border-left: 2px solid var(--upd); }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -460,6 +470,15 @@ export class HopePluginSurface extends LoomElement {
   // Esc closes the lightbox, then the row modal, then any open autocomplete dropdown —
   // so every transient overlay is keyboard-dismissible, innermost first.
   private onKeydown = (e: KeyboardEvent) => {
+    // Delete/Backspace removes the selected graph node (unless typing in a field).
+    if ((e.key === "Delete" || e.key === "Backspace") && this.graphSel && !this.flyout && !this.modal) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      const gv = Object.values(this.views).find((x) => x.kind === "graph" && x.graph_delete);
+      if (gv) { e.preventDefault(); const id = this.graphSel; this.gDeleteNode(gv, id); }
+      return;
+    }
+    if (e.key === "Escape" && this.graphSel) { this.graphSel = null; return; }
     if (e.key !== "Escape") return;
     if (this.lightbox) { this.lightbox = null; e.stopPropagation(); return; }
     if (this.flyout) { this.stopFlyoutRefresh(); this.flyout = null; e.stopPropagation(); return; }
@@ -656,6 +675,9 @@ export class HopePluginSurface extends LoomElement {
   private async fetch(method: string, extra?: any) {
     const s = this.surface;
     if (!s) return;
+    // A graph view carries the sidebar-selected DAG id ({graph:id}) on every fetch, so
+    // selecting a DAG and any later refetch load the same one.
+    if (this.views[method]?.kind === "graph" && this.graphActive[method]) extra = { graph: this.graphActive[method], ...(extra || {}) };
     const gen = this.curKey; // stable surface identity — survives the host's poll re-renders
     // Keep the prior data while refetching (stale-while-revalidate) so a filter/page
     // change on a server table doesn't blank the table and flash "loading…".
@@ -1180,10 +1202,11 @@ export class HopePluginSurface extends LoomElement {
         {v.graph_toolbar ? <div class="gbar">{this.gRegion(v.graph_toolbar)}</div> : null}
         <div class="gmain">
           {v.graph_sidebar ? <div class="gside">{this.gRegion(v.graph_sidebar)}</div> : null}
-          <div class="gcanvas" onPointerDown={(e: any) => this.gPanStart(e, m)} onWheel={(e: any) => this.gWheel(e, m)}>
+          <div class="gcanvas" onPointerDown={(e: any) => this.gPanStart(e, m)} onWheel={(e: any) => this.gWheel(e, m)}
+            onDblClick={(e: any) => this.gDblAdd(e, v)} onDrop={(e: any) => this.gDrop(e, v)} onDragOver={(e: any) => e.preventDefault()}>
             <div class="gviewport" style={`transform:translate(${gv.panX}px,${gv.panY}px) scale(${gv.zoom})`}>
               <svg class="gedges" style={`width:${maxX}px;height:${maxY}px`}>
-                {edges.map((e, i) => {
+                {edges.map((e) => {
                   const d = this.gEdgePath(e.from, e.to, nodes);
                   const t = this.toneClass(e.tone);
                   return d ? <path d={d} class={"gedge" + (t ? " " + t : "")} onClick={(ev: any) => this.gEdgeClick(ev, v, e)}></path> : null;
@@ -1192,6 +1215,7 @@ export class HopePluginSurface extends LoomElement {
               </svg>
               {nodes.map((n) => this.renderGNode(v, n))}
             </div>
+            {this.renderPalette(v)}
             {!nodes.length ? <div class="gempty">{v.empty ? this.renderEmpty(v.empty) : "empty graph"}</div> : null}
           </div>
         </div>
@@ -1230,6 +1254,7 @@ export class HopePluginSurface extends LoomElement {
   // Pan the canvas by dragging the background (window-pointer idiom; transform lives in render).
   private gPanStart = (e: PointerEvent, m: string) => {
     if (e.button !== 0) return;
+    this.graphSel = null; // clicking empty canvas deselects
     const gv = this.gview(m);
     const sx = e.clientX, sy = e.clientY, p0x = gv.panX, p0y = gv.panY;
     document.body.style.userSelect = "none";
@@ -1274,12 +1299,105 @@ export class HopePluginSurface extends LoomElement {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
-  // Port pointerdown → drag-to-connect (Part 3).
+  // Port pointerdown → drag from an OUT port to an IN port to connect. Draws a live ghost
+  // bezier; on release hit-tests the drop target for an in-port and calls graph_connect.
   private gPortDown = (e: PointerEvent, v: ViewDesc, n: GNode, p: GPort, side: "in" | "out") => {
     e.stopPropagation();
-    void v; void n; void p; void side; // wired in Part 3
+    if (side !== "out" || !v.graph_connect) return;
+    const m = v.method, gv = this.gview(m);
+    const canvas = (e.currentTarget as HTMLElement).closest(".gcanvas") as HTMLElement | null;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const from = n.id + ":" + p.id;
+    const p1 = this.gPortXY(this.gEff(m, n), p.id, "out");
+    const move = (ev: PointerEvent) => {
+      const wx = (ev.clientX - rect.left - gv.panX) / gv.zoom, wy = (ev.clientY - rect.top - gv.panY) / gv.zoom;
+      const dx = Math.max(30, Math.abs(wx - p1.x) * 0.4);
+      this.graphConnect = { method: m, from, d: `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${wx - dx} ${wy}, ${wx} ${wy}` };
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      this.graphConnect = null;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const port = el?.closest(".gport.in") as HTMLElement | null;
+      if (port) {
+        const to = port.getAttribute("data-node") + ":" + port.getAttribute("data-port");
+        if (!to.startsWith(n.id + ":")) void this.gConnect(v, from, to); // no self-loop on the same node
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   };
-  private gEdgeClick = (e: Event, v: ViewDesc, edge: GEdge) => { e.stopPropagation(); void v; void edge; }; // Part 3
+  private gConnect = async (v: ViewDesc, from: string, to: string) => {
+    if (v.graph_validate_connect) {
+      try {
+        const r = await this.rpc.call<any>("Plugins", "call", [{ key: this.surface?.key, method: v.graph_validate_connect, args: this.callArgs({ row: { from, to } }), audit: false }]);
+        if (r && r.ok === false) { this.toast.warn(r.reason || "connection not allowed"); return; }
+      } catch { /* validator unavailable → allow */ }
+    }
+    if (v.graph_connect) void this.gMutate(v, v.graph_connect, { from, to });
+  };
+  // Click an edge → confirm → disconnect.
+  private gEdgeClick = async (e: Event, v: ViewDesc, edge: GEdge) => {
+    e.stopPropagation();
+    if (!v.graph_disconnect) return;
+    if (await this.confirm.ask({ title: "Disconnect", message: "Remove this connection?", confirmLabel: "Disconnect", danger: true })) {
+      void this.gMutate(v, v.graph_disconnect, { from: edge.from, to: edge.to });
+    }
+  };
+  // Sidebar select: set the active DAG id and re-fetch the canvas for it (fetch injects {graph:id}).
+  private gSelect(id: string) {
+    const gv = Object.values(this.views).find((x) => x.kind === "graph");
+    if (!gv) return;
+    this.graphActive = { ...this.graphActive, [gv.method]: id };
+    this.graphPos = { ...this.graphPos, [gv.method]: {} };
+    this.graphSel = null;
+    void this.fetch(gv.method);
+  }
+  // Palette drop / double-click background → create a node at the drop point.
+  private gDrop = (e: DragEvent, v: ViewDesc) => {
+    e.preventDefault();
+    const type = e.dataTransfer?.getData("text/hope-node") || "";
+    if (!type || !v.graph_add) return;
+    const { x, y } = this.gCanvasWorld(e, v.method);
+    void this.gMutate(v, v.graph_add, { type, x, y });
+  };
+  private gDblAdd = (e: MouseEvent, v: ViewDesc) => {
+    if (!v.graph_add || (e.target as HTMLElement)?.closest(".gnode")) return;
+    const { x, y } = this.gCanvasWorld(e, v.method);
+    void this.gMutate(v, v.graph_add, { type: "", x, y });
+  };
+  private gCanvasWorld(e: { clientX: number; clientY: number; currentTarget: EventTarget | null }, m: string) {
+    const canvas = (e.currentTarget as HTMLElement).closest?.(".gcanvas") as HTMLElement || (e.currentTarget as HTMLElement);
+    const rect = canvas.getBoundingClientRect();
+    const gv = this.gview(m);
+    return { x: (e.clientX - rect.left - gv.panX) / gv.zoom, y: (e.clientY - rect.top - gv.panY) / gv.zoom };
+  }
+  // The node-type palette (static Palette or the graph_palette method, lazy-fetched).
+  private gPaletteTypes(v: ViewDesc): NodeType[] {
+    if (v.palette?.length) return v.palette;
+    if (!v.graph_palette) return [];
+    const c = this.cells[v.graph_palette];
+    if (!c) { void this.fetch(v.graph_palette); return []; }
+    return Array.isArray(c.data) ? c.data : [];
+  }
+  private renderPalette(v: ViewDesc) {
+    const pal = this.gPaletteTypes(v);
+    if (!pal.length || !v.graph_add) return null;
+    return (
+      <div class="gpalette">
+        {pal.map((nt) => {
+          const t = this.toneClass(nt.tone);
+          return (
+            <span class={"gpchip" + (t ? " " + t : "")} draggable={true} tip={nt.desc || nt.label || nt.type}
+              onDragStart={(e: any) => e.dataTransfer.setData("text/hope-node", nt.type)}>
+              {nt.icon ? this.leafIcon(nt.icon) : null}<span class="gpchtx">{nt.label || nt.type}</span>
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
 
   private openGraphFlyout = async (v: ViewDesc, n: GNode) => {
     const s = this.surface;
@@ -1296,6 +1414,13 @@ export class HopePluginSurface extends LoomElement {
     if (!method) return;
     const out = await runPluginAction(this.deps(), this.surface?.key || "", { method, label: "graph" }, { row }, this.surface?.param, { quiet: true });
     if (out && out.ok) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; }
+  };
+  private gDeleteNode = async (v: ViewDesc, id: string) => {
+    if (!v.graph_delete) return;
+    if (await this.confirm.ask({ title: "Delete node", message: `Delete node "${id}"?`, confirmLabel: "Delete", danger: true })) {
+      this.graphSel = null;
+      void this.gMutate(v, v.graph_delete, { id });
+    }
   };
 
   // queryDefault fills the view's Default template with the page param, e.g.
@@ -1997,6 +2122,9 @@ export class HopePluginSurface extends LoomElement {
   private navCell(cell: any) {
     if (cell.to) {
       const to = String(cell.to);
+      // "graph:<id>" selects a DAG in place (a graph view's sidebar Link) instead of
+      // navigating — the plugin renders its DAG list as ordinary Link cells.
+      if (to.startsWith("graph:")) { this.gSelect(to.slice(6)); return; }
       // In-app nav only. An absolute `to` must be a single-slash path (reject
       // protocol-relative "//host" which routers treat as off-site); relative `to`
       // is resolved under this plugin.
