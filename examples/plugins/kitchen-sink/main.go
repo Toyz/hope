@@ -53,7 +53,7 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 }
 
 func main() {
-	p := plugin.New("kitchen-sink", "1.3.0").
+	p := plugin.New("kitchen-sink", "1.4.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
 		Icon("box").
 		Icons(map[string]string{
@@ -663,6 +663,117 @@ func main() {
 	}, func(ctx context.Context, in map[string]any) (any, error) {
 		rows, _ := in["labels"].([]any)
 		return map[string]any{"message": fmt.Sprintf("would set %d label(s)", len(rows))}, nil
+	})
+
+	// ── v0.5 surfaces: wizard, card, paged collection, hscroll table, component stream ──
+
+	// Cascading options for the wizard's Database step: the choices depend on the host the
+	// operator typed in the earlier step (read via Params).
+	p.Options("wizDatabases", func(ctx context.Context) ([]plugin.Option, error) {
+		var v struct {
+			Host string `json:"host"`
+		}
+		_ = plugin.Params(ctx, &v)
+		if strings.TrimSpace(v.Host) == "" {
+			return nil, nil
+		}
+		return []plugin.Option{
+			{Label: v.Host + " · app", Value: "app"},
+			{Label: v.Host + " · analytics", Value: "analytics"},
+			{Label: v.Host + " · sessions", Value: "sessions"},
+		}, nil
+	})
+
+	// WIZARD: a stepped form. Step 2's database options cascade from step 1's host; step 3's
+	// cert field only appears when "Require SSL" is on (a conditional field, DependsValue).
+	p.Action("connect", "Connection wizard", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		return map[string]any{"message": fmt.Sprintf("connect %v:%v/%v (ssl=%v)", in["host"], in["port"], in["db"], in["ssl"])}, nil
+	}, plugin.ActionIcon("rocket"), plugin.ActionSteps(
+		plugin.StepHint("Server", "where to connect",
+			plugin.Field{Key: "host", Label: "Host", Placeholder: "db.internal"},
+			plugin.Field{Key: "port", Label: "Port", Value: "5432"},
+		),
+		plugin.StepHint("Database", "options cascade from the host above",
+			plugin.Field{Key: "db", Label: "Database", Type: "select", OptionsMethod: "wizDatabases", DependsOn: "host"},
+		),
+		plugin.Step("Security",
+			plugin.Field{Key: "ssl", Label: "Require SSL", Type: "toggle"},
+			plugin.Field{Key: "cert", Label: "Client cert", Placeholder: "/etc/ssl/client.pem", Optional: true, DependsOn: "ssl", DependsValue: "true"},
+		),
+	))
+
+	// HORIZONTAL-SCROLL table: 12 columns keep their natural width and scroll sideways
+	// instead of cramming. Also demos a wide row flyout.
+	p.View("wide", "Wide table", plugin.Table, func(ctx context.Context) (any, error) {
+		cols := []string{"id", "service", "region", "tier", "cpu", "mem", "disk", "net_in", "net_out", "uptime", "restarts", "status"}
+		var rows [][]any
+		for i := 0; i < 18; i++ {
+			rows = append(rows, []any{
+				fmt.Sprintf("svc-%02d", i), fmt.Sprintf("worker-%d", i), "us-east-1", "standard",
+				fmt.Sprintf("%d%%", 10+i%80), fmt.Sprintf("%dMi", 128+i*32), fmt.Sprintf("%dGi", 2+i%9),
+				fmt.Sprintf("%dKB/s", i*7), fmt.Sprintf("%dKB/s", i*4), fmt.Sprintf("%dh", i*3),
+				i % 4, plugin.Badge("running", "ok"),
+			})
+		}
+		return map[string]any{"columns": cols, "rows": rows}, nil
+	}, plugin.HScroll(), plugin.RowFlyout("rowDetail"), plugin.RowFlyoutWidth("large"))
+
+	// CARD primitive: a component view rendering a grid of cards.
+	p.View("fleet", "Fleet cards", plugin.CompView, func(ctx context.Context) (any, error) {
+		card := func(name, img, tone, region string) *plugin.Comp {
+			return plugin.CCard(name,
+				plugin.KeyVal("region", region),
+				plugin.KeyVal("status", plugin.Badge("healthy", tone)),
+			).Ico("box").Sub(img).Toned(tone)
+		}
+		return plugin.CGrid(
+			card("web-01", "nginx:1.27", "ok", "us-east-1"),
+			card("api-02", "hope/api:1.3", "warn", "us-west-2"),
+			card("db-03", "postgres:16", "ok", "eu-central-1"),
+		), nil
+	})
+
+	// PAGED collection: hope pages, the plugin renders each item. Mixed types — every 4th
+	// item is an inline Comp (A); the rest use the "event" ItemTemplate bound to their Data (B).
+	p.PagedView("feed", "Activity feed", func(ctx context.Context) (any, error) {
+		var pr struct {
+			Offset int `json:"offset"`
+			Limit  int `json:"limit"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		if pr.Limit <= 0 {
+			pr.Limit = 15
+		}
+		const total = 84
+		var items []plugin.Item
+		for i := pr.Offset; i < pr.Offset+pr.Limit && i < total; i++ {
+			if i%4 == 0 {
+				items = append(items, plugin.Item{Comp: plugin.CCard(fmt.Sprintf("milestone #%d", i), plugin.CText("a one-off custom item (inline Comp)")).Ico("star").Toned("info")})
+			} else {
+				items = append(items, plugin.Item{Type: "event", Data: map[string]any{"n": i, "actor": fmt.Sprintf("user-%d", i%9), "action": []string{"deployed", "scaled", "restarted"}[i%3]}})
+			}
+		}
+		return &plugin.Page{Items: items, Total: total}, nil
+	}, plugin.PageSize(15), plugin.PageLayout("list"),
+		plugin.ItemTemplate("event", plugin.CCard("event #{n}",
+			plugin.KeyVal("actor", "{actor}"),
+			plugin.KeyVal("action", "{action}"),
+		).Ico("activity")),
+	)
+
+	// COMPONENT stream: each live frame is a full component tree hope renders (not a fixed kind).
+	p.Stream("liveCard", "Live card", plugin.StreamComponent, func(ctx context.Context, emit plugin.EmitFunc) error {
+		for i := 0; ; i++ {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Second):
+			}
+			emit(plugin.CCard("live tick",
+				plugin.KeyVal("count", i),
+				plugin.KeyVal("at", time.Now().Format("15:04:05")),
+			).Ico("activity").Toned("ok"))
+		}
 	})
 
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
