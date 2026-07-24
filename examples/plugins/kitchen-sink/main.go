@@ -908,7 +908,13 @@ func main() {
 				plugin.KeyVal("satellites", fmt.Sprintf("%d", len(targets))),
 				plugin.KeyVal("priority", fmt.Sprintf("%v", in["priority"])),
 				plugin.KeyVal("station", fmt.Sprintf("%v", in["station"])),
-				plugin.KeyVal("state", plugin.Badge("queued", "info")),
+				plugin.Heading("Lifecycle", 4),
+				plugin.Timeline(
+					plugin.TStep("queued").Current().At(plugin.Time(time.Now().Unix())),
+					plugin.TStep("uplinked").Pending(),
+					plugin.TStep("tasked").Sub("executing over target").Pending(),
+					plugin.TStep("completed").Sub("product downlinked").Pending(),
+				),
 			),
 		}, nil
 	}, plugin.ActionIcon("rocket"),

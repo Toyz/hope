@@ -49,6 +49,8 @@ const (
 	CompCell      CompKind = "cell"      // any rich Cell (Badge/Link/Number/Time/Progress/Image)
 	CompTable     CompKind = "table"     // an embedded table (rich cells, alignment, ellipsis)
 	CompCard      CompKind = "card"      // a bordered card: header (icon/title/subtitle/tone stripe) + body children
+	CompTimeline  CompKind = "timeline"  // a vertical timeline of TStep children (dots + connector + right value)
+	CompTStep     CompKind = "tstep"     // one timeline step (Text label, Sub detail, .At value, state, tone)
 )
 
 // Comp is one node in a Component tree. Build nodes with the constructors below
@@ -74,6 +76,9 @@ type Comp struct {
 	// explanatory help ANYWHERE it renders a custom surface, the same way table headers use
 	// ColumnTips and fields use Help.
 	Tip *Tooltip `json:"tip,omitempty"`
+	// State is a timeline step's progress: "done" | "current" | "pending" (default pending) —
+	// drives the dot fill and the row's emphasis. Set with .Done()/.Current()/.Pending().
+	State string `json:"state,omitempty"`
 }
 
 // Help attaches a hover tooltip (an info icon) to this node — works on Heading, KeyVal,
@@ -131,6 +136,35 @@ func CCell(cell Cell) *Comp { return &Comp{Kind: CompCell, Cell: cell} }
 // with plugin.Table(...). Ideal for a compact list-with-structure inside a flyout/panel
 // (e.g. the badges on a canvas) instead of hand-stacking rows.
 func CTable(data *TableData) *Comp { return &Comp{Kind: CompTable, Table: data} }
+
+// Timeline builds a vertical timeline — a dot-and-connector rail of TStep rows, each with a
+// label, optional detail, a right-aligned value, and a done/current/pending state. Ideal for
+// a lifecycle / progress / audit trail (an order's queued -> uplinked -> completed).
+//
+//	plugin.Timeline(
+//	    plugin.TStep("queued").Current().At(plugin.Time(ts)),
+//	    plugin.TStep("uplinked").Pending(),
+//	    plugin.TStep("tasked").Sub("executing over target").Pending(),
+//	)
+func Timeline(steps ...*Comp) *Comp { return &Comp{Kind: CompTimeline, Children: steps} }
+
+// TStep is one timeline row: Text is the label, and any body components render indented
+// under it (in the content column, past the rail) — so a step can hold a detail box, a
+// keyval, a table, whatever. Chain .Sub(detail), .At(value) for the right-aligned value (a
+// timestamp, a Cell, any scalar), .Done()/.Current()/.Pending() for the state (dot fill +
+// emphasis), and .Toned(tone) to override the dot/value color.
+func TStep(label string, body ...*Comp) *Comp {
+	return &Comp{Kind: CompTStep, Text: label, State: "pending", Children: body}
+}
+
+// At sets a timeline step's right-aligned value — a timestamp (plugin.Time), a rich Cell
+// (Badge/Link), or any scalar. Empty renders a dim placeholder.
+func (c *Comp) At(value any) *Comp { c.Value = value; return c }
+
+// Done / Current / Pending set a timeline step's state (default pending).
+func (c *Comp) Done() *Comp    { c.State = "done"; return c }
+func (c *Comp) Current() *Comp { c.State = "current"; return c }
+func (c *Comp) Pending() *Comp { c.State = "pending"; return c }
 
 // Toned sets a semantic accent (ToneOK/Warn/Bad/Info) on a node — a colored heading,
 // a tinted box border, a status-colored keyval.

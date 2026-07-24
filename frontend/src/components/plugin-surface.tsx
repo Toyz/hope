@@ -29,7 +29,7 @@ interface Node {
   comp?: Comp; // kind "component": an inline primitive tree (see renderComponent)
 }
 // Comp mirrors the SDK's plugin.Comp — one node of the "escape hatch" primitive tree.
-type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table" | "card";
+type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table" | "card" | "timeline" | "tstep";
 interface Comp {
   kind: CompKind; // a newer hope may send an unknown kind; renderComponent's default skips it
   children?: Comp[];
@@ -45,6 +45,7 @@ interface Comp {
   size?: number;
   table?: any; // embedded TableData (kind "table")
   tip?: Tip;   // hover help on a labeled node (heading / keyval key / card title)
+  state?: string; // timeline step state: done | current | pending
 }
 // EmptyState mirrors the SDK's plugin.EmptyState — an author-set "no data" view.
 interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
@@ -118,6 +119,28 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   /* help: an info icon carrying a node's tip on a heading / keyval key / card title */
   .chelp { display: inline-flex; vertical-align: middle; margin-left: 5px; color: var(--line2); cursor: help; transition: color .12s; }
   .chelp:hover { color: var(--upd); }
+  /* timeline: a dot-and-connector rail of steps (done/current/pending) with a right value */
+  .ctl { display: flex; flex-direction: column; }
+  .ctlrow { display: grid; grid-template-columns: 14px 1fr auto; column-gap: 10px; align-items: baseline; position: relative; padding-bottom: 11px; }
+  .ctlrow.last { padding-bottom: 0; }
+  .ctlrow::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: -1px; width: 1px; background: var(--line2); }
+  .ctlrow.last::before { display: none; }
+  .ctldot { grid-column: 1; width: 7px; height: 7px; box-sizing: border-box; border-radius: 50%; margin-top: 4px; z-index: 1;
+    border: 1.5px solid var(--line2); background: var(--panel); }
+  .ctldot.done { background: var(--ok); border-color: var(--ok); }
+  .ctldot.current { background: var(--upd); border-color: var(--upd); }
+  .ctldot.ok { background: var(--ok); border-color: var(--ok); }
+  .ctldot.warn { background: var(--warn); border-color: var(--warn); }
+  .ctldot.bad { background: var(--bad); border-color: var(--bad); }
+  .ctldot.info, .ctldot.upd { background: var(--upd); border-color: var(--upd); }
+  .ctllab { grid-column: 2; font: 12.5px/1.4 var(--mono); color: var(--mid); }
+  .ctlrow.pending .ctllab { color: var(--dim); }
+  .ctlrow.current .ctllab, .ctlrow.done .ctllab { color: var(--hi); }
+  .ctlsub { color: var(--dim); }
+  .ctlval { grid-column: 3; justify-self: end; font: 11.5px/1.4 var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
+  .ctlval.ok { color: var(--ok); } .ctlval.warn { color: var(--warn); } .ctlval.bad { color: var(--bad); }
+  .ctlval.info, .ctlval.upd { color: var(--upd); }
+  .ctlbody { grid-column: 2 / -1; margin-top: 6px; }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -987,6 +1010,28 @@ export class HopePluginSurface extends LoomElement {
       case "table":
         // An embedded table — full renderer (headers, aligned cells, ellipsis, row detail).
         return c.table ? this.renderTable(c.table) : null;
+      case "timeline": {
+        // A vertical timeline: each tstep child is a dot-and-connector row with a label,
+        // optional detail, a right value, a done/current/pending state, and optional body.
+        const steps = (c.children || []).filter(Boolean);
+        return (
+          <div class="ctl">
+            {steps.map((s, i) => {
+              const st = s.state === "done" || s.state === "current" ? s.state : "pending";
+              const stone = this.toneClass(s.tone);
+              const body = (s.children || []).filter(Boolean);
+              return (
+                <div class={"ctlrow " + st + (i === steps.length - 1 ? " last" : "")}>
+                  <span class={"ctldot " + st + (stone ? " " + stone : "")}></span>
+                  <span class="ctllab">{s.text}{s.label ? <span class="ctlsub"> · {s.label}</span> : null}{this.compHelp(s.tip)}</span>
+                  <span class={"ctlval" + (stone ? " " + stone : "")}>{s.value != null && s.value !== "" ? this.cellNode(s.value ?? s.cell) : "—"}</span>
+                  {body.length ? <div class="ctlbody">{body.map((k, j) => this.renderComponent(k, idKey + "." + i + ".b" + j, depth + 1))}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
       case "card": {
         // A bordered card: header (icon/title/subtitle + tone stripe) over body children.
         const hasHead = c.text || c.icon || c.label;
