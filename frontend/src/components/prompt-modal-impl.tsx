@@ -331,7 +331,7 @@ export default class PromptModalImpl extends LoomElement {
     );
     if (f.type === "multiselect") {
       const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
-      return <hope-select multiple={true} options={opts} value={val || "[]"} placeholder={f.placeholder || "select…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
+      return <hope-select multiple={true} options={opts} value={val} placeholder={f.placeholder || "select…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
     }
     if (f.type === "chips") {
       const sel = this.parseMulti(val);
@@ -347,7 +347,7 @@ export default class PromptModalImpl extends LoomElement {
     }
     if (f.type === "combobox") {
       const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
-      return <hope-select combobox={true} allowCustom={!!f.allowCustom} options={opts} value={val} placeholder={f.placeholder || "type or pick…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
+      return <hope-select combobox={true} allow-custom={f.allowCustom ? true : undefined} options={opts} value={val} placeholder={f.placeholder || "type or pick…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
     }
     return <input type="text" placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)} />;
   }

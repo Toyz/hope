@@ -54,9 +54,12 @@ export class HopeSelect extends LoomElement {
   @reactive accessor options: SelectOption[] = [];
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
-  @reactive accessor multiple = false;
-  @reactive accessor combobox = false;   // editable type-ahead trigger (single value)
-  @reactive accessor allowCustom = false; // combobox: commit a typed value not in options
+  // Mode flags arrive as JSX attributes (<hope-select multiple>), so read them via
+  // hasAttribute — a @reactive accessor reads a stale value for attribute-set props (the
+  // same reason hope-button checks hasAttribute("solid")). Attribute names are lowercase.
+  private get isMulti(): boolean { return this.hasAttribute("multiple"); }
+  private get isCombo(): boolean { return this.hasAttribute("combobox"); }
+  private get allowsCustom(): boolean { return this.hasAttribute("allow-custom"); }
   @reactive accessor open = false;
   @reactive accessor query = "";
   @query(".msearch") accessor searchEl!: HTMLInputElement | null;
@@ -124,13 +127,13 @@ export class HopeSelect extends LoomElement {
 
   // The selected set. Single: 0-or-1 of `value`. Multiple: `value` is a JSON array string.
   private sel(): string[] {
-    if (!this.multiple) return this.value ? [this.value] : [];
+    if (!this.isMulti) return this.value ? [this.value] : [];
     try { const a = JSON.parse(this.value || "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; }
   }
 
   private pick = (v: string, e: Event) => {
     e.stopPropagation();
-    if (this.multiple) {
+    if (this.isMulti) {
       const cur = this.sel();
       const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
       this.value = JSON.stringify(next);
@@ -165,7 +168,7 @@ export class HopeSelect extends LoomElement {
     this.query = e.target.value;
     if (!this.open) { this.open = true; requestAnimationFrame(() => (this.menuEl as any)?.showPopover?.()); }
     // With custom entry, the typed text IS the value live; otherwise it's just a filter.
-    if (this.allowCustom) { this.value = this.query; this.emitSel(this.value); }
+    if (this.allowsCustom) { this.value = this.query; this.emitSel(this.value); }
   };
   private cbKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") { this.close(); return; }
@@ -176,13 +179,13 @@ export class HopeSelect extends LoomElement {
     const contains = this.options.filter((o) => o.label.toLowerCase().includes(q));
     const match = exact || (contains.length === 1 ? contains[0] : undefined);
     if (match) this.pick(match.value, e);
-    else if (this.allowCustom && this.query.trim()) { this.value = this.query.trim(); this.close(); this.emitSel(this.value); }
+    else if (this.allowsCustom && this.query.trim()) { this.value = this.query.trim(); this.close(); this.emitSel(this.value); }
   };
   private cbBlur = () => {
     // Defer so a click on an option (which commits via pick) wins over the blur.
     setTimeout(() => {
       if (!this.open) return;
-      if (!this.allowCustom) {
+      if (!this.allowsCustom) {
         // List-restricted: commit only if the typed text names an option; else keep prior value.
         const m = this.options.find((o) => o.label.toLowerCase() === this.query.trim().toLowerCase());
         if (m && m.value !== this.value) { this.value = m.value; this.emitSel(this.value); }
@@ -201,11 +204,11 @@ export class HopeSelect extends LoomElement {
     const lbl = ((): string => {
       if (!sel.length) return this.placeholder;
       const labels = sel.map((v) => this.options.find((o) => o.value === v)?.label ?? v);
-      return this.multiple && sel.length > 2 ? `${sel.length} selected` : labels.join(", ");
+      return this.isMulti && sel.length > 2 ? `${sel.length} selected` : labels.join(", ");
     })();
     return (
       <div>
-        {this.combobox ? (
+        {this.isCombo ? (
           <div class={"trigger" + (this.open ? " open" : "")}>
             <input class="cbin" type="text" placeholder={this.placeholder} value={this.open ? this.query : this.displayLabel()}
               onFocus={this.cbFocus} onInput={this.cbInput} onKeyDown={this.cbKey} onBlur={this.cbBlur} />
@@ -219,7 +222,7 @@ export class HopeSelect extends LoomElement {
         )}
         {this.open ? (
           <div class="menu" style={menuStyle} {...({ popover: "manual" } as any)} onClick={(e: Event) => e.stopPropagation()}>
-            {!this.combobox && this.options.length > 6 ? (
+            {!this.isCombo && this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
             {shown.length === 0 ? <div class="empty">{this.options.length === 0 ? "nothing to pick" : "no match"}</div> : null}
@@ -227,7 +230,7 @@ export class HopeSelect extends LoomElement {
               const on = sel.includes(o.value);
               return (
                 <div class={"opt" + (on ? " on" : "")} onClick={(e: Event) => this.pick(o.value, e)}>
-                  {this.multiple ? <span class="ck">{on ? "✓" : ""}</span> : null}
+                  {this.isMulti ? <span class="ck">{on ? "✓" : ""}</span> : null}
                   <span class="ol">{o.label}</span>
                 </div>
               );
