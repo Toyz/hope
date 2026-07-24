@@ -86,6 +86,64 @@ events keyed by `dedupeKey`.
 - **hope reserves the namespace** — you pick the kind *suffix*; hope owns the
   `plugin.<key>.` prefix. You cannot emit a core kind or spoof another plugin.
 
+## Design (not built): typed contracts + schema validation
+
+The pub/sub above is untyped — a subscriber trusts the publisher's `Data` shape. The
+next step turns the bus into a **typed, enforced interface layer**: a plugin declares
+its public event contract, and hope — which sits in the middle of every plugin↔plugin
+interaction — validates the payloads with JSON Schema. Neither side can bypass it,
+because nothing on the wire is peer-to-peer; hope is the broker.
+
+### Level 1 — typed events (extends the live bus)
+
+A plugin declares what it publishes and consumes, each with a JSON Schema:
+
+```go
+p.Publishes("alert", schemaJSON, "a fired alert")   // outbound contract
+p.Consumes("ack",   schemaJSON, "acknowledge an alert") // inbound contract (with OnEvent)
+```
+
+These ride in `hope.schema` as an `events: [{kind, dir, schema, reason}]` list (additive;
+old hope ignores it). hope enforces:
+
+- **Outbound** — in `ingress.publish` (`internal/pluginhost/ingress.go`), validate
+  `Event.Data` against the publisher's declared schema for that kind. Invalid → `422`, no
+  bus publish. A plugin can't emit garbage on its own contract. `Event.Data` is already
+  `json.RawMessage`, so this is a pure add.
+- **Inbound (optional)** — in `fanout` (`internal/pluginhost/fanout.go`), validate against
+  the subscriber's `Consumes` schema before the `hope.event` push; mismatch → skip that
+  subscriber (its declared expectation wasn't met), logged.
+
+### Level 2 — direct plugin→plugin calls (the apex)
+
+Beyond broadcast, a plugin exposes public **methods** another plugin invokes
+request/response — a new `POST /rpc/_plugin/call {target, method, args}` ingress
+(mirrors `_plugin_events`: `DeriveToken` bearer, per-identity routing, caps). hope:
+
+1. resolves `target` to its live container, checks a `call:<target>` grant,
+2. validates `args` against the callee's declared input schema,
+3. proxies the call (a reserved `hope.pluginCall` unary, like `hope.event`),
+4. validates the result against the output schema, returns it.
+
+Typed inter-plugin RPC, brokered + audited. A plugin advertises callable methods with
+schemas the same way it advertises views/actions today.
+
+### Why hope-as-broker makes this uniquely enforceable
+
+- **No peer-to-peer wire.** Every event and call passes through hope's ingress/bus, so
+  validation is unavoidable — not opt-in politeness. A malformed payload never reaches
+  the other plugin.
+- **Discovery + versioning.** hope surfaces each plugin's contract (publishes/consumes/
+  callable methods + schemas) in the inspector and a registry, so authors target real
+  interfaces, and a schema change is a visible, gate-able contract change (auto-disable +
+  re-consent on a breaking growth, same as the permission model).
+- **One validator, everywhere.** `Event.Data`/`args` are already JSON; a single JSON
+  Schema validator in core (one dep) covers publish, deliver, and call. Feature-gated via
+  `Caps`/`Supports` so old hope/plugins degrade to untyped.
+
+This is the MOSA endgame: modules coordinate through **discoverable, versioned,
+hope-enforced typed interfaces** — an open-systems contract, not a message convention.
+
 ## Where it lives
 
 - SDK: `plugin/publish.go` (`Publish`), `plugin/plugin.go` (`OnEvent`, `RequirePermission`),
