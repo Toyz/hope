@@ -144,6 +144,14 @@ func (n *GraphNode) With(data map[string]any) *GraphNode { n.Data = data; return
 // saving calls the view's GraphConfig method with {id, ...values}.
 func (n *GraphNode) Form(fields ...Field) *GraphNode { n.Fields = fields; return n }
 
+// Act adds action buttons to the node's bottom bar (Info / Logs / …). Each runs its Method
+// with {id, ...Data} and its result can open a flyout / navigate (an "Info" action that shows
+// a modal of what the node does). Reuses RowAction. Chainable.
+func (n *GraphNode) Act(actions ...RowAction) *GraphNode {
+	n.Actions = append(n.Actions, actions...)
+	return n
+}
+
 // GPort builds a port. Chain .Kinded (typing for connect-validation) / .Toned.
 func GPort(id, label string) Port { return Port{ID: id, Label: label} }
 

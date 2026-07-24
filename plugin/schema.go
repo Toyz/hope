@@ -611,6 +611,11 @@ type GraphNode struct {
 	// The form prefills from Data (matching keys); submitting calls the GraphConfig method
 	// with {id, ...values}. Build with GNode(...).Form(...).
 	Fields []Field `json:"fields,omitempty"`
+	// Actions render as a button bar at the bottom of the node card (Info / Logs / …). Each
+	// runs its Method with {id, ...Data}; the result can steer the UI (a flyout/navigate
+	// directive), so an "Info" action can open a modal explaining what the node does. Reuses
+	// RowAction (Icon/Danger/Fields/Tip). Build with GNode(...).Act(...).
+	Actions []RowAction `json:"actions,omitempty"`
 }
 
 // NodeMeta is one line in a node's clean key/value meta strip (its params/config).

@@ -100,6 +100,9 @@ func gMkNode(id, typ, title string, x, y float64) *plugin.GraphNode {
 	in, out := gPortsFor(typ)
 	n := plugin.GNode(id, title).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
 	gApplyMeta(n)
+	// bottom-bar action: "Info" opens a modal explaining what this node does (via the
+	// action-result flyout directive).
+	n.Act(plugin.RowAction{Method: "gInfo", Label: "Info", Icon: "info", Tip: plugin.Tip("what this node does", plugin.TipTop)})
 	// transform/filter nodes get a config form: a Mode dropdown populated from an
 	// OptionsMethod + a numeric worker count. Click the node (or right-click -> Configure).
 	if typ == "transform" || typ == "filter" {
@@ -1257,6 +1260,32 @@ func main() {
 		n.Data = map[string]any{"mode": mode, "parallel": parallel}
 		gApplyMeta(n) // params show cleanly on the node face
 		return map[string]any{"message": "node configured"}, nil
+	})
+	// gInfo: a node bottom-bar action that returns a flyout directive — a modal about the node.
+	p.Action("gInfo", "Node info", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		n := gPick(gRowStr(in, "graph")).nodes[gRowStr(in, "id")]
+		if n == nil {
+			return map[string]any{"ok": false, "message": "gone"}, nil
+		}
+		docs := map[string]string{
+			"source":    "Emits rows from an upstream feed into the pipeline.",
+			"transform": "Maps / normalizes each row per its configured mode.",
+			"filter":    "Drops rows that fail its predicate; passes the kept ones.",
+			"sink":      "Writes the incoming rows to a destination.",
+		}[n.Type]
+		return map[string]any{
+			"refetch":     false,
+			"flyoutTitle": n.Title,
+			"flyout": plugin.Box(
+				plugin.Heading(n.Title, 3),
+				plugin.KeyVal("id", n.ID),
+				plugin.KeyVal("type", plugin.Badge(n.Type, gtone[n.Type])),
+				plugin.Divider(),
+				plugin.CText(docs),
+			),
+		}, nil
 	})
 	// gMenu: extra right-click items (hope prepends built-in Configure/Delete/Disconnect).
 	p.View("gMenu", "menu", plugin.CompView, func(ctx context.Context) (any, error) {

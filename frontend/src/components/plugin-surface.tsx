@@ -54,7 +54,7 @@ interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
 // Graph (blueprint) view wire types — mirror plugin/schema.go GraphData/GraphNode/Port/GraphEdge.
 interface GPort { id: string; label?: string; kind?: string; tone?: string }
-interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; meta?: { label: string; value: string; tone?: string }[]; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any>; fields?: PromptField[] }
+interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; meta?: { label: string; value: string; tone?: string }[]; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any>; fields?: PromptField[]; actions?: RowAction[] }
 interface GEdge { from: string; to: string; tone?: string; label?: string }
 interface GraphData { nodes?: GNode[]; edges?: GEdge[]; directed?: boolean }
 interface NodeType { type: string; label?: string; icon?: string; tone?: string; category?: string; desc?: string }
@@ -213,6 +213,12 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gnmv.ok { color: var(--ok); } .gnmv.warn { color: var(--warn); } .gnmv.bad { color: var(--bad); } .gnmv.info, .gnmv.upd { color: var(--upd); }
   .gnmeta + .gnbody { border-top: 1px solid var(--line); }
   .gnbody { padding: 9px 11px; border-top: 1px solid var(--line); }
+  /* node bottom action bar (Info / Logs / …) */
+  .gnacts { display: flex; flex-wrap: wrap; gap: 5px; padding: 7px 9px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 32%, var(--panel)); }
+  .gnact { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; background: transparent; border: 1px solid var(--line2); color: var(--mid); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+  .gnact:hover { color: var(--upd); border-color: var(--upd); }
+  .gnact.bad:hover { color: var(--bad); border-color: var(--bad); }
+  .gnact loom-icon, .gnact hope-plugin-icon { color: var(--dim); flex: none; }
   /* keyvals inside a node body: compact rows, value never char-wraps (min-width:0 + ellipsis) */
   .gnbody .pkvr { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
   .gnbody .pkvr:last-child { margin-bottom: 0; }
@@ -515,7 +521,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor graphSel: string | null = null; // selected node id
   @reactive accessor gsideW = 210; // resizable sidebar width
   @reactive accessor graphConnect: { method: string; from: string; d: string } | null = null; // live connect ghost (Part 3)
-  @reactive accessor gmenu: { x: number; y: number; items: GMenuItem[]; row: Record<string, any>; view: ViewDesc } | null = null; // right-click menu
+  @reactive accessor gmenu: { x: number; y: number; items: GMenuItem[]; row: Record<string, any>; view?: ViewDesc } | null = null; // right-click menu
   private searchDeb = new Map<string, any>(); // per Search-view debounce timers
 
   private views: Record<string, ViewDesc> = {};
@@ -1314,7 +1320,6 @@ export class HopePluginSurface extends LoomElement {
             {!nodes.length ? <div class="gempty">{v.empty ? this.renderEmpty(v.empty) : "empty graph"}</div> : null}
           </div>
         </div>
-        {this.renderGraphMenu()}
       </div>
     );
   }
@@ -1343,9 +1348,28 @@ export class HopePluginSurface extends LoomElement {
           </div>
         ) : null}
         {n.body ? <div class="gnbody">{this.renderComponent(n.body, "gn." + n.id)}</div> : null}
+        {n.actions?.length ? (
+          <div class="gnacts" onPointerDown={(e: any) => e.stopPropagation()}>
+            {n.actions.map((a) => (
+              <button class={"gnact" + (a.danger ? " bad" : "")} tip={a.tip ? { text: a.tip.text, pos: a.tip.pos || "top" } : a.label}
+                onClick={(e: any) => { e.stopPropagation(); void this.gNodeAction(v, n, a); }}>
+                {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}<span>{a.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     );
   }
+  // A node bottom-bar action — runs with {id, ...data}; its result can open a flyout /
+  // navigate (e.g. an "Info" action that shows a modal about what the node does).
+  private gNodeAction = async (v: ViewDesc, n: GNode, a: RowAction) => {
+    const row: Record<string, any> = { id: n.id, ...(n.data || {}) };
+    const active = this.graphActive[v.method];
+    if (active) row.graph = active;
+    const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row }, this.surface?.param);
+    if (out && out.ok) { this.handleDirective(out); if (out.refetch) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; } }
+  };
   private renderPort(v: ViewDesc, n: GNode, p: GPort, side: "in" | "out") {
     const t = this.toneClass(p.tone);
     return (
@@ -1581,6 +1605,14 @@ export class HopePluginSurface extends LoomElement {
     const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row: node.args || {} }, this.surface?.param);
     if (out && out.ok) { this.handleDirective(out); this.gRefreshRegions(); this.refetchViews(); }
   };
+  // Right-click a tree node → a context menu of its Actions (same items as the hover buttons).
+  private gTreeCtx = (e: MouseEvent, node: any) => {
+    if (!Array.isArray(node.actions) || !node.actions.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const items: GMenuItem[] = node.actions.map((a: any) => ({ label: a.label, icon: a.icon, danger: a.danger, builtin: () => void this.gTreeAction(a, node) }));
+    this.gmenu = { x: e.clientX, y: e.clientY, items, row: {} };
+  };
   // Re-fetch every graph view's chrome regions + canvas (region methods aren't registered
   // views, so refetchViews misses them).
   private gRefreshRegions() {
@@ -1637,7 +1669,7 @@ export class HopePluginSurface extends LoomElement {
     if (!it.method) return;
     if (it.danger && !(await this.confirm.ask({ title: it.label || "Confirm", message: `Run "${it.label}"?`, danger: true, confirmLabel: it.label || "Run" }))) return;
     const out = await runPluginAction(this.deps(), this.surface?.key || "", { method: it.method, label: it.label || "menu" }, { row: g.row }, this.surface?.param, { quiet: true });
-    if (out && out.ok) { await this.fetch(g.view.method); this.graphPos = { ...this.graphPos, [g.view.method]: {} }; }
+    if (out && out.ok && g.view) { await this.fetch(g.view.method); this.graphPos = { ...this.graphPos, [g.view.method]: {} }; }
   };
   private renderGraphMenu() {
     const g = this.gmenu;
@@ -2229,11 +2261,11 @@ export class HopePluginSurface extends LoomElement {
           return (
             <li>
               {kids.length ? (
-                <div class="trow" onClick={() => (this.treeOpen = { ...this.treeOpen, [id]: !open })}>
+                <div class="trow" onClick={() => (this.treeOpen = { ...this.treeOpen, [id]: !open })} onContextMenu={(e: any) => this.gTreeCtx(e, n)}>
                   <loom-icon class="tcaret" name={open ? "chevron-down" : "chevron-right"} size={11}></loom-icon>{labelled}{acts}
                 </div>
               ) : (
-                <div class="trow"><span class="tcgap"></span>{labelled}{acts}</div>
+                <div class="trow" onContextMenu={(e: any) => this.gTreeCtx(e, n)}><span class="tcgap"></span>{labelled}{acts}</div>
               )}
               {kids.length && open ? walk(kids, id) : null}
             </li>
@@ -2512,6 +2544,6 @@ export class HopePluginSurface extends LoomElement {
   update() {
     const s = this.surface;
     if (!s || !s.node) return <div class="msg" style="padding:16px">no panel</div>;
-    return <>{this.renderNode(s.node, "r")}{this.renderModal()}{this.renderFlyout()}{this.renderLightbox()}</>;
+    return <>{this.renderNode(s.node, "r")}{this.renderModal()}{this.renderFlyout()}{this.renderLightbox()}{this.renderGraphMenu()}</>;
   }
 }
