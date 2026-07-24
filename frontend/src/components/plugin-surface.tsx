@@ -50,7 +50,7 @@ interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; scroll?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -127,6 +127,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ccard .ccttl { color: var(--hi); font: 600 12.5px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ccard .ccsub { color: var(--dim); font: 11px/1.4 var(--mono); }
   .ccard .ccbd { padding: 12px 13px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  /* paged collection: layout list (default) | grid | flow, with a load-more control */
+  .paged { display: flex; flex-direction: column; gap: 12px; padding: 6px 16px 12px; }
+  .pgcol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .pgcol.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .pgcol.flow { flex-direction: row; flex-wrap: wrap; }
+  .pgitem { min-width: 0; }
+  .pgmore { display: flex; justify-content: center; padding: 4px 0 2px; }
+  .pgmore .mbtn { padding: 6px 16px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer;
+    font: 11px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .pgmore .mbtn:hover { color: var(--hi); border-color: var(--upd); }
   .cdiv { height: 1px; background: var(--line); margin: 4px 0; }
   .chead.ok, .ctext.ok, .pkvv.ok { color: var(--ok); }
   .chead.warn, .ctext.warn, .pkvv.warn { color: var(--warn); }
@@ -338,6 +348,8 @@ export class HopePluginSurface extends LoomElement {
   private fetched = new Set<string>(); // view refs already fetched this surface (lazy-tab)
   @reactive accessor streamData: Record<string, any> = {};
   @reactive accessor streamHist: Record<string, number[]> = {}; // numeric history for sparklines
+  // Paged views: accumulated items + paging cursor per view method (server-paged collection).
+  @reactive accessor pagedState: Record<string, { items: any[]; offset: number; total: number; cursor: string; more: boolean; loading: boolean }> = {};
   @reactive accessor streamLog: Record<string, string[]> = {}; // append-only line history for Log streams
   @reactive accessor streamOn: Record<string, boolean> = {}; // which streams are live
   // row-detail modal: the returned detail plus the clicked row + its actions (so the
@@ -454,7 +466,7 @@ export class HopePluginSurface extends LoomElement {
     for (const ref of vis) {
       if (this.fetched.has(ref)) continue;
       const v = this.views[ref];
-      if (!v || v.kind === "search") continue; // autocomplete is query-driven — no eager fetch
+      if (!v || v.kind === "search" || v.kind === "paged") continue; // search is query-driven; paged self-fetches its pages
       this.fetched.add(ref);
       if (v.server) this.serverFetch(ref);
       else void this.fetch(ref);
@@ -774,7 +786,77 @@ export class HopePluginSurface extends LoomElement {
     return <button class="sbtn rfr" tip={{ text: "refresh", pos: "top-end" }} onClick={(e: any) => { e.stopPropagation(); this.refetchView(ref); }}><loom-icon name="rotate" size={11}></loom-icon></button>;
   }
 
+  // --- paged collection (ViewKind "paged") ---
+  // Fetch one page of a paged view (server-paged: offset or cursor, + filter) and append or
+  // replace the accumulated items. The plugin reads the page from its Params(ctx).
+  private async loadPage(v: ViewDesc, append: boolean) {
+    const key = v.method;
+    const prev = this.pagedState[key];
+    if (append && prev?.loading) return;
+    const size = v.page_size && v.page_size > 0 ? v.page_size : TABLE_PAGE;
+    const args: Record<string, any> = { limit: size };
+    if (append && prev?.cursor) args.cursor = prev.cursor;
+    else args.offset = append ? prev?.offset || 0 : 0;
+    const seed = prev || { items: [], offset: 0, total: 0, cursor: "", more: false };
+    this.pagedState = { ...this.pagedState, [key]: { ...seed, loading: true } };
+    try {
+      const page = await this.rpc.call<any>("Plugins", "call", [{ key: this.surface!.key, method: key, args: this.callArgs(args), audit: false }]);
+      const items = Array.isArray(page?.items) ? page.items : [];
+      const all = append ? [...(prev?.items || []), ...items] : items;
+      const total = Number(page?.total) || 0;
+      const cursor = page?.nextCursor || "";
+      const more = cursor ? true : total ? all.length < total : items.length >= size;
+      this.pagedState = { ...this.pagedState, [key]: { items: all, offset: all.length, total, cursor, more, loading: false } };
+    } catch {
+      this.pagedState = { ...this.pagedState, [key]: { ...seed, loading: false } };
+    }
+  }
+
+  // bindTemplate substitutes {field} placeholders in a component template's text/values
+  // with an item's data — the client-side data-binding for a paged ItemTemplate (B).
+  private bindTemplate(node: any, data: Record<string, any>): any {
+    const sub = (s: any) => (typeof s === "string" ? s.replace(/\{(\w+)\}/g, (_, k) => (data[k] != null ? String(data[k]) : "")) : s);
+    const out: any = { ...node };
+    if (typeof out.text === "string") out.text = sub(out.text);
+    if (typeof out.label === "string") out.label = sub(out.label);
+    if (typeof out.value === "string") out.value = sub(out.value);
+    if (out.cell && typeof out.cell === "object") {
+      out.cell = { ...out.cell };
+      for (const k of ["value", "alt", "to", "href", "src", "unit"]) if (typeof out.cell[k] === "string") out.cell[k] = sub(out.cell[k]);
+    }
+    if (Array.isArray(out.children)) out.children = out.children.map((c: any) => this.bindTemplate(c, data));
+    return out;
+  }
+
+  // renderItem resolves one paged item: its own Comp (A) -> render it; else a per-type
+  // ItemTemplate bound to its data (B); else the data as key/values (default).
+  private renderItem(v: ViewDesc, it: any, i: number) {
+    if (it?.comp) return this.renderComponent(it.comp?.comp ?? it.comp, "pg." + i);
+    const tmpl = it?.type && v.item_templates ? v.item_templates[it.type] : null;
+    if (tmpl) return this.renderComponent(this.bindTemplate(tmpl, it.data || {}), "pg." + i);
+    const d = it?.data ?? it;
+    return d && typeof d === "object" ? this.renderKV(d) : <div class="ctext">{this.cellStr(d)}</div>;
+  }
+
+  private renderPaged(v: ViewDesc) {
+    const st = this.pagedState[v.method];
+    if (!st) { void this.loadPage(v, false); return <div class="msg">loading…</div>; }
+    const layoutCls = v.layout === "grid" ? "pgcol grid" : v.layout === "flow" ? "pgcol flow" : "pgcol";
+    return (
+      <div class="paged">
+        {st.items.length ? (
+          <div class={layoutCls}>{st.items.map((it, i) => <div class="pgitem">{this.renderItem(v, it, i)}</div>)}</div>
+        ) : v.empty ? this.renderEmpty(v.empty) : <div class="msg">nothing here</div>}
+        {st.more ? (
+          <div class="pgmore"><span class="mbtn" onClick={() => void this.loadPage(v, true)}>{st.loading ? "loading…" : "load more"}</span></div>
+        ) : null}
+      </div>
+    );
+  }
+
   private renderView(v: ViewDesc, data: any) {
+    // Paged manages its own paging state — it ignores the eager single-shot `data`.
+    if (v.kind === "paged") return this.renderPaged(v);
     // Author-controlled empty state: when the view resolves to no data AND the plugin
     // set an EmptyState, show it instead of the generic "no data"/"empty" text.
     if (v.empty && this.isEmptyData(v.kind, data)) return this.renderEmpty(v.empty);
@@ -1230,6 +1312,7 @@ export class HopePluginSurface extends LoomElement {
   private refetchView(viewMethod?: string) {
     if (!viewMethod || !this.views[viewMethod]) return;
     const v = this.views[viewMethod];
+    if (v.kind === "paged") { const { [viewMethod]: _drop, ...rest } = this.pagedState; this.pagedState = rest; void this.loadPage(v, false); return; }
     if (v.server) { this.serverFetch(viewMethod); return; }
     void this.fetch(viewMethod, v.kind === "query" ? { input: this.queryText[viewMethod] ?? "" } : undefined);
   }

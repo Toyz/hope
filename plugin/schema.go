@@ -24,6 +24,7 @@ const (
 	Cards ViewKind = "cards" // {items:[Card]} -> a responsive grid of cards (a gallery)
 	Stat  ViewKind = "stat"  // {stats:[Stat]} (or one Stat) -> big-number stat blocks (see StatData)
 	Text  ViewKind = "text"  // {text:"…"} (or a raw string) -> a monospace scrollable block (logs, config, output)
+	Paged ViewKind = "paged" // a Page{Items,...} -> a server-paged collection; each item renders via its Comp (A) or a per-type ItemTemplate (B). Layout list|grid|flow.
 	// Search is an autocomplete box: hope calls the method with {q: <typed text>} as the
 	// user types (debounced) and renders the returned SearchItems as a live dropdown.
 	// Selecting one navigates to its To (a DetailPage/link target) — a "go to X" jump.
@@ -100,6 +101,26 @@ type TableData struct {
 	// natural width and a scrollbar appears — instead of cramming every column into the
 	// container so nothing feels squeezed. Set with HScroll.
 	Scroll bool `json:"scroll,omitempty"`
+}
+
+// Item is one entry in a paged collection (see ViewKind Paged). Resolution per item:
+//   - Comp set (A): hope renders that component tree directly — a one-off / special item.
+//   - else Type set (B): hope binds Data into the view's ItemTemplate for that Type.
+//   - else: Data renders as key/values (a sensible default so an untyped item still shows).
+type Item struct {
+	Type string         `json:"type,omitempty"`
+	Data map[string]any `json:"data,omitempty"`
+	Comp *Comp          `json:"comp,omitempty"`
+}
+
+// Page is one page of a Paged view, returned by its method. The method reads the requested
+// page from Params(ctx): "offset"+"limit" (offset paging) or "cursor" (cursor paging), plus
+// "filter". Return Total for offset paging (drives the pager) OR NextCursor for cursor
+// paging (drives infinite scroll); an empty NextCursor means the last page.
+type Page struct {
+	Items      []Item `json:"items"`
+	Total      int    `json:"total,omitempty"`
+	NextCursor string `json:"nextCursor,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
@@ -397,6 +418,14 @@ type ViewDesc struct {
 	// natural width and a scrollbar appears — instead of cramming them into the container.
 	// Set with HScroll.
 	Scroll bool `json:"scroll,omitempty"`
+	// --- Paged view (ViewKind Paged) ---
+	// ItemTemplates maps an Item's Type -> a component template (B). Placeholders {field} in
+	// the template's text/values are bound to the item's Data. Register with ItemTemplate.
+	ItemTemplates map[string]*Comp `json:"item_templates,omitempty"`
+	// Layout arranges a Paged view's items: "list" (default) | "grid" | "flow". Set with Layout.
+	Layout string `json:"layout,omitempty"`
+	// Infinite renders a Paged view with load-more-on-scroll instead of a pager. Set with Infinite.
+	Infinite bool `json:"infinite,omitempty"`
 	// RowDetailButton triggers RowMethod from a dedicated per-row button instead of a
 	// whole-row click. Use when the row body is otherwise interactive (e.g. inline-
 	// editable cells) so the two don't fight.

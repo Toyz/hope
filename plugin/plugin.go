@@ -287,6 +287,33 @@ func RefreshEvery(seconds int) ViewOpt { return func(v *ViewDesc) { v.RefreshInt
 // Read the query with plugin.ReadTableQuery and return {columns, rows, total}.
 func ServerSide() TableOpt { return func(v *ViewDesc) { v.Server = true } }
 
+// PageLayout arranges a Paged view's items: "list" (default) | "grid" | "flow".
+func PageLayout(l string) ViewOpt { return func(v *ViewDesc) { v.Layout = l } }
+
+// Infinite renders a Paged view with load-more-on-scroll instead of a pager.
+func Infinite() ViewOpt { return func(v *ViewDesc) { v.Infinite = true } }
+
+// ItemTemplate registers a per-Type component template for a Paged view (B): hope binds an
+// item's Data into it, substituting {field} placeholders in text/values. Register one per
+// item Type; an item that instead carries its own Comp (A) uses that; an item with neither
+// falls back to a key/value render.
+func ItemTemplate(typ string, tmpl *Comp) ViewOpt {
+	return func(v *ViewDesc) {
+		if v.ItemTemplates == nil {
+			v.ItemTemplates = map[string]*Comp{}
+		}
+		v.ItemTemplates[typ] = tmpl
+	}
+}
+
+// PagedView registers a SERVER-PAGED collection view. The method reads the requested page
+// from Params(ctx) — "offset"+"limit" (offset paging) or "cursor" (cursor paging), plus an
+// optional "filter" — and returns a *Page. Each item renders via its Comp (A) or an
+// ItemTemplate for its Type (B). Pair with Layout / Infinite / ItemTemplate / PageSize.
+func (p *Plugin) PagedView(method, label string, fn ViewFunc, opts ...ViewOpt) *Plugin {
+	return p.View(method, label, Paged, fn, append([]ViewOpt{ServerSide()}, opts...)...)
+}
+
 // Editable makes cells editable: editing one calls method with {row, column, value}.
 // Pass column names to limit which are editable (none => every column).
 func Editable(method string, columns ...string) TableOpt {
