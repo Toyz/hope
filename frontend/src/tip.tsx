@@ -59,6 +59,9 @@ export class Tip extends LoomAttribute<TipArg> {
   @on("focusin") private onFocus() { this.open = true; }
   @on("pointerleave") private onLeave() { this.open = false; }
   @on("focusout") private onBlur() { this.open = false; }
+  // Pressing the host dismisses its tip — a click that opens a flyout/menu over the element
+  // never fires pointerleave, so without this the tooltip would stick open.
+  @on("pointerdown") private onDown() { this.open = false; }
 
   private bareArg() {
     if (typeof this.arg !== "object" || this.arg == null) {
