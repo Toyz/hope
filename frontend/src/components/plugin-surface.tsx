@@ -14,7 +14,7 @@ import { registerPluginIcons } from "./plugin-icon";
 import "./flyout"; // registers <hope-flyout> (generic right-side drawer)
 import "./cached-img"; // registers <hope-cached-img> (durable Cache-Storage image cache)
 import "./select"; // registers <hope-select> (custom dropdown; native <select> is banned)
-import { runPluginAction } from "../plugin-run";
+import { runPluginAction, type ActionOutcome } from "../plugin-run";
 import { theme } from "../styles";
 
 interface Node {
@@ -587,10 +587,21 @@ export class HopePluginSurface extends LoomElement {
 
   private deps() { return { rpc: this.rpc, prompt: this.prompt, confirm: this.confirm, toast: this.toast }; }
 
+  // #7: act on a plugin action's post-run directive — jump to a route, or open the
+  // returned component surface in the right-side drawer. Called after a successful action;
+  // this owns the router + flyout, so the generic runner just hands the directive back.
+  private handleDirective(out?: ActionOutcome) {
+    const d = out?.directive;
+    if (!d) return;
+    if (d.flyout) this.flyout = { title: d.flyoutTitle || "Result", comp: d.flyout, width: d.flyoutWidth || "" };
+    if (d.navigate) { this.flyout = null; this.modal = null; this.router.navigate(d.navigate); }
+  }
+
   private runAction = async (a: ActionDesc) => {
     const s = this.surface;
     if (!s) return;
-    await runPluginAction(this.deps(), s.key, a, undefined, this.surface?.param);
+    const out = await runPluginAction(this.deps(), s.key, a, undefined, this.surface?.param);
+    this.handleDirective(out);
     // An action often mutates state a view reads (add/remove an alert rule, etc.);
     // refetch so the table reflects it immediately instead of after a page reload.
     this.refetchViews();
@@ -1304,6 +1315,7 @@ export class HopePluginSurface extends LoomElement {
     const out = await runPluginAction(this.deps(), s.key, a, { row: obj }, this.surface?.param);
     if (!out || !out.ok) return;
     this.modal = null;
+    this.handleDirective(out);
     if (out.refetch) this.refetchView(viewMethod);
   };
 
@@ -1761,6 +1773,7 @@ export class HopePluginSurface extends LoomElement {
     const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row: f.row }, this.surface?.param);
     if (!out || !out.ok) return;
     this.flyout = null;
+    this.handleDirective(out);
     if (out.refetch) this.refetchView(f.view);
   };
 

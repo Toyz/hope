@@ -53,7 +53,7 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 }
 
 func main() {
-	p := plugin.New("kitchen-sink", "1.4.0").
+	p := plugin.New("kitchen-sink", "1.5.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
 		Icon("box").
 		Icons(map[string]string{
@@ -775,6 +775,128 @@ func main() {
 			).Ico("activity").Toned("ok"))
 		}
 	})
+
+	// ── dynamic commanding (needed.md #1,#3,#4,#5,#6,#7,#8): one "issue command" action
+	// that per-selection renders typed params, validates live, gates on impact, prefills,
+	// keeps its target list live, and jumps to the new order on success. Mirrors the
+	// mission-control use case the plugin API was extended for. ──
+
+	// #8 live options: the target list re-fetches every few seconds (RefreshEvery on the
+	// field) so each satellite's in-contact status stays current while the modal is open.
+	sats := []string{"AURORA-1", "AURORA-2", "HELIOS-3", "VESPER-4"}
+	p.Options("targetList", func(ctx context.Context) ([]plugin.Option, error) {
+		bucket := time.Now().Second() / 5 // flips the live label every 5s
+		out := make([]plugin.Option, 0, len(sats))
+		for i, s := range sats {
+			status := "queues next pass"
+			if (bucket+i)%2 == 0 {
+				status = "in contact"
+			}
+			out = append(out, plugin.Option{Label: fmt.Sprintf("%s · %s", s, status), Value: s})
+		}
+		return out, nil
+	})
+
+	// #1 FieldsMethod: picking a command returns ITS OWN typed parameters as a sub-form,
+	// rendered inline under the command select — not a free-form kv box. Read the chosen
+	// command via Params. Demonstrates #5 typed fields (number Min/Max/Step/Unit, multiselect).
+	p.Fields("commandParams", func(ctx context.Context) ([]plugin.Field, error) {
+		var v struct {
+			Command string `json:"command"`
+		}
+		_ = plugin.Params(ctx, &v)
+		switch v.Command {
+		case "capture-image":
+			return []plugin.Field{
+				{Key: "mode", Label: "Mode", Type: "select", Value: "pan", Options: []plugin.Option{
+					{Label: "Panchromatic", Value: "pan"}, {Label: "Multispectral", Value: "multi"}, {Label: "Stereo", Value: "stereo"}}},
+				{Key: "exposure", Label: "Exposure", Type: "number", Min: 1, Max: 1000, Step: 1, Unit: "ms", Value: "50"},
+			}, nil
+		case "downlink":
+			return []plugin.Field{
+				{Key: "bandwidth", Label: "Bandwidth", Type: "number", Min: 1, Max: 500, Step: 5, Unit: "Mbps", Value: "50"},
+				{Key: "bands", Label: "Bands", Type: "multiselect", Options: []plugin.Option{
+					{Label: "S-band", Value: "s"}, {Label: "X-band", Value: "x"}, {Label: "Ka-band", Value: "ka"}}},
+			}, nil
+		}
+		return nil, nil // enter-safe-mode takes no params; the confirm gate does the work
+	})
+
+	// #4 ValidateMethod: live per-field checks; hope renders the errors inline and keeps
+	// Run disabled until the form is valid. Values arrive as the raw form strings (a
+	// multiselect is a JSON-array string here — validate before the action parses it).
+	p.Validate("commandValidate", func(ctx context.Context) ([]plugin.FieldError, error) {
+		var v struct {
+			Targets  string `json:"targets"`
+			Command  string `json:"command"`
+			Priority string `json:"priority"`
+		}
+		_ = plugin.Params(ctx, &v)
+		var errs []plugin.FieldError
+		if v.Targets == "" || v.Targets == "[]" {
+			errs = append(errs, plugin.FieldError{Key: "targets", Error: "select at least one satellite"})
+		}
+		if v.Command == "" {
+			errs = append(errs, plugin.FieldError{Key: "command", Error: "pick a command"})
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(v.Priority)); v.Priority != "" && (err != nil || n < 1 || n > 9) {
+			errs = append(errs, plugin.FieldError{Key: "priority", Error: "priority must be 1-9"})
+		}
+		return errs, nil
+	})
+
+	// #6 ConfirmMethod: an impact go/no-go computed from the entered values, shown after
+	// the form. Here targets is already parsed to an array (the confirm runs post-merge).
+	p.Confirm("commandConfirm", func(ctx context.Context) (plugin.ConfirmResult, error) {
+		var v struct {
+			Command string   `json:"command"`
+			Targets []string `json:"targets"`
+		}
+		_ = plugin.Params(ctx, &v)
+		if v.Command == "enter-safe-mode" {
+			return plugin.ConfirmResult{
+				Title:        "Enter safe mode",
+				Message:      fmt.Sprintf("Safe-mode %d satellite(s)? They stop tasking until an operator recovers them.", len(v.Targets)),
+				Danger:       true,
+				ConfirmLabel: "Enter safe mode",
+			}, nil
+		}
+		return plugin.ConfirmResult{Message: fmt.Sprintf("Issue %q to %d satellite(s)?", v.Command, len(v.Targets))}, nil
+	})
+
+	// The command itself: #3 Prefill seeds priority; #5 number + multiselect; #1 the command
+	// select drives the dynamic sub-form; #4 validate + #6 confirm gate the submit; #7 the
+	// result opens the new order's lifecycle straight in the right-side drawer.
+	var orderSeq int
+	p.Action("issueCommand", "Issue command", []plugin.Field{
+		{Key: "targets", Label: "Satellites", Type: "multiselect", OptionsMethod: "targetList", RefreshEvery: 5,
+			Hint: "batch-command N at once; in-contact status refreshes live"},
+		{Key: "command", Label: "Command", Type: "select", FieldsMethod: "commandParams", Options: []plugin.Option{
+			{Label: "Capture image", Value: "capture-image"},
+			{Label: "Downlink", Value: "downlink"},
+			{Label: "Enter safe mode", Value: "enter-safe-mode"}}},
+		{Key: "priority", Label: "Priority", Type: "number", Min: 1, Max: 9, Step: 1, Unit: "prio"},
+	}, func(ctx context.Context, in map[string]any) (any, error) {
+		cmd, _ := in["command"].(string)
+		targets, _ := in["targets"].([]any) // parsed from the multiselect
+		orderSeq++
+		id := fmt.Sprintf("ord-%04d", orderSeq)
+		return map[string]any{
+			"message":     fmt.Sprintf("issued %s to %d satellite(s) — order %s", cmd, len(targets), id),
+			"flyoutTitle": "Order " + id,
+			"flyout": plugin.Box(
+				plugin.Heading("Order "+id, 3),
+				plugin.KeyVal("command", cmd),
+				plugin.KeyVal("satellites", fmt.Sprintf("%d", len(targets))),
+				plugin.KeyVal("priority", fmt.Sprintf("%v", in["priority"])),
+				plugin.KeyVal("state", plugin.Badge("queued", "info")),
+			),
+		}, nil
+	}, plugin.ActionIcon("rocket"),
+		plugin.ActionPrefill(map[string]string{"priority": "5"}),
+		plugin.ActionValidate("commandValidate"),
+		plugin.ActionConfirm("commandConfirm"),
+	)
 
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
 	// the running fleet-event tally it keeps in durable storage. Demonstrates OnStatus.

@@ -75,9 +75,12 @@ type Plugin struct {
 	views     map[string]viewEntry
 	actions   map[string]actionEntry
 	streams   map[string]streamEntry
-	options   map[string]OptionsFunc // RPC-populated select providers (dynamic forms)
-	resolvers map[string]ResolveFunc // selector->surface providers (dynamic forms)
-	contribs  []Contribution
+	options    map[string]OptionsFunc  // RPC-populated select providers (dynamic forms)
+	resolvers  map[string]ResolveFunc  // selector->surface providers (dynamic forms)
+	fieldsets  map[string]FieldsFunc   // selection->sub-form providers (dynamic forms, #1)
+	validators map[string]ValidateFunc // pre-submit validation providers (gated submit, #4)
+	confirmers map[string]ConfirmFunc  // impact-confirmation providers (go/no-go gate, #6)
+	contribs   []Contribution
 	// pageFns[i] produces the Pages of contribs[i] LIVE at each hope.layout (a
 	// DynamicPageFunc contribution) — kept off the wire Contribution so it stays
 	// pure data. Keyed by index; contribs is append-only, so the index is stable.
@@ -131,6 +134,9 @@ func New(name, version string) *Plugin {
 		streams:     map[string]streamEntry{},
 		options:     map[string]OptionsFunc{},
 		resolvers:   map[string]ResolveFunc{},
+		fieldsets:   map[string]FieldsFunc{},
+		validators:  map[string]ValidateFunc{},
+		confirmers:  map[string]ConfirmFunc{},
 		settingVals: map[string]string{},
 		token:       os.Getenv("HOPE_PLUGIN_TOKEN"),
 	}
@@ -481,6 +487,26 @@ func ActionTip(text string, pos ...TipPos) ActionOpt {
 	return func(a *ActionDesc) { a.Tip = Tip(text, pos...) }
 }
 
+// ActionPrefill seeds the form's initial values by field Key, merged OVER the invoking
+// context (the clicked row's columns + the page params) (#3). Commanding from a row already
+// prefills matching keys; use this to add or override. The operator can still edit.
+func ActionPrefill(values map[string]string) ActionOpt {
+	return func(a *ActionDesc) { a.Prefill = values }
+}
+
+// ActionValidate points the action at a Validate provider (registered with Plugin.Validate)
+// (#4). hope calls it as the values change and disables Run while it returns field errors.
+func ActionValidate(method string) ActionOpt {
+	return func(a *ActionDesc) { a.ValidateMethod = method }
+}
+
+// ActionConfirm points the action at a Confirm provider (registered with Plugin.Confirm)
+// (#6). hope shows the computed impact confirmation after the form and runs the action only
+// if the operator approves. Combine with DangerAction for a destructive-styled gate.
+func ActionConfirm(method string) ActionOpt {
+	return func(a *ActionDesc) { a.ConfirmMethod = method }
+}
+
 // Action registers an invocable action. The UI collects fields, then calls fn
 // with the values. Mark destructive actions with DangerAction.
 func (p *Plugin) Action(method, label string, fields []Field, fn ActionFunc, opts ...ActionOpt) *Plugin {
@@ -586,6 +612,60 @@ type ResolveFunc func(ctx context.Context) (any, error)
 // method namespace (like views/actions/options), so keep it distinct.
 func (p *Plugin) Resolve(method string, fn ResolveFunc) *Plugin {
 	p.resolvers[method] = fn
+	return p
+}
+
+// FieldsFunc returns a dynamic sub-form for a Field whose FieldsMethod names it (#1). hope
+// calls it on that field's change with the current values (Params) and renders the returned
+// []Field inline below it — so a selection produces real, typed inputs, not a free-form box.
+// The returned fields may themselves carry OptionsMethod/DependsOn.
+type FieldsFunc func(ctx context.Context) ([]Field, error)
+
+// Fields registers a selection->sub-form provider under method. Point a Field's FieldsMethod
+// at it. The method shares the plugin's method namespace (like views/actions/options), so
+// keep it distinct.
+func (p *Plugin) Fields(method string, fn FieldsFunc) *Plugin {
+	p.fieldsets[method] = fn
+	return p
+}
+
+// FieldError is one field-level validation error returned by a Validate provider (#4).
+// hope renders Error inline under the field named by Key and disables Run while any exist.
+type FieldError struct {
+	Key   string `json:"key"`
+	Error string `json:"error"`
+}
+
+// ValidateFunc validates the current form values (Params) and returns per-field errors (#4).
+// hope calls it as the values change; an empty slice means the form is valid and Run enables.
+type ValidateFunc func(ctx context.Context) ([]FieldError, error)
+
+// Validate registers a pre-submit validation provider under method. Point an action's
+// ValidateMethod at it (via ActionValidate). Shares the plugin's method namespace.
+func (p *Plugin) Validate(method string, fn ValidateFunc) *Plugin {
+	p.validators[method] = fn
+	return p
+}
+
+// ConfirmResult is the go/no-go payload a Confirm provider returns (#6): hope shows Message
+// (with an optional Title, Danger styling, and ConfirmLabel) and runs the action only if the
+// operator approves. An empty Message skips the gate.
+type ConfirmResult struct {
+	Title        string `json:"title,omitempty"`
+	Message      string `json:"message"`
+	Danger       bool   `json:"danger,omitempty"`
+	ConfirmLabel string `json:"confirmLabel,omitempty"`
+}
+
+// ConfirmFunc computes an impact confirmation from the entered values (Params) (#6). hope
+// calls it after the form (and any Danger gate) and blocks the action until the operator
+// approves the returned Message.
+type ConfirmFunc func(ctx context.Context) (ConfirmResult, error)
+
+// Confirm registers an impact-confirmation provider under method. Point an action's
+// ConfirmMethod at it (via ActionConfirm). Shares the plugin's method namespace.
+func (p *Plugin) Confirm(method string, fn ConfirmFunc) *Plugin {
+	p.confirmers[method] = fn
 	return p
 }
 
