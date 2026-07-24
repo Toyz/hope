@@ -153,6 +153,15 @@ func Timeline(steps ...*Comp) *Comp { return &Comp{Kind: CompTimeline, Children:
 // keyval, a table, whatever. Chain .Sub(detail), .At(value) for the right-aligned value (a
 // timestamp, a Cell, any scalar), .Done()/.Current()/.Pending() for the state (dot fill +
 // emphasis), and .Toned(tone) to override the dot/value color.
+//
+// Custom states beyond done/current/pending are just a tone + an optional icon marker: the
+// step reads as reached (emphasized) and the dot takes the tone color, or an icon replaces
+// the dot entirely. The icon is a hope built-in name OR one of the plugin's OWN loaded SVGs
+// (an Icons key), so a step's marker can be fully custom. e.g. a failure or a skip:
+//
+//	plugin.TStep("aborted").Ico("alert").Toned(plugin.ToneBad).At(plugin.Time(ts))
+//	plugin.TStep("scanning").Ico("beaker").Toned(plugin.ToneInfo) // beaker = a plugin Icons key
+//	plugin.TStep("skipped").Toned(plugin.ToneWarn)
 func TStep(label string, body ...*Comp) *Comp {
 	return &Comp{Kind: CompTStep, Text: label, State: "pending", Children: body}
 }

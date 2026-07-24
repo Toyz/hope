@@ -133,9 +133,14 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ctldot.warn { background: var(--warn); border-color: var(--warn); }
   .ctldot.bad { background: var(--bad); border-color: var(--bad); }
   .ctldot.info, .ctldot.upd { background: var(--upd); border-color: var(--upd); }
+  .ctldot.custom { background: var(--mid); border-color: var(--mid); } /* custom state, no tone */
+  /* an icon marker in place of the dot (custom states: failed/skipped/…) */
+  .ctlmark { grid-column: 1; margin-top: 2px; display: inline-flex; z-index: 1; color: var(--mid); background: var(--panel); }
+  .ctlmark.ok { color: var(--ok); } .ctlmark.warn { color: var(--warn); } .ctlmark.bad { color: var(--bad); }
+  .ctlmark.info, .ctlmark.upd { color: var(--upd); }
   .ctllab { grid-column: 2; font: 12.5px/1.4 var(--mono); color: var(--mid); }
   .ctlrow.pending .ctllab { color: var(--dim); }
-  .ctlrow.current .ctllab, .ctlrow.done .ctllab { color: var(--hi); }
+  .ctlrow.reached .ctllab { color: var(--hi); }
   .ctlsub { color: var(--dim); }
   .ctlval { grid-column: 3; justify-self: end; font: 11.5px/1.4 var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
   .ctlval.ok { color: var(--ok); } .ctlval.warn { color: var(--warn); } .ctlval.bad { color: var(--bad); }
@@ -1017,12 +1022,20 @@ export class HopePluginSurface extends LoomElement {
         return (
           <div class="ctl">
             {steps.map((s, i) => {
-              const st = s.state === "done" || s.state === "current" ? s.state : "pending";
+              // Known states style the dot directly; any other state string is "custom" and
+              // relies on its tone (+ optional icon marker) for the look — so a plugin can
+              // express failed/skipped/retrying, not just done/current/pending.
+              const st = s.state === "done" || s.state === "current" || s.state === "pending" ? s.state : "custom";
               const stone = this.toneClass(s.tone);
+              // A step is "reached" (emphasized label) when it's done/current, has a tone, or
+              // carries an icon marker — i.e. anything but a plain pending step.
+              const reached = st === "done" || st === "current" || !!stone || !!s.icon;
               const body = (s.children || []).filter(Boolean);
               return (
-                <div class={"ctlrow " + st + (i === steps.length - 1 ? " last" : "")}>
-                  <span class={"ctldot " + st + (stone ? " " + stone : "")}></span>
+                <div class={"ctlrow " + st + (reached ? " reached" : "") + (i === steps.length - 1 ? " last" : "")}>
+                  {s.icon
+                    ? <span class={"ctlmark" + (stone ? " " + stone : "")}>{this.leafIcon(s.icon)}</span>
+                    : <span class={"ctldot " + st + (stone ? " " + stone : "")}></span>}
                   <span class="ctllab">{s.text}{s.label ? <span class="ctlsub"> · {s.label}</span> : null}{this.compHelp(s.tip)}</span>
                   <span class={"ctlval" + (stone ? " " + stone : "")}>{s.value != null && s.value !== "" ? this.cellNode(s.value ?? s.cell) : "—"}</span>
                   {body.length ? <div class="ctlbody">{body.map((k, j) => this.renderComponent(k, idKey + "." + i + ".b" + j, depth + 1))}</div> : null}

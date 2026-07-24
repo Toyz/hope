@@ -910,9 +910,13 @@ func main() {
 				plugin.KeyVal("station", fmt.Sprintf("%v", in["station"])),
 				plugin.Heading("Lifecycle", 4),
 				plugin.Timeline(
-					plugin.TStep("queued").Current().At(plugin.Time(time.Now().Unix())),
-					plugin.TStep("uplinked").Pending(),
-					plugin.TStep("tasked").Sub("executing over target").Pending(),
+					plugin.TStep("queued").Done().At(plugin.Time(time.Now().Unix())),
+					plugin.TStep("uplinked").Done().At(plugin.Time(time.Now().Unix())),
+					// custom dot icon from the plugin's OWN loaded SVG (Icons key "beaker"),
+					// tone-colored — not limited to hope's built-in icon set.
+					plugin.TStep("tasked").Ico("beaker").Toned(plugin.ToneInfo).Sub("executing over target"),
+					// a custom state: a built-in icon marker + tone, not one of the three presets
+					plugin.TStep("link degraded").Ico("alert").Toned(plugin.ToneWarn).Sub("retrying downlink"),
 					plugin.TStep("completed").Sub("product downlinked").Pending(),
 				),
 			),
