@@ -55,13 +55,15 @@ export class Tip extends LoomAttribute<TipArg> {
 
   // Bare @on("event") (loom 0.21.1) binds the host element — this.el on an attribute
   // controller — and auto-unbinds on disconnect. No manual addEventListener/track.
-  @on("pointerenter") private onEnter() { this.open = true; }
-  @on("focusin") private onFocus() { this.open = true; }
-  @on("pointerleave") private onLeave() { this.open = false; }
+  // suppressed: after a press, block re-open until the pointer actually LEAVES — a click
+  // that opens a flyout/menu re-fires hover/focus (and never a clean pointerleave), which
+  // otherwise pops the tooltip straight back up over the new surface.
+  private suppressed = false;
+  @on("pointerenter") private onEnter() { if (!this.suppressed) this.open = true; }
+  @on("focusin") private onFocus() { if (!this.suppressed) this.open = true; }
+  @on("pointerleave") private onLeave() { this.open = false; this.suppressed = false; }
   @on("focusout") private onBlur() { this.open = false; }
-  // Pressing the host dismisses its tip — a click that opens a flyout/menu over the element
-  // never fires pointerleave, so without this the tooltip would stick open.
-  @on("pointerdown") private onDown() { this.open = false; }
+  @on("pointerdown") private onDown() { this.open = false; this.suppressed = true; }
 
   private bareArg() {
     if (typeof this.arg !== "object" || this.arg == null) {
