@@ -658,7 +658,7 @@ func main() {
 		), nil
 	})
 	p.Action("runCommand", "Run a command", []plugin.Field{
-		{Key: "command", Label: "Command", Type: "select", OptionsMethod: "commandList", ResolveMethod: "commandPreview"},
+		{Key: "command", Label: "Command", Type: plugin.FieldSelect, OptionsMethod: "commandList", ResolveMethod: "commandPreview"},
 	}, func(ctx context.Context, in map[string]any) (any, error) {
 		cmd, _ := in["command"].(string)
 		return map[string]any{"message": "ran command: " + cmd}, nil
@@ -667,7 +667,7 @@ func main() {
 	// Repeatable group (forms-builder): one action collects N label rows at once, each
 	// a sub-form of {service, key, value}. The action receives an array of objects.
 	p.Action("bulkTag", "Tag services", []plugin.Field{
-		{Key: "labels", Label: "Labels", Type: "group", AddLabel: "label", Fields: []plugin.Field{
+		{Key: "labels", Label: "Labels", Type: plugin.FieldGroup, AddLabel: "label", Fields: []plugin.Field{
 			{Key: "service", Label: "Service"},
 			{Key: "key", Label: "Label key", Placeholder: "prometheus.io/scrape"},
 			{Key: "value", Label: "Value", Placeholder: "true"},
@@ -706,10 +706,10 @@ func main() {
 			plugin.Field{Key: "port", Label: "Port", Value: "5432"},
 		),
 		plugin.StepHint("Database", "options cascade from the host above",
-			plugin.Field{Key: "db", Label: "Database", Type: "select", OptionsMethod: "wizDatabases", DependsOn: "host"},
+			plugin.Field{Key: "db", Label: "Database", Type: plugin.FieldSelect, OptionsMethod: "wizDatabases", DependsOn: "host"},
 		),
 		plugin.Step("Security",
-			plugin.Field{Key: "ssl", Label: "Require SSL", Type: "toggle"},
+			plugin.Field{Key: "ssl", Label: "Require SSL", Type: plugin.FieldToggle},
 			plugin.Field{Key: "cert", Label: "Client cert", Placeholder: "/etc/ssl/client.pem", Optional: true, DependsOn: "ssl", DependsValue: "true"},
 		),
 	))
@@ -820,15 +820,15 @@ func main() {
 		switch v.Command {
 		case "capture-image":
 			return []plugin.Field{
-				{Key: "mode", Label: "Mode", Type: "select", Value: "pan", Options: []plugin.Option{
+				{Key: "mode", Label: "Mode", Type: plugin.FieldSelect, Value: "pan", Options: []plugin.Option{
 					{Label: "Panchromatic", Value: "pan"}, {Label: "Multispectral", Value: "multi"}, {Label: "Stereo", Value: "stereo"}}},
-				{Key: "exposure", Label: "Exposure", Type: "number", Min: 1, Max: 1000, Step: 1, Unit: "ms", Value: "50"},
+				{Key: "exposure", Label: "Exposure", Type: plugin.FieldNumber, Min: 1, Max: 1000, Step: 1, Unit: "ms", Value: "50"},
 			}, nil
 		case "downlink":
 			return []plugin.Field{
-				{Key: "bandwidth", Label: "Bandwidth", Type: "number", Min: 1, Max: 500, Step: 5, Unit: "Mbps", Value: "50"},
+				{Key: "bandwidth", Label: "Bandwidth", Type: plugin.FieldNumber, Min: 1, Max: 500, Step: 5, Unit: "Mbps", Value: "50"},
 				// chips: the inline toggle-pill multi-select (vs the dropdown multiselect above).
-				{Key: "bands", Label: "Bands", Type: "chips", Options: []plugin.Option{
+				{Key: "bands", Label: "Bands", Type: plugin.FieldChips, Options: []plugin.Option{
 					{Label: "S-band", Value: "s"}, {Label: "X-band", Value: "x"}, {Label: "Ka-band", Value: "ka"}}},
 			}, nil
 		}
@@ -882,15 +882,15 @@ func main() {
 	// result opens the new order's lifecycle straight in the right-side drawer.
 	var orderSeq int
 	p.Action("issueCommand", "Issue command", []plugin.Field{
-		{Key: "targets", Label: "Satellites", Type: "multiselect", OptionsMethod: "targetList", RefreshEvery: 5,
+		{Key: "targets", Label: "Satellites", Type: plugin.FieldMultiselect, OptionsMethod: "targetList", RefreshEvery: 5,
 			Hint: "batch-command N at once; in-contact status refreshes live"},
-		{Key: "command", Label: "Command", Type: "select", FieldsMethod: "commandParams", Options: []plugin.Option{
+		{Key: "command", Label: "Command", Type: plugin.FieldSelect, FieldsMethod: "commandParams", Options: []plugin.Option{
 			{Label: "Capture image", Value: "capture-image"},
 			{Label: "Downlink", Value: "downlink"},
 			{Label: "Enter safe mode", Value: "enter-safe-mode"}}},
-		{Key: "priority", Label: "Priority", Type: "number", Min: 1, Max: 9, Step: 1, Unit: "prio"},
+		{Key: "priority", Label: "Priority", Type: plugin.FieldNumber, Min: 1, Max: 9, Step: 1, Unit: "prio"},
 		// combobox with AllowCustom: pick a known ground station OR type a new one.
-		{Key: "station", Label: "Ground station", Type: "combobox", AllowCustom: true, Placeholder: "pick or type a station", Options: []plugin.Option{
+		{Key: "station", Label: "Ground station", Type: plugin.FieldCombobox, AllowCustom: true, Placeholder: "pick or type a station", Options: []plugin.Option{
 			{Label: "Svalbard", Value: "svalbard"}, {Label: "Punta Arenas", Value: "punta"}, {Label: "Fairbanks", Value: "fairbanks"}}},
 	}, func(ctx context.Context, in map[string]any) (any, error) {
 		cmd, _ := in["command"].(string)

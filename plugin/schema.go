@@ -229,9 +229,9 @@ func Tip(text string, pos ...TipPos) *Tooltip {
 type StreamKind string
 
 const (
-	Counter   StreamKind = "counter"   // number(s) ticking -> stat
-	Log       StreamKind = "log"       // append-only lines
-	Series    StreamKind = "series"    // time series -> sparkline
+	Counter         StreamKind = "counter"   // number(s) ticking -> stat
+	Log             StreamKind = "log"       // append-only lines
+	Series          StreamKind = "series"    // time series -> sparkline
 	StreamComponent StreamKind = "component" // each frame is a component tree (Box/KeyVal/...) hope renders live — full custom output
 )
 
@@ -243,15 +243,32 @@ type Option struct {
 
 // Field mirrors hope's PromptField: the UI collects these before invoking an
 // action, then passes the values map to the action handler.
+// FieldType is the input kind of an action/wizard Field. Use the Field* consts for
+// typo-safe forms; a bare string still works, since the const values are these strings.
+type FieldType string
+
+const (
+	FieldText        FieldType = "text"        // single-line text (the default)
+	FieldTextarea    FieldType = "textarea"    // multi-line text
+	FieldSelect      FieldType = "select"      // one choice from Options / OptionsMethod (dropdown)
+	FieldToggle      FieldType = "toggle"      // on/off; the value is "true"/"false"
+	FieldKV          FieldType = "kv"          // a key/value editor; the value is a JSON object
+	FieldGroup       FieldType = "group"       // a repeatable sub-form (Fields); the value is a JSON array of rows
+	FieldNumber      FieldType = "number"      // numeric input with Min/Max/Step/Unit
+	FieldMultiselect FieldType = "multiselect" // multi choice as a checkbox dropdown; the value is a JSON array
+	FieldChips       FieldType = "chips"       // multi choice as inline toggle pills; the value is a JSON array
+	FieldCombobox    FieldType = "combobox"    // single editable type-ahead; set AllowCustom for freeform entry
+)
+
 type Field struct {
-	Key         string   `json:"key"`
-	Label       string   `json:"label"`
-	Type        string   `json:"type,omitempty"` // text|textarea|select|toggle|kv|number|multiselect|chips|combobox (default text)
-	Placeholder string   `json:"placeholder,omitempty"`
-	Hint        string   `json:"hint,omitempty"`
-	Value       string   `json:"value,omitempty"`
-	Optional    bool     `json:"optional,omitempty"`
-	Options     []Option `json:"options,omitempty"`
+	Key         string    `json:"key"`
+	Label       string    `json:"label"`
+	Type        FieldType `json:"type,omitempty"` // one of the Field* consts (default FieldText)
+	Placeholder string    `json:"placeholder,omitempty"`
+	Hint        string    `json:"hint,omitempty"`
+	Value       string    `json:"value,omitempty"`
+	Optional    bool      `json:"optional,omitempty"`
+	Options     []Option  `json:"options,omitempty"`
 	// Number-field bounds/step/unit (Type:"number"). Unit renders as a suffix on the input.
 	Min  float64 `json:"min,omitempty"`
 	Max  float64 `json:"max,omitempty"`
@@ -380,11 +397,11 @@ type Setting struct {
 // ActionDesc describes an invocable action (a mutation). Danger flags a
 // destructive action so hope confirms before running it.
 type ActionDesc struct {
-	Method string   `json:"method"`
-	Label  string   `json:"label"`
-	Icon   string   `json:"icon,omitempty"`
-	Danger bool     `json:"danger,omitempty"`
-	Fields []Field  `json:"fields,omitempty"`
+	Method string  `json:"method"`
+	Label  string  `json:"label"`
+	Icon   string  `json:"icon,omitempty"`
+	Danger bool    `json:"danger,omitempty"`
+	Fields []Field `json:"fields,omitempty"`
 	// Steps turns the action's form into a WIZARD: hope renders each step's fields in
 	// order with Back/Next/Finish and a stepper. Values accumulate across steps, so a
 	// later step's cascading options / conditional fields read earlier answers. Set via
@@ -429,14 +446,14 @@ type EmptyState struct {
 
 // ViewDesc describes a read-only data view and how to render it.
 type ViewDesc struct {
-	Method  string   `json:"method"`
-	Label   string   `json:"label"`
-	Kind    ViewKind `json:"kind"`
-	Icon    string   `json:"icon,omitempty"`
+	Method string   `json:"method"`
+	Label  string   `json:"label"`
+	Kind   ViewKind `json:"kind"`
+	Icon   string   `json:"icon,omitempty"`
 	// Empty customizes the "no data" state (see EmptyState); unset => hope's generic text.
-	Empty *EmptyState `json:"empty,omitempty"`
-	Lang    string   `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
-	Default string   `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
+	Empty   *EmptyState `json:"empty,omitempty"`
+	Lang    string      `json:"lang,omitempty"`    // query views: syntax-highlight language (sql, json, …)
+	Default string      `json:"default,omitempty"` // query views: initial text; {param} placeholders are filled from the page param
 	// RowMethod (table/query views): a method hope calls to open a row-detail modal,
 	// with params {row: {column: value}}. The result (kv or table) is shown in a
 	// modal — a fully author-controlled row-detail RPC.
