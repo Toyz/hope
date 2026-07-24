@@ -177,18 +177,29 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gnode.gst-running { box-shadow: 0 0 0 1px var(--upd), 0 0 16px color-mix(in srgb, var(--upd) 55%, transparent); }
   .gnode.gst-done { border-color: color-mix(in srgb, var(--ok) 60%, var(--line2)); }
   .gnode.gst-error { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
-  .gnhd { display: flex; align-items: center; gap: 7px; height: 34px; box-sizing: border-box; padding: 0 10px; cursor: grab;
-    border-bottom: 1px solid var(--line); color: var(--hi); font-weight: 600; }
-  .gnhd .gntt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gpband { position: relative; display: flex; justify-content: space-between; padding: 6px 0; }
-  .gpcol { display: flex; flex-direction: column; }
-  .gport { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; cursor: crosshair; color: var(--mid); }
+  .gnhd { display: flex; align-items: center; gap: 8px; height: 32px; box-sizing: border-box; padding: 0 11px; cursor: grab;
+    background: color-mix(in srgb, var(--ink) 42%, var(--panel)); border-bottom: 1px solid var(--line);
+    color: var(--hi); font: 600 11.5px/1 var(--mono); }
+  .gnhd hope-plugin-icon, .gnhd loom-icon { color: var(--dim); flex: none; }
+  .gnhd .gntt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gpband { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 0; gap: 8px; }
+  .gpcol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .gpcol.out { align-items: flex-end; }
+  .gport { display: flex; align-items: center; gap: 7px; height: 20px; padding: 0 12px; cursor: crosshair; color: var(--mid); min-width: 0; max-width: 96px; }
   .gport.out { flex-direction: row-reverse; }
-  .gpdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink); border: 1.5px solid var(--line2); flex: none; margin: 0 -13px; }
+  .gpdot { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); border: 2px solid var(--line2); box-sizing: border-box; flex: none; transition: border-color .1s, background .1s; }
+  .gport.in .gpdot { margin-left: -17px; }
+  .gport.out .gpdot { margin-right: -17px; }
   .gport:hover .gpdot { border-color: var(--upd); background: var(--upd); }
-  .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); } .gport.bad .gpdot { border-color: var(--bad); }
-  .gplbl { font: 10.5px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gnbody { padding: 8px 10px; border-top: 1px solid var(--line); }
+  .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); } .gport.bad .gpdot { border-color: var(--bad); } .gport.info .gpdot, .gport.upd .gpdot { border-color: var(--upd); }
+  .gplbl { font: 10px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gnbody { padding: 9px 11px; border-top: 1px solid var(--line); }
+  /* keyvals inside a node body: compact rows, value never char-wraps (min-width:0 + ellipsis) */
+  .gnbody .pkvr { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+  .gnbody .pkvr:last-child { margin-bottom: 0; }
+  .gnbody .pkvk { flex: none; color: var(--dim); font: 600 9px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .gnbody .pkvv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--txt); }
+  .gnbody .chead { font-size: 10px; }
   /* node-type palette (drag a type onto the canvas) */
   .gpalette { position: absolute; left: 10px; bottom: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px;
     padding: 7px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line2);
@@ -1157,7 +1168,7 @@ export class HopePluginSurface extends LoomElement {
   // edges between them; hope renders the canvas (pan/zoom/drag/connect) and calls the plugin's
   // mutation methods, then re-fetches. Node bodies reuse renderComponent; node click reuses the
   // flyout; mutations reuse runPluginAction. Port coords are analytic (no per-frame measuring).
-  private gGeom = { hh: 34, ps: 22, pad: 6, w: 190 };
+  private gGeom = { hh: 32, ps: 20, pad: 8, w: 200 };
   private gview(m: string) { return this.graphView[m] || { panX: 0, panY: 0, zoom: 1 }; }
   private setGview(m: string, patch: Partial<{ panX: number; panY: number; zoom: number }>) {
     this.graphView = { ...this.graphView, [m]: { ...this.gview(m), ...patch } };
