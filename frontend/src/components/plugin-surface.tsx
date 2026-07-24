@@ -50,7 +50,7 @@ interface Comp {
 // EmptyState mirrors the SDK's plugin.EmptyState — an author-set "no data" view.
 interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp }
 interface Tip { text: string; pos?: string }
-interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
+interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
 interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
@@ -280,6 +280,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .rowbtn { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 7px; background: transparent; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
   .rowbtn:hover { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 45%, var(--line2)); }
   .rowbtn.bad:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line2)); }
+  .rowbtn.off, .rowbtn:disabled { opacity: .38; cursor: not-allowed; }
+  .rowbtn.off:hover { color: var(--dim); border-color: var(--line); }
 
   .ovl { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--ink) 68%, transparent); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 24px; }
   .rowmodal { display: flex; flex-direction: column; width: min(560px, 100%); max-height: 82vh; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
@@ -1293,14 +1295,7 @@ export class HopePluginSurface extends LoomElement {
                           <loom-icon name="search" size={11}></loom-icon>view
                         </button>
                       ) : null}
-                      {acts.map((a) => {
-                        const btn = (
-                          <button class={"rowbtn" + (a.danger ? " bad" : "")} onClick={(e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, v?.method); }}>
-                            {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
-                          </button>
-                        );
-                        return a.tip ? <span class="tw" tip={{ text: a.tip.text, pos: a.tip.pos || "top-end" }}>{btn}</span> : btn;
-                      })}
+                      {this.renderRowActions(acts, cols, r, v?.method)}
                     </td>
                   ) : null}
                 </tr>
@@ -1368,6 +1363,33 @@ export class HopePluginSurface extends LoomElement {
       this.toast.error(`row — ${e?.message ?? "failed"}`);
     }
   };
+
+  // Per-row visibility for a row action (ShowWhenKey/ShowWhenValue): shown unless a
+  // predicate hides it. Mirrors the prompt modal's dependsOn/dependsValue, compared
+  // against the row's cell text (a Badge/Code/Link cell by its rendered value).
+  private rowActionShown(a: RowAction, ro: Record<string, any>): boolean {
+    if (!a.showWhenKey) return true;
+    const dv = this.cellStr(ro[a.showWhenKey]);
+    return a.showWhenValue ? dv === a.showWhenValue : !!dv;
+  }
+
+  // Renders a row's action buttons, honoring the per-row ShowWhen predicate: hidden by
+  // default when it fails, or disabled (with the tip as the reason) when DisableInsteadOfHide.
+  private renderRowActions(acts: RowAction[], cols: string[], r: any[], viewMethod?: string) {
+    const ro = this.rowObj(cols, r);
+    return acts.map((a) => {
+      const shown = this.rowActionShown(a, ro);
+      if (!shown && !a.disableInsteadOfHide) return null;
+      const off = !shown;
+      const btn = (
+        <button class={"rowbtn" + (a.danger ? " bad" : "") + (off ? " off" : "")} disabled={off}
+          onClick={off ? undefined : (e: any) => { e.stopPropagation(); void this.runRowAction(a, cols, r, viewMethod); }}>
+          {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}
+        </button>
+      );
+      return a.tip ? <span class="tw" tip={{ text: a.tip.text, pos: a.tip.pos || "top-end" }}>{btn}</span> : btn;
+    });
+  }
 
   // runRowAction invokes an author's row action with {row: {col: val}}. Danger
   // actions confirm first; on success the owning table refetches (e.g. a deleted
@@ -1822,12 +1844,17 @@ export class HopePluginSurface extends LoomElement {
       <hope-flyout open title={f.title || "Details"} width={f.width || ""} onClose={this.closeFlyout}>
         {this.renderComponent(f.comp?.comp ?? f.comp, "fly")}
         {f.actions && f.actions.length && f.row ? (
-          <div class="flyacts">{f.actions.map((a) => (
-            <hope-button size="sm" tone={a.danger ? "danger" : "primary"}
-              onClick={() => this.runFlyoutAction(a, f)}>
-              {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}{a.label}
-            </hope-button>
-          ))}</div>
+          <div class="flyacts">{f.actions.map((a) => {
+            const shown = this.rowActionShown(a, f.row!);
+            if (!shown && !a.disableInsteadOfHide) return null;
+            const off = !shown;
+            return (
+              <hope-button size="sm" tone={a.danger ? "danger" : "primary"} disabled={off} tooltip={a.tip}
+                onClick={off ? undefined : () => this.runFlyoutAction(a, f)}>
+                {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : null}{a.label}
+              </hope-button>
+            );
+          })}</div>
         ) : null}
       </hope-flyout>
     );

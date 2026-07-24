@@ -557,6 +557,16 @@ type RowAction struct {
 	Danger bool     `json:"danger,omitempty"` // hope confirms before running and audit-logs it
 	Fields []Field  `json:"fields,omitempty"` // optional input collected before the call
 	Tip    *Tooltip `json:"tip,omitempty"`    // hover tooltip on the row action button (build with Tip)
+	// ShowWhenKey/ShowWhenValue gate the button PER ROW against that row's cells: the
+	// button shows only when the row's ShowWhenKey cell equals ShowWhenValue (or, when
+	// ShowWhenValue is empty, when that cell is non-empty/truthy). Mirrors Field.DependsOn/
+	// DependsValue. Applies to the inline row button AND the RowFlyout footer. Empty
+	// ShowWhenKey = always shown (unchanged). A Badge/Code/Link cell compares by its text.
+	ShowWhenKey   string `json:"showWhenKey,omitempty"`
+	ShowWhenValue string `json:"showWhenValue,omitempty"`
+	// DisableInsteadOfHide renders the button disabled (greyed, Tip as the reason) instead
+	// of hidden when the predicate fails — so the operator sees it exists but can't use it.
+	DisableInsteadOfHide bool `json:"disableInsteadOfHide,omitempty"`
 }
 
 // StreamDesc describes a live stream and how to render it.

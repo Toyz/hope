@@ -492,6 +492,8 @@ func main() {
 		// dynamic commanding: the connection wizard + the per-selection "issue command"
 		// action (typed sub-form, live validation, impact confirm, order flyout).
 		plugin.Section("Commanding", plugin.Buttons("connect", "issueCommand")),
+		// conditional row actions: Cancel shows only on queued orders.
+		plugin.Section("Orders", plugin.Leaf("orders")),
 		// the v0.5 collection/table/card/stream surfaces.
 		plugin.Grid(
 			plugin.Section("Wide table", plugin.Leaf("wide")),
@@ -926,6 +928,32 @@ func main() {
 		plugin.ActionValidate("commandValidate"),
 		plugin.ActionConfirm("commandConfirm"),
 	)
+
+	// CONDITIONAL ROW ACTIONS (needed.md): the Cancel button shows ONLY on queued orders —
+	// gated per row by the "state" cell — in both the table and the flyout footer. Committed
+	// orders show no Cancel, so the operator never sees an un-actionable button.
+	p.View("orders", "Orders", plugin.Table, func(ctx context.Context) (any, error) {
+		return map[string]any{
+			"columns": []string{"id", "command", "state"},
+			"rows": [][]any{
+				{"ord-0001", "capture-image", plugin.Badge("queued", plugin.ToneInfo)},
+				{"ord-0002", "downlink", plugin.Badge("uplinked", plugin.ToneWarn)},
+				{"ord-0003", "enter-safe-mode", plugin.Badge("completed", plugin.ToneOK)},
+			},
+		}, nil
+	}, plugin.RowActions(
+		plugin.RowAction{Method: "cancelOrder", Label: "Cancel", Danger: true, Icon: "x",
+			ShowWhenKey: "state", ShowWhenValue: "queued",
+			Tip: plugin.Tip("Cancel this order — only possible while still queued", plugin.TipTopEnd)},
+	))
+	p.DangerAction("cancelOrder", "Cancel order", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		row, _ := in["row"].(map[string]any)
+		// defense-in-depth: the handler still guards, even though the button is gated.
+		if s, _ := row["state"].(map[string]any); s != nil && s["value"] != "queued" {
+			return map[string]any{"ok": false, "message": "order already committed"}, nil
+		}
+		return map[string]any{"message": fmt.Sprintf("cancelled %v", row["id"])}, nil
+	})
 
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
 	// the running fleet-event tally it keeps in durable storage. Demonstrates OnStatus.

@@ -1,79 +1,122 @@
-# Hope SDK — additions needed for plugin-level commanding
+# Hope SDK — needed: per-row conditional row actions
 
-> Status: SHIPPED. All eight items below are implemented — #2 (dependent fields +
-> option refetch) earlier, and #1/#3/#4/#5/#6/#7/#8 in this pass. New SDK surface:
-> `Field.FieldsMethod` + `p.Fields`, `Field{Type:"number",Min,Max,Step,Unit}` and
-> `Type:"multiselect"`, `Field.RefreshEvery`, `ActionPrefill`, `ActionValidate` +
-> `p.Validate`/`FieldError`, `ActionConfirm` + `p.Confirm`/`ConfirmResult`, and the
-> rich action result (`navigate` / `flyout` in the result map). All additive; old
-> plugins/hope unaffected. See `examples/plugins/kitchen-sink` (`issueCommand`).
+> Status: SHIPPED (Option A). RowAction now has ShowWhenKey / ShowWhenValue /
+> DisableInsteadOfHide, evaluated per row against the row's cells (a Badge/Code/Link
+> cell compares by its text), applied identically to the inline row button and the
+> RowFlyout footer. Handler guard can stay as defense-in-depth. Backward compatible
+> (no new fields = unchanged); feature-detect via Caps(ctx).Supports(
+> "row-actions-conditional"). See examples/plugins/kitchen-sink "orders". Option B
+> (per-row provider RPC) not built — Option A covers the case without the extra RPC.
 
-Context: building the Cosmic Glass mission-control plugin (issue/track/cancel
-commands + taskings) hit hard walls in the plugin API. Today `Field.Value` is a
-static default only, there's no way to seed a field from the invoking row/page
-context, and `OptionsMethod` is fetched once and never re-runs when a sibling
-field changes. So per-command parameter forms, context-prefilled targets, and
-cascading selects are all impossible with the current plugin API.
+## Problem
 
-These are the Hope additions (SDK `Field`/action schema + prompt-modal frontend)
-that would make plugin commanding genuinely functional, in priority order.
+`RowActions(...RowAction)` attaches action buttons to a table, but the set is
+**static** — the same buttons render on every row, and the same set is reused as
+the flyout (`RowFlyout`) footer. There is no way to show/hide/disable a row
+action based on that row's data.
 
-## 1. Dynamic per-selection fields (highest impact)
-Command parameters differ per command; today they must be stuffed into a
-free-form `kv` box. Let a selection **return a field schema**, not just a preview.
-- API: `FieldsMethod string` on `Field` (or `p.Fields("method", fn)` where
-  `fn(ctx, values) []Field`). On value change, Hope calls it and renders the
-  returned typed fields inline as a sub-form.
-- Unlocks: pick `capture-image` -> modal renders `target` (text, required) +
-  `mode` (select: pan/multispectral/stereo) as real, validated inputs.
+Concrete case (cosmic-glass commanding): a command order can be cancelled **only
+while it is still `queued`**. Once it has been uplinked to the spacecraft
+(`uplinked`/`tasked`/`executed`/`completed`/`failed`/`cancelled`) it is committed
+and cannot be recalled. Today the **Cancel** button still renders on those rows
+and in the timeline flyout footer; the handler has to reject the click after the
+fact with an error toast. The operator sees an actionable button that isn't
+actually actionable.
 
-## 2. Dependent fields + option refetch
-Expose the `dependsOn` / `optionsFrom` mechanism that already exists in the
-prompt modal internally to plugins.
-- API: `DependsOn string` on `Field`; re-invoke `OptionsMethod(ctx, values)`
-  **with current form values** whenever a dependency changes (reset the child).
-- Unlocks: constellation -> satellite -> command cascading where each select only
-  shows valid choices (no 1,800-item flat list, no invalid combos).
+Workarounds tried and why they fall short:
+- **Handler guard** (current): `cancel-order` reads the row `state` and refuses
+  anything past `queued`. Correct, but the button is still present and clickable
+  — misleading UX, and the rejection only surfaces after the click.
+- **Component-level button in the flyout body**: `Comp` nodes (`Box`, `CText`,
+  `KeyVal`, `Buttons`…) can't trigger a row/action call with the row context, so
+  a conditional Cancel can't be rendered inside the `order-detail` flyout body.
+- **Static `RowActions`**: no `When`/predicate/`Disabled` field on `RowAction`,
+  so it can't be gated per row.
 
-## 3. Context prefill / dynamic defaults (the "prepopulate" gap)
-- API: pass the invoking **row/page param into the action** so fields whose `Key`
-  matches get prefilled, or add `DefaultsMethod(ctx) map[string]string`. Also let
-  `RowAction` / `Buttons` / `HeaderActions` carry a `Prefill map[string]string`.
-- Unlocks: commanding from a satellite's page auto-selects that satellite;
-  "re-issue" from an order row prefills target+command+params; enum params
-  default to their first option.
+## Requirement
 
-## 4. Pre-submit validation + gated submit
-Bad input is currently only caught after a failed round-trip.
-- API: `ValidateMethod(ctx, values) []FieldError`, called on change; render
-  per-field errors inline and **disable Run until valid**.
-- Unlocks: "target not in view / command not permitted / required param missing"
-  shown live, Run disabled until the order is actually issuable.
+Let a plugin decide, **per row**, whether a row action is shown, hidden, or
+shown-but-disabled — and have the table buttons AND the `RowFlyout` footer honor
+that decision consistently.
 
-## 5. Richer typed fields
-- API: `number` field type with `Min/Max/Step/Unit`; make `required` do
-  client-side validation; add a `multiselect` type.
-- Unlocks: proper numeric params (bandwidth, priority) and **batch commanding**
-  (multiselect targets -> task N satellites at once).
+### Option A (preferred): a visibility predicate on the row data
 
-## 6. Impact confirmation gate
-- API: promote the resolve surface to an optional confirm step -
-  `ConfirmMethod` / `Danger` on the action (Hope already audit-logs `Danger` row
-  actions; extend that to actions).
-- Unlocks: irreversible commands (enter-safe-mode, etc.) get a real go/no-go gate.
+Add an optional field-driven gate to `RowAction` that hope evaluates against the
+row before rendering the button:
 
-## 7. Rich action result (not just a toast)
-- API: let an action handler return a **component surface** or a
-  `navigate` / `openFlyout` directive.
-- Unlocks: after issuing, jump straight to the new order's lifecycle flyout.
+```go
+type RowAction struct {
+    Method string
+    Label  string
+    Icon   string
+    Danger bool
+    Fields []Field
+    Tip    *Tooltip
+    // NEW — conditional visibility, evaluated per row against the row's cells.
+    // Show the button ONLY when the row's ShowWhenKey cell equals ShowWhenValue
+    // (or, when ShowWhenValue is empty, when that cell is non-empty/truthy).
+    // Mirrors Field.DependsOn / DependsValue so it's a familiar shape.
+    ShowWhenKey   string `json:"showWhenKey,omitempty"`
+    ShowWhenValue string `json:"showWhenValue,omitempty"`
+    // Optional: render disabled (greyed, with Tip as the reason) instead of
+    // hidden when the predicate fails.
+    DisableInsteadOfHide bool `json:"disableInsteadOfHide,omitempty"`
+}
+```
 
-## 8. Live option state (optional)
-- API: `RefreshEvery` on `OptionsMethod`, or an options stream.
-- Unlocks: the target picker's "in contact / queues next pass" label stays live
-  while the modal is open.
+Usage:
 
----
+```go
+var cancelRowAction = plugin.RowAction{
+    Method: "cancel-order", Label: "Cancel", Danger: true,
+    ShowWhenKey: "state", ShowWhenValue: "queued",
+    Tip: plugin.Tip("Cancel this order (only possible while still queued)"),
+}
+```
 
-Priority: **#1, #2, and #3** are the ones that turn plugin commanding from
-"usable" to "excellent" — dynamic per-command fields, cascading valid options,
-and context prefill. Those are the exact walls hit while building this.
+Semantics:
+- The predicate reads the row's rendered cells by column key (the same map the
+  action handler already receives as `row`). A `Badge`/`Code`/`Link` cell
+  compares by its text value.
+- When the predicate fails: hide the button (default), or render it disabled
+  with the `Tip` shown as the reason when `DisableInsteadOfHide` is set.
+- Applies identically to the inline row buttons and the `RowFlyout` footer.
+
+### Option B: a per-row actions provider (more general)
+
+A registered method that returns the action set for a given row, so the plugin
+computes visibility/labels in Go:
+
+```go
+type RowActionsFunc func(ctx context.Context, row map[string]any) ([]RowAction, error)
+func (p *Plugin) RowActionsProvider(method string, fn RowActionsFunc) *Plugin
+// referenced from the view:
+plugin.RowActionsMethod("order-row-actions")
+```
+
+hope calls it per visible row (batchable) and renders exactly what it returns —
+so cosmic-glass returns `[cancel]` for `queued` rows and `[]` otherwise. More
+flexible (dynamic labels, danger, fields per row) at the cost of an extra RPC.
+
+## Acceptance criteria
+
+- A `queued` order shows **Cancel** in both the table row and the timeline
+  flyout footer; a `uplinked`/`tasked`/`executed`/`completed`/… order shows **no
+  Cancel** (or a disabled one with an explanatory tooltip).
+- No change required to the action handler to achieve the visual gating (the
+  handler guard can remain as defense-in-depth).
+- Backward compatible: a `RowAction` with none of the new fields behaves exactly
+  as today (shown on every row). Older hope ignores the unknown fields.
+- Feature-detectable (e.g. a `row-actions-conditional` capability) so a plugin
+  can fall back to the always-shown button + handler guard on an older hope.
+
+## Notes / references
+
+- Field already has the analogous `DependsOn`/`DependsValue` gating; Option A
+  intentionally reuses that mental model for rows.
+- Wire shape today: `ViewDesc.RowActions []RowAction` (`schema.go`), rendered as
+  table buttons and as the `RowFlyout` footer.
+- Consumer: `plugins/cosmic-glass/main.go` — `cancelRowAction`, `cancelOrder`,
+  order state constants in `plugins/cosmic-common/mission.go`
+  (`OrderQueued`/`OrderUplinked`/`OrderTasked`/`OrderExecuted`/`OrderCompleted`/
+  `OrderFailed`/`OrderCancelled`).
