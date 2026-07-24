@@ -35,6 +35,10 @@ import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../
   .fields { padding: 8px 20px 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
   .field label { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+  /* help: a small info icon by the label carrying the field's help tooltip */
+  .field label, .rifield label { display: inline-flex; align-items: center; gap: 6px; }
+  label .fhelp { color: var(--line2); cursor: help; transition: color .12s; }
+  label .fhelp:hover { color: var(--upd); }
   .field input, .field select, .field textarea { width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line);
     color: var(--hi); font: 13px/1 var(--mono); padding: 10px 12px; border-radius: 0; }
   .field textarea { line-height: 1.6; resize: vertical; min-height: 62px; }
@@ -324,6 +328,16 @@ export default class PromptModalImpl extends LoomElement {
     this.groups = { ...this.groups, [key]: arr };
   }
 
+  // Renders a field's label, with an info icon carrying its `help` tooltip when set.
+  private lbl(f: PromptField) {
+    return (
+      <label>
+        {f.label}
+        {f.help ? <loom-icon class="fhelp" name="info" size={12} tip={f.help}></loom-icon> : null}
+      </label>
+    );
+  }
+
   // Renders one field's control (no label/wrapper). Shared by top-level fields and
   // group rows: `val` is the current value, `onSet` writes it, `scope` feeds optionsFrom.
   private control(f: PromptField, val: string, onSet: (v: string) => void, scope: Record<string, string>) {
@@ -417,14 +431,14 @@ export default class PromptModalImpl extends LoomElement {
               !this.shown(f) ? null :
               f.type === "group" ? (
                 <div class="field group">
-                  <label>{f.label}</label>
+                  {this.lbl(f)}
                   <div class="rows">
                     {(this.groups[f.key] || []).map((row, i) => (
                       <div class="rowitem">
                         <div class="rifields">
                           {(f.fields || []).map((sf) => (
                             <div class={"rifield" + (sf.type === "toggle" ? " togfield" : "")}>
-                              {sf.type !== "toggle" ? <label>{sf.label}</label> : null}
+                              {sf.type !== "toggle" ? this.lbl(sf) : null}
                               {this.control(sf, row[sf.key] ?? "", (v) => this.setRow(f.key, i, sf.key, v), row)}
                             </div>
                           ))}
@@ -439,14 +453,14 @@ export default class PromptModalImpl extends LoomElement {
               ) : (
                 <>
                   <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
-                    {f.type !== "toggle" ? <label>{f.label}</label> : null}
+                    {f.type !== "toggle" ? this.lbl(f) : null}
                     {this.control(f, this.values[f.key], (v) => this.set(f.key, v), this.values)}
                     {this.showErr(f.key) ? <span class="ferr">{this.showErr(f.key)}</span> : f.hint ? <span class="hint">{f.hint}</span> : null}
                   </div>
                   {(this.dynFields[f.key] || []).map((sf) =>
                     !this.shown(sf) ? null : (
                       <div class={"field dynf" + (sf.type === "toggle" ? " togfield" : "")}>
-                        {sf.type !== "toggle" ? <label>{sf.label}</label> : null}
+                        {sf.type !== "toggle" ? this.lbl(sf) : null}
                         {this.control(sf, this.values[sf.key], (v) => this.set(sf.key, v), this.values)}
                         {this.showErr(sf.key) ? <span class="ferr">{this.showErr(sf.key)}</span> : sf.hint ? <span class="hint">{sf.hint}</span> : null}
                       </div>

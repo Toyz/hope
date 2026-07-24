@@ -265,7 +265,11 @@ type Field struct {
 	Label       string    `json:"label"`
 	Type        FieldType `json:"type,omitempty"` // one of the Field* consts (default FieldText)
 	Placeholder string    `json:"placeholder,omitempty"`
-	Hint        string    `json:"hint,omitempty"`
+	Hint        string    `json:"hint,omitempty"` // a dim line UNDER the field (always visible)
+	// Help is a longer explanation shown in a tooltip off a small info icon next to the
+	// label — for detail that would clutter the form as an always-visible Hint. Both may
+	// be set: Hint for the one-liner, Help for the "what is this / why" on hover.
+	Help string `json:"help,omitempty"`
 	Value       string    `json:"value,omitempty"`
 	Optional    bool      `json:"optional,omitempty"`
 	Options     []Option  `json:"options,omitempty"`

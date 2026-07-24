@@ -27,6 +27,7 @@ export type PromptField = {
   fields?: PromptField[];
   addLabel?: string; // for "kv"/"group": the "+ add" button label (e.g. "option", "row")
   hint?: string; // small helper line under the control (e.g. a toggle's meaning)
+  help?: string; // longer explanation shown in a tooltip off an info icon by the label
   value?: string;
   optional?: boolean; // required by default
   options?: PromptOption[]; // static options for type: "select"

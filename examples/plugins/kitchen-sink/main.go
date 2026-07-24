@@ -883,12 +883,14 @@ func main() {
 	var orderSeq int
 	p.Action("issueCommand", "Issue command", []plugin.Field{
 		{Key: "targets", Label: "Satellites", Type: plugin.FieldMultiselect, OptionsMethod: "targetList", RefreshEvery: 5,
-			Hint: "batch-command N at once; in-contact status refreshes live"},
+			Hint: "batch-command N at once; in-contact status refreshes live",
+			Help: "Only satellites currently in contact can execute immediately; the rest queue until their next pass over a ground station."},
 		{Key: "command", Label: "Command", Type: plugin.FieldSelect, FieldsMethod: "commandParams", Options: []plugin.Option{
 			{Label: "Capture image", Value: "capture-image"},
 			{Label: "Downlink", Value: "downlink"},
 			{Label: "Enter safe mode", Value: "enter-safe-mode"}}},
-		{Key: "priority", Label: "Priority", Type: plugin.FieldNumber, Min: 1, Max: 9, Step: 1, Unit: "prio"},
+		{Key: "priority", Label: "Priority", Type: plugin.FieldNumber, Min: 1, Max: 9, Step: 1, Unit: "prio",
+			Help: "1 is highest. Priority decides ordering when two commands contend for the same pass window."},
 		// combobox with AllowCustom: pick a known ground station OR type a new one.
 		{Key: "station", Label: "Ground station", Type: plugin.FieldCombobox, AllowCustom: true, Placeholder: "pick or type a station", Options: []plugin.Option{
 			{Label: "Svalbard", Value: "svalbard"}, {Label: "Punta Arenas", Value: "punta"}, {Label: "Fairbanks", Value: "fairbanks"}}},
