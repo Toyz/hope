@@ -199,6 +199,12 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gpchip:active { cursor: grabbing; }
   .gpchip.ok { border-left: 2px solid var(--ok); } .gpchip.warn { border-left: 2px solid var(--warn); }
   .gpchip.bad { border-left: 2px solid var(--bad); } .gpchip.info, .gpchip.upd { border-left: 2px solid var(--upd); }
+  /* run toggle */
+  .grun { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+    background: var(--panel); border: 1px solid var(--line2); color: var(--mid); cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .grun:hover { color: var(--upd); border-color: var(--upd); }
+  .grun.on { color: var(--on-accent); background: var(--upd); border-color: var(--upd); }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -1192,8 +1198,12 @@ export class HopePluginSurface extends LoomElement {
   private renderGraph(v: ViewDesc, data: GraphData) {
     const m = v.method;
     const gv = this.gview(m);
-    const nodes = (data.nodes || []).map((n) => this.gEff(m, n));
-    const edges = data.edges || [];
+    // While a run stream is active, render its live GraphData frames (node States drive the
+    // glow) instead of the fetched graph; on stop we re-fetch the authoritative graph.
+    const live = v.graph_run && this.streamOn[v.graph_run] ? (this.streamData[v.graph_run] as GraphData | undefined) : null;
+    const gdata: GraphData = live && live.nodes ? live : data;
+    const nodes = (gdata.nodes || []).map((n) => this.gEff(m, n));
+    const edges = gdata.edges || [];
     let maxX = 900, maxY = 620;
     for (const n of nodes) { maxX = Math.max(maxX, n.x + (n.w || this.gGeom.w) + 320); maxY = Math.max(maxY, n.y + 320); }
     const cn = this.graphConnect; // live connect ghost (Part 3)
@@ -1216,6 +1226,12 @@ export class HopePluginSurface extends LoomElement {
               {nodes.map((n) => this.renderGNode(v, n))}
             </div>
             {this.renderPalette(v)}
+            {v.graph_run ? (
+              <button class={"grun" + (this.streamOn[v.graph_run] ? " on" : "")} onClick={() => this.gRunToggle(v)}>
+                <loom-icon name={this.streamOn[v.graph_run] ? "stop" : "play"} size={12}></loom-icon>
+                {this.streamOn[v.graph_run] ? "stop" : "run"}
+              </button>
+            ) : null}
             {!nodes.length ? <div class="gempty">{v.empty ? this.renderEmpty(v.empty) : "empty graph"}</div> : null}
           </div>
         </div>
@@ -1414,6 +1430,14 @@ export class HopePluginSurface extends LoomElement {
     if (!method) return;
     const out = await runPluginAction(this.deps(), this.surface?.key || "", { method, label: "graph" }, { row }, this.surface?.param, { quiet: true });
     if (out && out.ok) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; }
+  };
+  // Toggle the run stream: start it (live GraphData frames drive the node glow) or stop it
+  // and re-fetch the authoritative graph.
+  private gRunToggle = (v: ViewDesc) => {
+    const rm = v.graph_run;
+    if (!rm) return;
+    if (this.streamOn[rm]) { this.stopStream(rm); void this.fetch(v.method); }
+    else this.startStream(rm);
   };
   private gDeleteNode = async (v: ViewDesc, id: string) => {
     if (!v.graph_delete) return;
