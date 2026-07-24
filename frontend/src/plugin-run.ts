@@ -208,15 +208,17 @@ export async function runPluginAction(
       deps.toast.error(r.message ? String(r.message) : `${a.label} failed`);
       return { ok: false, refetch: false, result: res };
     }
-    if (!opts?.quiet) {
-      const msg = r.message ? String(r.message) : `${a.label} ok`;
-      if (r.level === "info") deps.toast.warn(msg); // no dedicated info tone; warn is the neutral-attention one
-      else deps.toast.ok(msg);
-    }
     // #7: package any UI directive the plugin returned so the caller can navigate / open a
     // flyout with its own router + drawer context.
     const directive: ActionDirective | undefined =
       r.navigate || r.flyout ? { navigate: r.navigate, flyout: r.flyout, flyoutTitle: r.flyoutTitle, flyoutWidth: r.flyoutWidth } : undefined;
+    // Success toast — but a directive-only result (open a flyout / navigate, no message) is
+    // its own feedback, so don't also pop a redundant "ok" toast (e.g. a node Info action).
+    if (!opts?.quiet && !(directive && !r.message)) {
+      const msg = r.message ? String(r.message) : `${a.label} ok`;
+      if (r.level === "info") deps.toast.warn(msg); // no dedicated info tone; warn is the neutral-attention one
+      else deps.toast.ok(msg);
+    }
     return { ok: true, refetch: r.refetch !== false, result: res, directive };
   } catch (e: any) {
     deps.toast.error(`${a.label} — ${e?.message ?? "failed"}`);
