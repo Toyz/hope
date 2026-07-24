@@ -404,17 +404,21 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .rmfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
   .flyacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 
-  ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.7 var(--mono); }
+  ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.5 var(--mono); user-select: none; }
   ul.tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px solid var(--line); }
   ul.tree li { color: var(--mid); }
   .trow { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .trow .tcaret { flex: none; color: var(--dim); cursor: pointer; }
   .trow .tcgap { flex: none; width: 11px; } /* align leaves under grouped rows */
-  .trow .lb { color: var(--hi); display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .trow { overflow: hidden; }
+  .trow .lb { color: var(--hi); display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+  .trow .lb .tlbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .trow .lb.lk { color: var(--upd); cursor: pointer; }
-  .trow .lb.lk:hover { text-decoration: underline; }
-  .trow .lb.cur { color: var(--upd); font-weight: 700; text-decoration: none; }
-  .trow .lb.cur::before { content: "▸ "; color: var(--upd); }
+  .trow .lb.lk:hover .tlbl { text-decoration: underline; }
+  /* active pipeline: a clean accent pill, not a selection block */
+  .trow .lb.cur { color: var(--upd); font-weight: 600; background: color-mix(in srgb, var(--upd) 15%, transparent);
+    padding: 2px 7px; margin: -2px -1px; border-radius: 3px; }
+  .trow .lb.cur:hover .tlbl { text-decoration: none; }
   .trow .tdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mid); }
   /* per-node hover actions (rename/delete/…) */
   .trow .tacts { margin-left: auto; display: inline-flex; gap: 2px; opacity: 0; transition: opacity .1s; flex: none; }
@@ -2206,7 +2210,7 @@ export class HopePluginSurface extends LoomElement {
             <span class={"lb" + (n.to ? " lk" : "") + (n.to && n.to === activeTo ? " cur" : "")} onClick={n.to ? (e: any) => { e.stopPropagation(); this.navCell(n); } : undefined}>
               {n.icon ? this.leafIcon(n.icon) : null}
               {n.tone ? <i class={"tdot " + this.toneClass(n.tone)}></i> : null}
-              {n.label}
+              <span class="tlbl">{n.label}</span>
             </span>
           );
           const labelled = n.tip ? <span class="tw" tip={{ text: n.tip.text, pos: n.tip.pos || "top" }}>{label}</span> : label;

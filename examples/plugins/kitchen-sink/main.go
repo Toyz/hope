@@ -1251,7 +1251,10 @@ func main() {
 		if n == nil {
 			return map[string]any{"ok": false, "message": "node gone"}, nil
 		}
-		n.Data = map[string]any{"mode": gRowStr(in, "mode"), "parallel": gRowStr(in, "parallel")}
+		// form field values arrive TOP-LEVEL (id/graph are in row); read them directly.
+		mode, _ := in["mode"].(string)
+		parallel, _ := in["parallel"].(string)
+		n.Data = map[string]any{"mode": mode, "parallel": parallel}
 		gApplyMeta(n) // params show cleanly on the node face
 		return map[string]any{"message": "node configured"}, nil
 	})
