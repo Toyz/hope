@@ -42,6 +42,21 @@ import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../
   .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--line2); }
   .field .hint { font: 11px/1.4 var(--mono); color: var(--dim); }
   .field.togfield { margin-bottom: 9px; }
+  /* #4 inline validation error */
+  .field .ferr { font: 600 11px/1.4 var(--mono); color: var(--bad); }
+  .field.dynf { margin-top: -4px; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--upd) 35%, var(--line)); }
+  /* #5 number field with a unit suffix */
+  .numf { display: flex; align-items: stretch; gap: 0; }
+  .numf input { flex: 1; }
+  .numf .unit { display: flex; align-items: center; padding: 0 12px; background: var(--ink); border: 1px solid var(--line); border-left: none;
+    font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  /* #5 multiselect as toggle chips (value is a JSON array) */
+  .msel { display: flex; flex-wrap: wrap; gap: 7px; }
+  .msel .mchip { padding: 6px 12px; border: 1px solid var(--line2); background: var(--ink); color: var(--mid); cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .04em; user-select: none; transition: color .12s, border-color .12s, background .12s; }
+  .msel .mchip:hover { color: var(--txt); border-color: var(--line2); }
+  .msel .mchip.on { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 55%, var(--line2)); background: color-mix(in srgb, var(--upd) 12%, var(--ink)); }
+  .msel .mempty { font: 11px/1.4 var(--mono); color: var(--dim); }
   /* repeatable group (forms-builder): rows of a sub-form, add/remove */
   .rows { display: flex; flex-direction: column; gap: 8px; }
   .rowitem { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line); background: var(--ink); padding: 10px 12px; }
@@ -83,11 +98,47 @@ export default class PromptModalImpl extends LoomElement {
   // when a field's dependsOn changes, so a cascading select narrows by an earlier pick.
   @reactive accessor liveOpts: Record<string, PromptOption[]> = {};
   @reactive accessor stepIdx = 0; // wizard: the current step index
+  @reactive accessor fieldErrors: Record<string, string> = {}; // #4 validate: field key -> error
+  @reactive accessor dynFields: Record<string, PromptField[]> = {}; // #1 fieldsFetch: parent key -> sub-fields
 
   private isWizard(): boolean { return !!this.opts.steps?.length; }
-  // Every field across all steps (or the flat fields) — for value seeding, options fetch,
-  // dependent recompute, and the final submit. Rendering uses curFields() (this step only).
-  private allFields(): PromptField[] { return this.opts.steps ? this.opts.steps.flatMap((s) => s.fields) : this.opts.fields; }
+  // Every field across all steps (or the flat fields) PLUS any dynamic sub-fields — for
+  // value seeding, options fetch, dependent recompute, validation, and the final submit.
+  // Rendering uses curFields() (this step only).
+  private allFields(): PromptField[] {
+    const base = this.opts.steps ? this.opts.steps.flatMap((s) => s.fields) : this.opts.fields;
+    const dyn = Object.values(this.dynFields).flat();
+    return dyn.length ? [...base, ...dyn] : base;
+  }
+
+  // #4: run the plugin's validate on the current values -> per-field error map.
+  private async runValidate() {
+    if (!this.opts.validate) return;
+    try {
+      const errs = await this.opts.validate({ ...this.values });
+      const map: Record<string, string> = {};
+      for (const e of errs || []) if (e?.key && e?.error) map[e.key] = e.error;
+      this.fieldErrors = map;
+    } catch { /* keep prior errors on a transient failure */ }
+  }
+
+  // #1: a field's fieldsFetch returns a dynamic sub-form; fetch it with the current values
+  // and seed the new sub-fields' initial values.
+  private async fetchDynFields(f: PromptField) {
+    if (!f.fieldsFetch) return;
+    try {
+      const subs = (await f.fieldsFetch({ ...this.values })) || [];
+      this.dynFields = { ...this.dynFields, [f.key]: subs };
+      const next = { ...this.values };
+      for (const sf of subs) if (next[sf.key] === undefined) next[sf.key] = sf.value ?? "";
+      this.values = next;
+    } catch {
+      this.dynFields = { ...this.dynFields, [f.key]: [] };
+    }
+  }
+
+  private parseMulti(v: string): string[] { try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } }
+  private toggleMulti(sel: string[], val: string): string[] { return sel.includes(val) ? sel.filter((x) => x !== val) : [...sel, val]; }
   private curFields(): PromptField[] { return this.opts.steps ? (this.opts.steps[this.stepIdx]?.fields ?? []) : this.opts.fields; }
   private curResolve() { return this.opts.steps ? this.opts.steps[this.stepIdx]?.resolve : this.opts.resolve; }
 
@@ -103,6 +154,23 @@ export default class PromptModalImpl extends LoomElement {
     }));
   }
 
+  // #8: live options — a field with refreshEvery re-fetches its options on an interval
+  // while the modal is open, so a changing label stays current. Cleared on close/unmount.
+  private refreshTimers: number[] = [];
+  private startRefreshers() {
+    this.stopRefreshers();
+    for (const f of this.allFields()) {
+      if (!f.optionsFetch || !f.refreshEvery || f.refreshEvery <= 0) continue;
+      const key = f.key;
+      const fetch = f.optionsFetch;
+      const id = window.setInterval(async () => {
+        try { this.liveOpts = { ...this.liveOpts, [key]: (await fetch({ ...this.values })) || [] }; } catch { /* keep prior options on a transient failure */ }
+      }, f.refreshEvery * 1000);
+      this.refreshTimers.push(id);
+    }
+  }
+  private stopRefreshers() { for (const id of this.refreshTimers) window.clearInterval(id); this.refreshTimers = []; }
+
   // A field shows unless a dependsOn condition hides it: with dependsValue, only when the
   // dependency equals it; without, only when the dependency is non-empty.
   private shown(f: PromptField): boolean {
@@ -112,7 +180,7 @@ export default class PromptModalImpl extends LoomElement {
   }
 
   @watch("open") private lockBody() { signalModal(this, this.open); }
-  @unmount private releaseBody() { signalModal(this, false); }
+  @unmount private releaseBody() { signalModal(this, false); this.stopRefreshers(); }
   private resolver: ((v: Record<string, string> | null) => void) | null = null;
 
   show(o: PromptOpts): Promise<Record<string, string> | null> {
@@ -128,12 +196,17 @@ export default class PromptModalImpl extends LoomElement {
     this.values = v;
     this.groups = g;
     this.liveOpts = {};
+    this.fieldErrors = {};
+    this.dynFields = {};
     this.stepIdx = 0;
     this.err = "";
     this.resolved = null;
     this.resolveSeq++;
     this.open = true;
     if (all.some((f) => f.optionsFetch)) void this.fetchOpts(); // initial RPC options
+    this.startRefreshers(); // #8 live options
+    for (const f of all) if (f.fieldsFetch && (f.value ?? "") !== "") void this.fetchDynFields(f); // #1 prefilled -> sub-form now
+    if (o.validate) void this.runValidate(); // #4 initial validity
     if (this.curResolve()) this.runResolve(); // initial surface (honors any default field values)
     return new Promise((resolve) => (this.resolver = resolve));
   }
@@ -160,6 +233,8 @@ export default class PromptModalImpl extends LoomElement {
         if (!f.optional && (this.groups[f.key] || []).length === 0) { this.err = `${f.label} needs at least one`; return false; }
       } else if (!f.optional && !(this.values[f.key] || "").trim()) { this.err = `${f.label} is required`; return false; }
     }
+    // #4: block advancing while any current-step field has a plugin validation error.
+    for (const f of this.curFields()) if (this.fieldErrors[f.key]) { this.err = this.fieldErrors[f.key]; return false; }
     this.err = "";
     return true;
   }
@@ -181,6 +256,7 @@ export default class PromptModalImpl extends LoomElement {
 
   private settle(v: Record<string, string> | null) {
     if (!this.open) return;
+    this.stopRefreshers(); // #8 stop live-option polling when the modal closes
     this.open = false;
     const r = this.resolver;
     this.resolver = null;
@@ -205,6 +281,11 @@ export default class PromptModalImpl extends LoomElement {
     this.values = next;
     // Cascading: re-fetch options for any field that depends on the one that changed.
     if (this.allFields().some((f) => f.optionsFetch && f.dependsOn === key)) void this.fetchOpts(key);
+    // #1: if the changed field drives a dynamic sub-form, refetch its fields.
+    const chg = this.allFields().find((x) => x.key === key);
+    if (chg?.fieldsFetch) void this.fetchDynFields(chg);
+    // #4: re-validate on every change (the plugin decides what counts as an error).
+    if (this.opts.validate) void this.runValidate();
     // Re-resolve the inline surface on a DISCRETE change (select/toggle/kv) — not on
     // every text keystroke, which would storm the plugin with RPCs.
     if (this.curResolve()) {
@@ -240,6 +321,24 @@ export default class PromptModalImpl extends LoomElement {
     );
     if (f.type === "textarea") return <textarea rows={3} placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)}></textarea>;
     if (f.type === "kv") return <hope-kv-editor value={val} placeholder={f.placeholder || ""} addLabel={f.addLabel || "entry"} onChange={(e: any) => onSet(e.detail)}></hope-kv-editor>;
+    if (f.type === "number") return (
+      <span class="numf">
+        <input type="number" placeholder={f.placeholder || ""} value={val} min={f.min ?? undefined} max={f.max ?? undefined} step={f.step ?? undefined} onInput={(e: any) => onSet(e.target.value)} />
+        {f.unit ? <span class="unit">{f.unit}</span> : null}
+      </span>
+    );
+    if (f.type === "multiselect") {
+      const sel = this.parseMulti(val);
+      const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
+      return (
+        <div class="msel">
+          {opts.map((o) => (
+            <span class={"mchip" + (sel.includes(o.value) ? " on" : "")} onClick={() => onSet(JSON.stringify(this.toggleMulti(sel, o.value)))}>{o.label}</span>
+          ))}
+          {opts.length === 0 ? <span class="mempty">no options</span> : null}
+        </div>
+      );
+    }
     return <input type="text" placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)} />;
   }
 
@@ -260,8 +359,12 @@ export default class PromptModalImpl extends LoomElement {
         return;
       }
     }
+    // #4: a plugin validation error blocks the submit (Run is also disabled while invalid).
+    if (this.invalid()) { this.err = Object.values(this.fieldErrors)[0]; return; }
     this.settle(out);
   };
+
+  private invalid(): boolean { return Object.keys(this.fieldErrors).length > 0; }
 
   update() {
     if (!this.open) return document.createComment("");
@@ -311,11 +414,22 @@ export default class PromptModalImpl extends LoomElement {
                   {f.hint ? <span class="hint">{f.hint}</span> : null}
                 </div>
               ) : (
-                <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
-                  {f.type !== "toggle" ? <label>{f.label}</label> : null}
-                  {this.control(f, this.values[f.key], (v) => this.set(f.key, v), this.values)}
-                  {f.hint ? <span class="hint">{f.hint}</span> : null}
-                </div>
+                <>
+                  <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
+                    {f.type !== "toggle" ? <label>{f.label}</label> : null}
+                    {this.control(f, this.values[f.key], (v) => this.set(f.key, v), this.values)}
+                    {this.fieldErrors[f.key] ? <span class="ferr">{this.fieldErrors[f.key]}</span> : f.hint ? <span class="hint">{f.hint}</span> : null}
+                  </div>
+                  {(this.dynFields[f.key] || []).map((sf) =>
+                    !this.shown(sf) ? null : (
+                      <div class={"field dynf" + (sf.type === "toggle" ? " togfield" : "")}>
+                        {sf.type !== "toggle" ? <label>{sf.label}</label> : null}
+                        {this.control(sf, this.values[sf.key], (v) => this.set(sf.key, v), this.values)}
+                        {this.fieldErrors[sf.key] ? <span class="ferr">{this.fieldErrors[sf.key]}</span> : sf.hint ? <span class="hint">{sf.hint}</span> : null}
+                      </div>
+                    ),
+                  )}
+                </>
               ),
             )}
           </div>
@@ -336,14 +450,14 @@ export default class PromptModalImpl extends LoomElement {
               <>
                 <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
                 {this.stepIdx > 0 ? <hope-button onClick={this.back}>Back</hope-button> : null}
-                <hope-button tone="primary" solid onClick={this.next}>
+                <hope-button tone="primary" solid disabled={this.invalid()} onClick={this.next}>
                   {this.stepIdx >= o.steps!.length - 1 ? (o.submitLabel || "Finish") : "Next"}
                 </hope-button>
               </>
             ) : (
               <>
                 <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
-                <hope-button tone="primary" solid onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
+                <hope-button tone="primary" solid disabled={this.invalid()} onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
               </>
             )}
           </div>

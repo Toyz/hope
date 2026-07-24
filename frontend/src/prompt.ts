@@ -9,8 +9,16 @@ export type PromptOption = Option;
 export type PromptField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "toggle" | "kv" | "group";
+  type?: "text" | "textarea" | "select" | "toggle" | "kv" | "group" | "number" | "multiselect";
   placeholder?: string;
+  // number field bounds/step/unit (#5). multiselect uses `options` and stores a JSON array.
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  // #1 dynamic sub-form: on this field's change, fetch a NEW set of fields to render inline
+  // below it (runPluginAction wires this from a Field.FieldsMethod). Returns the sub-fields.
+  fieldsFetch?: (values: Record<string, string>) => Promise<PromptField[]>;
   // A repeatable array-of-objects (a forms-builder): each row is a sub-form of `fields`.
   // The submitted value is a JSON array of the rows' value maps.
   fields?: PromptField[];
@@ -22,9 +30,16 @@ export type PromptField = {
   // A plugin select whose options come from an RPC (Plugin.Options): hope fetches
   // them from this method and fills `options` before the form opens. Plugin-set only.
   optionsMethod?: string;
+  // #8: with optionsMethod, re-fetch this field's options every N seconds while the modal
+  // is open, so a live label stays current. 0/undefined = fetch once. Plugin-set only.
+  refreshEvery?: number;
   // A plugin selector whose change resolves to an inline surface (Plugin.Resolve):
   // runPluginAction wires PromptOpts.resolve from this. Plugin-set only.
   resolveMethod?: string;
+  // #1: on this field's change, hope calls this method (Plugin.Fields) with the current
+  // values; it returns a []Field schema rendered inline as a sub-form. runPluginAction
+  // wires `fieldsFetch` from it. Plugin-set only.
+  fieldsMethod?: string;
   // Dynamic options computed from the current field values (dependent selects).
   // When `dependsOn` changes, this field's value is cleared and options recomputed.
   optionsFrom?: (values: Record<string, string>) => PromptOption[];
@@ -77,6 +92,15 @@ export interface PromptOpts {
   // set this (it closes over the RPC); hope's own prompts leave it unset. In a wizard a
   // step's own `resolve` takes precedence for that step.
   resolve?: (values: Record<string, string>) => Promise<ResolvedSurface | null>;
+  // #4 pre-submit validation: called with the current values on change; returns per-field
+  // errors. The modal shows them inline and disables submit until there are none.
+  validate?: (values: Record<string, string>) => Promise<FieldError[]>;
+}
+
+// One field-level validation error (#4).
+export interface FieldError {
+  key: string;
+  error: string;
 }
 
 export class PromptService {

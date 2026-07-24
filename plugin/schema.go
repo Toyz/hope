@@ -246,17 +246,27 @@ type Option struct {
 type Field struct {
 	Key         string   `json:"key"`
 	Label       string   `json:"label"`
-	Type        string   `json:"type,omitempty"` // text|textarea|select|toggle|kv (default text)
+	Type        string   `json:"type,omitempty"` // text|textarea|select|toggle|kv|number|multiselect (default text)
 	Placeholder string   `json:"placeholder,omitempty"`
 	Hint        string   `json:"hint,omitempty"`
 	Value       string   `json:"value,omitempty"`
 	Optional    bool     `json:"optional,omitempty"`
 	Options     []Option `json:"options,omitempty"`
+	// Number-field bounds/step/unit (Type:"number"). Unit renders as a suffix on the input.
+	Min  float64 `json:"min,omitempty"`
+	Max  float64 `json:"max,omitempty"`
+	Step float64 `json:"step,omitempty"`
+	Unit string  `json:"unit,omitempty"`
 	// OptionsMethod names an Options provider (registered with Plugin.Options); when
 	// set, hope fetches this select's choices from that method live as it renders the
 	// form, instead of using the static Options above. The JSON key is camelCase to
 	// match hope's PromptField, which the fields map onto directly.
 	OptionsMethod string `json:"optionsMethod,omitempty"`
+	// RefreshEvery, with OptionsMethod, re-fetches this select's options every N seconds
+	// while the form is open — so a live label ("in contact / queues next pass", a changing
+	// count) stays current without closing the modal. 0 (default) fetches once. camelCase to
+	// match hope's PromptField.
+	RefreshEvery int `json:"refreshEvery,omitempty"`
 	// ResolveMethod names a Resolve provider (registered with Plugin.Resolve). When the
 	// form's values change, hope calls it with the current values and renders the
 	// returned component node inline below the fields — a selection can drive a live
@@ -275,6 +285,12 @@ type Field struct {
 	// A — and B can stay hidden until A is set. camelCase to match hope's PromptField.
 	DependsOn    string `json:"dependsOn,omitempty"`
 	DependsValue string `json:"dependsValue,omitempty"`
+	// FieldsMethod names a Fields provider (registered with Plugin.Fields). On this field's
+	// change hope calls it with the current values (via Params) and renders the returned
+	// []Field inline as a sub-form below this field — so a selection produces real, typed
+	// inputs rather than a free-form box. The sub-fields may carry their own OptionsMethod /
+	// DependsOn. camelCase to match hope's PromptField.
+	FieldsMethod string `json:"fieldsMethod,omitempty"`
 }
 
 // Schema is the plugin's identity + capability manifest — the result of the fixed
@@ -372,6 +388,20 @@ type ActionDesc struct {
 	// values from every step, exactly like a flat form.
 	Steps []WizardStep `json:"steps,omitempty"`
 	Tip   *Tooltip     `json:"tip,omitempty"` // hover tooltip on the action button (set with ActionTip)
+	// Prefill seeds the form's initial values by field Key, merged OVER the invoking
+	// context (the clicked row's columns + the page params) — so commanding from a row
+	// pre-selects its target and an explicit Prefill can override or add to that. The
+	// operator can still edit; the submitted value wins. Set with ActionPrefill.
+	Prefill map[string]string `json:"prefill,omitempty"`
+	// ValidateMethod names a Validate provider (registered with Plugin.Validate). hope
+	// calls it with the current values as they change; it returns per-field errors that
+	// render inline and disable Run until the form is valid. Set with ActionValidate.
+	ValidateMethod string `json:"validateMethod,omitempty"`
+	// ConfirmMethod names a Confirm provider (registered with Plugin.Confirm). After the
+	// form (and any Danger gate), hope calls it with the entered values to compute a
+	// go/no-go impact confirmation; the operator must approve before the action runs. Set
+	// with ActionConfirm.
+	ConfirmMethod string `json:"confirmMethod,omitempty"`
 }
 
 // WizardStep is one page of a stepped action form — a title (+ optional hint) over a

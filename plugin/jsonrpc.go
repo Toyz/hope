@@ -279,6 +279,30 @@ func (p *Plugin) serve(w http.ResponseWriter, r *http.Request) {
 		p.finish(w, req.ID, out, err)
 		return
 	}
+	if ff, ok := p.fieldsets[req.Method]; ok {
+		// selection->sub-form provider (#1): current values as params; returns []Field hope
+		// renders inline as a dynamic sub-form.
+		out, err := ff(ctx)
+		p.finish(w, req.ID, out, err)
+		return
+	}
+	if vf, ok := p.validators[req.Method]; ok {
+		// validation provider (#4): current values as params; returns []FieldError, empty
+		// when valid. Never nil so hope reads a clean-form signal.
+		out, err := vf(ctx)
+		if out == nil {
+			out = []FieldError{}
+		}
+		p.finish(w, req.ID, out, err)
+		return
+	}
+	if cf, ok := p.confirmers[req.Method]; ok {
+		// impact-confirmation provider (#6): current values as params; returns a go/no-go
+		// payload hope shows before running the action.
+		out, err := cf(ctx)
+		p.finish(w, req.ID, out, err)
+		return
+	}
 	if a, ok := p.actions[req.Method]; ok {
 		var in map[string]any
 		if len(req.Params) > 0 {
