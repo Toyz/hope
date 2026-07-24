@@ -34,6 +34,12 @@ const (
 	// widget the built-in kinds don't cover. See component.go. Also usable inline in a
 	// layout via plugin.Component (no per-view round-trip).
 	CompView ViewKind = "component"
+	// Graph is the spatial / blueprint surface: the handler returns a GraphData of nodes at
+	// x/y with edges between ports. hope ships NO node types — the plugin defines each node's
+	// title/ports/body (an arbitrary Comp) and owns persistence + execution; hope is the
+	// editor (pan/zoom, drag, connect) and calls the plugin's mutation methods, then re-fetches.
+	// See GraphData + p.GraphView.
+	Graph ViewKind = "graph"
 )
 
 // SearchData is what a Search view returns for a query: the current suggestion list.
@@ -273,10 +279,10 @@ type Field struct {
 	// Help is a longer explanation shown in a tooltip off a small info icon next to the
 	// label — for detail that would clutter the form as an always-visible Hint. Both may
 	// be set: Hint for the one-liner, Help for the "what is this / why" on hover.
-	Help string `json:"help,omitempty"`
-	Value       string    `json:"value,omitempty"`
-	Optional    bool      `json:"optional,omitempty"`
-	Options     []Option  `json:"options,omitempty"`
+	Help     string   `json:"help,omitempty"`
+	Value    string   `json:"value,omitempty"`
+	Optional bool     `json:"optional,omitempty"`
+	Options  []Option `json:"options,omitempty"`
 	// Number-field bounds/step/unit (Type:"number"). Unit renders as a suffix on the input.
 	Min  float64 `json:"min,omitempty"`
 	Max  float64 `json:"max,omitempty"`
@@ -538,6 +544,81 @@ type ViewDesc struct {
 	// for a plain paged list (a fixed order your handler controls, no user search/sort).
 	NoFilter bool `json:"no_filter,omitempty"`
 	NoSort   bool `json:"no_sort,omitempty"`
+	// --- Graph view (ViewKind Graph) — all optional method refs; a bare GraphView is just
+	// the canvas. Set with the Graph* opts. hope calls each mutation with {row:{...}} (like a
+	// RowAction) and re-fetches the graph on success. ---
+	GraphMove            string     `json:"graph_move,omitempty"`             // persist a dragged node's position {id,x,y}
+	GraphConnect         string     `json:"graph_connect,omitempty"`          // add an edge {from:"n:p", to:"n:p"}
+	GraphDisconnect      string     `json:"graph_disconnect,omitempty"`       // remove an edge {from,to}
+	GraphDelete          string     `json:"graph_delete,omitempty"`           // delete a node {id}
+	GraphAdd             string     `json:"graph_add,omitempty"`              // create a node {type,x,y} (palette drop / dbl-click)
+	GraphNodeFlyout      string     `json:"graph_node_flyout,omitempty"`      // node click -> a Comp body in the drawer {id}
+	GraphValidateConnect string     `json:"graph_validate_connect,omitempty"` // optional pre-connect gate {from,to} -> {ok,reason}
+	GraphRun             string     `json:"graph_run,omitempty"`              // a StreamComponent-kind stream emitting GraphData frames (run highlight)
+	GraphSidebar         string     `json:"graph_sidebar,omitempty"`          // left rail: a Comp (browse the plugin's DAGs) {}
+	GraphToolbar         string     `json:"graph_toolbar,omitempty"`          // top strip: a Comp (title/run/filters) {}
+	GraphSelect          string     `json:"graph_select,omitempty"`           // sidebar row click -> set active graph {id}; canvas refetches with {graph:id}
+	GraphPalette         string     `json:"graph_palette,omitempty"`          // the node-TYPE catalog: returns []NodeType
+	Palette              []NodeType `json:"palette,omitempty"`                // a STATIC node-type catalog (alternative to GraphPalette)
+	GraphDirected        bool       `json:"graph_directed,omitempty"`         // draw arrowheads on edges
+	GraphSnap            int        `json:"graph_snap,omitempty"`             // snap dragged nodes to an N-px grid (0 = free)
+}
+
+// GraphData is what a Graph view returns: nodes positioned at x/y and edges between their
+// ports. Build the nodes/edges with GNode/GEdge. hope renders the canvas; the plugin owns
+// what each node contains and all persistence.
+type GraphData struct {
+	Nodes    []*GraphNode `json:"nodes"`
+	Edges    []GraphEdge  `json:"edges,omitempty"`
+	Directed bool         `json:"directed,omitempty"`
+}
+
+// GraphNode is one node on the canvas. hope ships no node types — Type is the plugin's own
+// label for it (metadata hope never interprets); Body is an arbitrary Comp tree rendered in
+// the node card; In/Out are the connectable ports. Build with GNode.
+type GraphNode struct {
+	ID    string         `json:"id"`
+	Type  string         `json:"type,omitempty"`
+	X     float64        `json:"x"`
+	Y     float64        `json:"y"`
+	W     int            `json:"w,omitempty"` // node width px (0 => hope default ~190)
+	Title string         `json:"title,omitempty"`
+	Icon  string         `json:"icon,omitempty"` // built-in name OR a plugin Icons key
+	Tone  string         `json:"tone,omitempty"` // node accent
+	Body  *Comp          `json:"body,omitempty"`
+	In    []Port         `json:"in,omitempty"`
+	Out   []Port         `json:"out,omitempty"`
+	State string         `json:"state,omitempty"` // run overlay: idle|running|done|error (drives the node glow)
+	Data  map[string]any `json:"data,omitempty"`  // opaque; echoed back to mutation methods
+}
+
+// Port is a connectable point on a node's edge (input on the left, output on the right).
+// Kind is the plugin's typing used by GraphValidateConnect to accept/reject a connection.
+type Port struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Tone  string `json:"tone,omitempty"`
+}
+
+// GraphEdge connects one node's out-port to another's in-port. From/To are "nodeID:portID".
+type GraphEdge struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Tone  string `json:"tone,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// NodeType is one entry in the palette — a kind of node the plugin offers to place. Dragging
+// it onto the canvas calls the GraphAdd method with {type,x,y}. Return these from GraphPalette
+// (or set a static Palette on the view).
+type NodeType struct {
+	Type     string `json:"type"`
+	Label    string `json:"label,omitempty"`
+	Icon     string `json:"icon,omitempty"`
+	Tone     string `json:"tone,omitempty"`
+	Category string `json:"category,omitempty"` // groups the palette
+	Desc     string `json:"desc,omitempty"`     // tooltip
 }
 
 // SortSpec is a column + direction ("asc" | "desc"). Used for a table's DefaultSort.
