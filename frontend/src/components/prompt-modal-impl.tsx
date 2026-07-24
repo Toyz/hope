@@ -101,6 +101,13 @@ export default class PromptModalImpl extends LoomElement {
   @reactive accessor stepIdx = 0; // wizard: the current step index
   @reactive accessor fieldErrors: Record<string, string> = {}; // #4 validate: field key -> error
   @reactive accessor dynFields: Record<string, PromptField[]> = {}; // #1 fieldsFetch: parent key -> sub-fields
+  @reactive accessor touched: Record<string, true> = {}; // #4: fields the user has changed
+  @reactive accessor submitTried = false; // #4: became true on the first Run/Next attempt
+
+  // #4: only surface a field's validation error once the user has touched it (or tried to
+  // submit) — an untouched, freshly-opened form shows no red. Run is gated the same way.
+  private showErr(key: string): string { return this.fieldErrors[key] && (this.submitTried || this.touched[key]) ? this.fieldErrors[key] : ""; }
+  private runDisabled(): boolean { return this.invalid() && (this.submitTried || Object.keys(this.touched).length > 0); }
 
   private isWizard(): boolean { return !!this.opts.steps?.length; }
   // Every field across all steps (or the flat fields) PLUS any dynamic sub-fields — for
@@ -200,6 +207,8 @@ export default class PromptModalImpl extends LoomElement {
     this.liveOpts = {};
     this.fieldErrors = {};
     this.dynFields = {};
+    this.touched = {};
+    this.submitTried = false;
     this.stepIdx = 0;
     this.err = "";
     this.resolved = null;
@@ -241,9 +250,11 @@ export default class PromptModalImpl extends LoomElement {
     return true;
   }
   private next = () => {
+    this.submitTried = true;
     if (!this.validateStep()) return;
     if (this.stepIdx >= (this.opts.steps!.length - 1)) { this.submit(); return; }
     this.stepIdx++;
+    this.submitTried = false; // the next step starts clean — no premature errors
     this.resolved = null;
     void this.fetchOpts();      // the new step's options may depend on earlier answers
     if (this.curResolve()) this.runResolve();
@@ -274,6 +285,7 @@ export default class PromptModalImpl extends LoomElement {
   }
 
   private set(key: string, val: string) {
+    if (!this.touched[key]) this.touched = { ...this.touched, [key]: true };
     const next = { ...this.values, [key]: val };
     // Dependent fields recompute: prefill from defaultFrom, else clear so a stale
     // child value can't survive a parent change.
@@ -353,6 +365,7 @@ export default class PromptModalImpl extends LoomElement {
   }
 
   private submit = () => {
+    this.submitTried = true;
     const out = { ...this.values };
     for (const f of this.allFields()) {
       // A hidden (dependsOn unmet) field isn't required and doesn't submit a stale value.
@@ -428,14 +441,14 @@ export default class PromptModalImpl extends LoomElement {
                   <div class={"field" + (f.type === "toggle" ? " togfield" : "")}>
                     {f.type !== "toggle" ? <label>{f.label}</label> : null}
                     {this.control(f, this.values[f.key], (v) => this.set(f.key, v), this.values)}
-                    {this.fieldErrors[f.key] ? <span class="ferr">{this.fieldErrors[f.key]}</span> : f.hint ? <span class="hint">{f.hint}</span> : null}
+                    {this.showErr(f.key) ? <span class="ferr">{this.showErr(f.key)}</span> : f.hint ? <span class="hint">{f.hint}</span> : null}
                   </div>
                   {(this.dynFields[f.key] || []).map((sf) =>
                     !this.shown(sf) ? null : (
                       <div class={"field dynf" + (sf.type === "toggle" ? " togfield" : "")}>
                         {sf.type !== "toggle" ? <label>{sf.label}</label> : null}
                         {this.control(sf, this.values[sf.key], (v) => this.set(sf.key, v), this.values)}
-                        {this.fieldErrors[sf.key] ? <span class="ferr">{this.fieldErrors[sf.key]}</span> : sf.hint ? <span class="hint">{sf.hint}</span> : null}
+                        {this.showErr(sf.key) ? <span class="ferr">{this.showErr(sf.key)}</span> : sf.hint ? <span class="hint">{sf.hint}</span> : null}
                       </div>
                     ),
                   )}
@@ -460,14 +473,14 @@ export default class PromptModalImpl extends LoomElement {
               <>
                 <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
                 {this.stepIdx > 0 ? <hope-button onClick={this.back}>Back</hope-button> : null}
-                <hope-button tone="primary" solid disabled={this.invalid()} onClick={this.next}>
+                <hope-button tone="primary" solid disabled={this.runDisabled()} onClick={this.next}>
                   {this.stepIdx >= o.steps!.length - 1 ? (o.submitLabel || "Finish") : "Next"}
                 </hope-button>
               </>
             ) : (
               <>
                 <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
-                <hope-button tone="primary" solid disabled={this.invalid()} onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
+                <hope-button tone="primary" solid disabled={this.runDisabled()} onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
               </>
             )}
           </div>

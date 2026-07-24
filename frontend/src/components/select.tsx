@@ -171,7 +171,7 @@ export class HopeSelect extends LoomElement {
   // --- combobox (editable single type-ahead) ---
   private cbFocus = () => {
     if (this.open) return;
-    this.query = this.displayLabel(); // seed the filter with the current text so it's editable
+    this.query = ""; // open with the FULL list (empty filter); typing narrows it — the input is the search
     this.open = true;
     requestAnimationFrame(() => (this.menuEl as any)?.showPopover?.());
   };
