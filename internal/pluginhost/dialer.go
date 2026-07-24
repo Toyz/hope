@@ -42,7 +42,7 @@ const (
 	headerViewKinds = "X-Hope-View-Kinds"
 	headerFeatures  = "X-Hope-Features"
 	capViewKinds    = "kv,table,query,tree,chart,cards,stat,text,search,component"
-	capFeatures     = "static,empty,flyout,status,row-actions-conditional"
+	capFeatures     = "static,empty,flyout,status,row-actions-conditional,flyout-refresh"
 )
 
 // endpoint is a dialed plugin: the ordered JSON-RPC URLs to try (network IP first,

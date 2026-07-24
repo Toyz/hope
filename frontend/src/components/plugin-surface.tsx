@@ -52,7 +52,7 @@ interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -412,7 +412,7 @@ export class HopePluginSurface extends LoomElement {
   private onKeydown = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
     if (this.lightbox) { this.lightbox = null; e.stopPropagation(); return; }
-    if (this.flyout) { this.flyout = null; e.stopPropagation(); return; }
+    if (this.flyout) { this.stopFlyoutRefresh(); this.flyout = null; e.stopPropagation(); return; }
     if (this.modal) { this.modal = null; e.stopPropagation(); return; }
     const open = Object.keys(this.search).filter((m) => this.search[m]?.items?.length);
     if (open.length) {
@@ -455,6 +455,7 @@ export class HopePluginSurface extends LoomElement {
     this.searchDeb.clear();
     for (const t of this.intervalTimers.values()) clearInterval(t); // stop auto-refresh timers
     this.intervalTimers.clear();
+    this.stopFlyoutRefresh(); // stop an open flyout's live-refresh loop
     this.streamOn = {};
   }
 
@@ -1163,6 +1164,7 @@ export class HopePluginSurface extends LoomElement {
     const detailMethod: string | undefined = v?.row_method || data?.on_row || data?.onRow;
     const flyoutMethod: string | undefined = v?.row_flyout || data?.row_flyout;
     const flyoutWidth: string | undefined = v?.row_flyout_width || data?.row_flyout_width;
+    const flyoutRefresh: number | undefined = v?.row_flyout_refresh || data?.row_flyout_refresh;
     const detailAsButton = !!v?.row_detail_button || !!data?.row_detail_button;
     // Whole-row click opens the flyout drawer when declared, else the row-detail modal
     // (unless the modal is button-triggered). Flyout wins when both are set.
@@ -1274,7 +1276,7 @@ export class HopePluginSurface extends LoomElement {
             <tbody>{shown.map((i) => {
               const r = rows[i];
               return (
-                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => (flyoutMethod ? this.openRowFlyout(flyoutMethod, cols, r, acts, v?.method, hidden, flyoutWidth) : this.openRow(onRow, cols, r, acts, v?.method, hidden)) : undefined}>
+                <tr class={onRow ? "clk" : ""} onClick={onRow ? () => (flyoutMethod ? this.openRowFlyout(flyoutMethod, cols, r, acts, v?.method, hidden, flyoutWidth, flyoutRefresh) : this.openRow(onRow, cols, r, acts, v?.method, hidden)) : undefined}>
                   {r.map((cell, ci) => {
                     if (hidden.has(cols[ci])) return null; // hidden column
                     const editable = canEdit(ci);
@@ -1351,18 +1353,34 @@ export class HopePluginSurface extends LoomElement {
   // Like openRow, but the plugin's method returns a COMPONENT tree rendered in the
   // right-side drawer instead of a modal (row_flyout). The row's actions ride along and
   // render as a button bar under the component.
-  private openRowFlyout = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string, hidden?: Set<string>, width?: string) => {
+  private openRowFlyout = async (method: string, cols: string[], row: any[], acts?: RowAction[], viewMethod?: string, hidden?: Set<string>, width?: string, refresh?: number) => {
     const s = this.surface;
     if (!s) return;
+    this.stopFlyoutRefresh(); // opening a new drawer supersedes any prior refresh loop
     const obj = this.rowObj(cols, row);
     const titleCol = cols.find((c) => !hidden?.has(c)) ?? cols[0];
     try {
       const comp = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs({ row: obj }) }]);
       this.flyout = { title: this.cellStr(obj[titleCol]) || "Row", comp, row: obj, actions: acts, view: viewMethod, width };
+      // RowFlyoutRefresh: re-invoke the SAME method with the SAME row on an interval and swap
+      // the body in place (loom morphs the drawer, so scroll is preserved). Keep the last good
+      // body on a failed tick.
+      if (refresh && refresh > 0) {
+        this.flyoutTimer = window.setInterval(async () => {
+          if (!this.flyout) { this.stopFlyoutRefresh(); return; }
+          try {
+            const fresh = await this.rpc.call<any>("Plugins", "call", [{ key: s.key, method, args: this.callArgs({ row: obj }) }]);
+            if (this.flyout) this.flyout = { ...this.flyout, comp: fresh };
+          } catch { /* keep the last good body on a transient failure */ }
+        }, refresh * 1000);
+      }
     } catch (e: any) {
       this.toast.error(`row — ${e?.message ?? "failed"}`);
     }
   };
+
+  private flyoutTimer: number | null = null;
+  private stopFlyoutRefresh() { if (this.flyoutTimer != null) { window.clearInterval(this.flyoutTimer); this.flyoutTimer = null; } }
 
   // Per-row visibility for a row action (ShowWhenKey/ShowWhenValue): shown unless a
   // predicate hides it. Mirrors the prompt modal's dependsOn/dependsValue, compared
@@ -1830,7 +1848,7 @@ export class HopePluginSurface extends LoomElement {
     void this.runRowAction(a, cols, cols.map((c) => m.row![c]), m.view);
   };
 
-  private closeFlyout = () => (this.flyout = null);
+  private closeFlyout = () => { this.stopFlyoutRefresh(); this.flyout = null; };
 
   // renderFlyout mounts the generic <hope-flyout> drawer with the plugin's returned
   // component tree, plus a footer of the row's actions (same run path as the modal).
@@ -1866,6 +1884,7 @@ export class HopePluginSurface extends LoomElement {
     const cols = Object.keys(f.row);
     const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row: f.row }, this.surface?.param);
     if (!out || !out.ok) return;
+    this.stopFlyoutRefresh();
     this.flyout = null;
     this.handleDirective(out);
     if (out.refetch) this.refetchView(f.view);

@@ -945,7 +945,48 @@ func main() {
 		plugin.RowAction{Method: "cancelOrder", Label: "Cancel", Danger: true, Icon: "x",
 			ShowWhenKey: "state", ShowWhenValue: "queued",
 			Tip: plugin.Tip("Cancel this order — only possible while still queued", plugin.TipTopEnd)},
-	))
+	),
+		// LIVE flyout: click a row -> the drawer's lifecycle Timeline advances every 2s
+		// WITHOUT reopening (RowFlyoutRefresh). Feature-gated: hope advertises "flyout-refresh".
+		plugin.RowFlyout("orderDetail"), plugin.RowFlyoutWidth("560px"), plugin.RowFlyoutRefresh(2))
+
+	// orderDetail renders the clicked order's live lifecycle. hope re-invokes it every 2s
+	// (RowFlyoutRefresh) with the same {row}; the current step is derived from wall-clock so
+	// an OPEN drawer visibly progresses queued -> uplinked -> tasked -> completed.
+	p.View("orderDetail", "Order detail", plugin.CompView, func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		id, _ := pr.Row["id"].(string)
+		cmd, _ := pr.Row["command"].(string)
+		steps := []struct{ label, sub string }{
+			{"queued", ""}, {"uplinked", ""}, {"tasked", "executing over target"}, {"completed", "product downlinked"},
+		}
+		cur := int((time.Now().Unix() / 2) % int64(len(steps))) // advances one step every 2s
+		tl := make([]*plugin.Comp, 0, len(steps))
+		for i, st := range steps {
+			s := plugin.TStep(st.label)
+			if st.sub != "" {
+				s = s.Sub(st.sub)
+			}
+			switch {
+			case i < cur:
+				s = s.Done().At(plugin.Time(time.Now().Unix()))
+			case i == cur:
+				s = s.Current()
+			default:
+				s = s.Pending()
+			}
+			tl = append(tl, s)
+		}
+		return plugin.Box(
+			plugin.Heading("Order "+orDefault(id, "?"), 3),
+			plugin.KeyVal("command", cmd),
+			plugin.Heading("Lifecycle", 4),
+			plugin.Timeline(tl...),
+		), nil
+	})
 	p.DangerAction("cancelOrder", "Cancel order", nil, func(ctx context.Context, in map[string]any) (any, error) {
 		row, _ := in["row"].(map[string]any)
 		// defense-in-depth: the handler still guards, even though the button is gated.

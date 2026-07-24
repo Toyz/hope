@@ -93,6 +93,10 @@ type TableData struct {
 	// RowFlyoutWidth sizes the drawer the flyout opens in: a preset ("small" | "large" |
 	// "xlarge") or an explicit px value ("680"). Empty = the default (~460px).
 	RowFlyoutWidth string `json:"row_flyout_width,omitempty"`
+	// RowFlyoutRefresh, when > 0, makes an OPEN flyout re-invoke its method every N seconds
+	// with the same row and swap the body in place (scroll preserved) — so a live drawer
+	// (e.g. a lifecycle Timeline) follows along without reopening. 0 = one-shot (default).
+	RowFlyoutRefresh int `json:"row_flyout_refresh,omitempty"`
 	// Flush renders the table full-height with no toolbar (filter/pager) and no inner scroll
 	// box — it flows and the containing panel/flyout scrolls instead. Meant for an embedded
 	// CTable showing a bounded list (e.g. the badges on a canvas), not a big paged view.
@@ -469,6 +473,9 @@ type ViewDesc struct {
 	// RowFlyoutWidth sizes the drawer: a preset ("small" | "large" | "xlarge") or an
 	// explicit px value ("680"). Empty = the default (~460px).
 	RowFlyoutWidth string `json:"row_flyout_width,omitempty"`
+	// RowFlyoutRefresh re-invokes an OPEN flyout's method every N seconds (same row) and
+	// swaps the body in place — a live drawer. 0 = one-shot (default). Set with RowFlyoutRefresh.
+	RowFlyoutRefresh int `json:"row_flyout_refresh,omitempty"`
 	// Scroll lets a WIDE table view (many columns) scroll HORIZONTALLY — columns keep their
 	// natural width and a scrollbar appears — instead of cramming them into the container.
 	// Set with HScroll.

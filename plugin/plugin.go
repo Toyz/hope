@@ -242,6 +242,13 @@ func RowFlyout(method string) TableOpt { return func(v *ViewDesc) { v.RowFlyout 
 // or an explicit px value ("680"). Empty = the default (~460px). Pair with RowFlyout.
 func RowFlyoutWidth(width string) TableOpt { return func(v *ViewDesc) { v.RowFlyoutWidth = width } }
 
+// RowFlyoutRefresh makes an OPEN row flyout re-invoke its method every `seconds` with the
+// same row and re-render the returned tree in place (scroll preserved) — so a live drawer
+// (a lifecycle Timeline, a progress view) follows along without the operator reopening it.
+// 0 = one-shot (today's behavior). Pair with RowFlyout. Feature-gated: hope advertises
+// "flyout-refresh" (check Caps(ctx).Supports); older hope ignores the option.
+func RowFlyoutRefresh(seconds int) TableOpt { return func(v *ViewDesc) { v.RowFlyoutRefresh = seconds } }
+
 // HScroll lets a wide table VIEW scroll horizontally (columns keep their natural width and
 // a scrollbar appears) instead of cramming every column into the container. For an embedded
 // CTable, set TableData.Scroll directly (or use CScroll).
