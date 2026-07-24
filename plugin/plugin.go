@@ -430,6 +430,19 @@ type ActionOpt func(*ActionDesc)
 // this plugin's Icons keys. e.g. plugin.ActionIcon("rotate").
 func ActionIcon(name string) ActionOpt { return func(a *ActionDesc) { a.Icon = name } }
 
+// Step builds one wizard step: a titled set of fields. Pass steps to ActionSteps.
+func Step(title string, fields ...Field) WizardStep { return WizardStep{Title: title, Fields: fields} }
+
+// StepHint is Step with a helper line shown under the step title.
+func StepHint(title, hint string, fields ...Field) WizardStep {
+	return WizardStep{Title: title, Hint: hint, Fields: fields}
+}
+
+// ActionSteps turns an action's form into a multi-step WIZARD (see ActionDesc.Steps).
+// Pass nil for the action's flat fields when using steps. Values accumulate across steps
+// — a later step's OptionsMethod/DependsOn reads the earlier answers via Params(ctx).
+func ActionSteps(steps ...WizardStep) ActionOpt { return func(a *ActionDesc) { a.Steps = steps } }
+
 // ActionTip sets a hover tooltip on the action button explaining what it does, with
 // an optional placement (see Tip). e.g. plugin.ActionTip("Refresh stats", plugin.TipBottom).
 func ActionTip(text string, pos ...TipPos) ActionOpt {

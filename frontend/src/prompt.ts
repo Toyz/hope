@@ -51,6 +51,17 @@ export interface ResolvedSurface {
   schema: any;
 }
 
+// A wizard step: a titled set of fields the modal renders one at a time. Values
+// accumulate across steps, so a later step's cascading options (optionsFetch) and
+// conditional fields (dependsOn) can read an earlier step's answers.
+export interface PromptStep {
+  title?: string;
+  hint?: string;
+  fields: PromptField[];
+  // Optional per-step selector->surface preview (like PromptOpts.resolve).
+  resolve?: (values: Record<string, string>) => Promise<ResolvedSurface | null>;
+}
+
 export interface PromptOpts {
   title?: string;
   icon?: string; // loom-icon name (default "link")
@@ -58,9 +69,13 @@ export interface PromptOpts {
   submitLabel?: string; // default "Save"
   cancelLabel?: string; // default "Cancel"
   fields: PromptField[];
+  // Wizard: when set, the modal renders these steps in order with Back/Next/Finish and a
+  // stepper, instead of the flat `fields` above. `fields` should be [] when steps are used.
+  steps?: PromptStep[];
   // A plugin selector->surface: called with the current field values whenever they
   // change; the returned surface is rendered inline below the fields. Plugin actions
-  // set this (it closes over the RPC); hope's own prompts leave it unset.
+  // set this (it closes over the RPC); hope's own prompts leave it unset. In a wizard a
+  // step's own `resolve` takes precedence for that step.
   resolve?: (values: Record<string, string>) => Promise<ResolvedSurface | null>;
 }
 

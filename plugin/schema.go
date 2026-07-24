@@ -340,7 +340,21 @@ type ActionDesc struct {
 	Icon   string   `json:"icon,omitempty"`
 	Danger bool     `json:"danger,omitempty"`
 	Fields []Field  `json:"fields,omitempty"`
-	Tip    *Tooltip `json:"tip,omitempty"` // hover tooltip on the action button (set with ActionTip)
+	// Steps turns the action's form into a WIZARD: hope renders each step's fields in
+	// order with Back/Next/Finish and a stepper. Values accumulate across steps, so a
+	// later step's cascading options / conditional fields read earlier answers. Set via
+	// ActionSteps; leave Fields empty when using Steps. The action receives the merged
+	// values from every step, exactly like a flat form.
+	Steps []WizardStep `json:"steps,omitempty"`
+	Tip   *Tooltip     `json:"tip,omitempty"` // hover tooltip on the action button (set with ActionTip)
+}
+
+// WizardStep is one page of a stepped action form — a title (+ optional hint) over a
+// set of fields the modal renders on its own step. Build with Step / StepHint.
+type WizardStep struct {
+	Title  string  `json:"title,omitempty"`
+	Hint   string  `json:"hint,omitempty"`
+	Fields []Field `json:"fields"`
 }
 
 // EmptyState is what hope shows when a view resolves to no data (an empty table, a

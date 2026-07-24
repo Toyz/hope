@@ -24,6 +24,14 @@ import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../
   .head .x { background: transparent; border: 0; color: var(--dim); cursor: pointer; display: flex; padding: 2px; }
   .head .x:hover { color: var(--hi); }
   .msg { margin: 0; padding: 12px 20px 4px; font: 12.5px/1.6 var(--sans); color: var(--dim); }
+  /* wizard stepper */
+  .steps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 20px 2px; }
+  .stepdot { display: flex; align-items: center; gap: 7px; color: var(--dim); font: 11px/1 var(--mono); letter-spacing: .02em; }
+  .stepdot .sn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--line2);
+    border-radius: 50%; font-size: 9.5px; flex: none; }
+  .stepdot.on { color: var(--hi); } .stepdot.on .sn { border-color: var(--upd); color: var(--upd); }
+  .stepdot.done { color: var(--mid); } .stepdot.done .sn { border-color: var(--ok); color: var(--ok); }
+  .stepdot:not(:last-child)::after { content: ""; width: 14px; height: 1px; background: var(--line2); }
   .fields { padding: 8px 20px 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
   .field label { font: 600 9.5px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
@@ -74,12 +82,20 @@ export default class PromptModalImpl extends LoomElement {
   // RPC-fetched select options per field key (optionsFetch): filled on open + re-fetched
   // when a field's dependsOn changes, so a cascading select narrows by an earlier pick.
   @reactive accessor liveOpts: Record<string, PromptOption[]> = {};
+  @reactive accessor stepIdx = 0; // wizard: the current step index
+
+  private isWizard(): boolean { return !!this.opts.steps?.length; }
+  // Every field across all steps (or the flat fields) — for value seeding, options fetch,
+  // dependent recompute, and the final submit. Rendering uses curFields() (this step only).
+  private allFields(): PromptField[] { return this.opts.steps ? this.opts.steps.flatMap((s) => s.fields) : this.opts.fields; }
+  private curFields(): PromptField[] { return this.opts.steps ? (this.opts.steps[this.stepIdx]?.fields ?? []) : this.opts.fields; }
+  private curResolve() { return this.opts.steps ? this.opts.steps[this.stepIdx]?.resolve : this.opts.resolve; }
 
   // Fetch options for fields with optionsFetch, using the current values. changedKey
   // limits it to that field's dependents (after a change); omitted = every such field.
   private async fetchOpts(changedKey?: string) {
     const vals = { ...this.values };
-    await Promise.all(this.opts.fields.map(async (f) => {
+    await Promise.all(this.allFields().map(async (f) => {
       if (!f.optionsFetch) return;
       if (changedKey && f.dependsOn !== changedKey) return; // only re-fetch dependents
       try { this.liveOpts = { ...this.liveOpts, [f.key]: (await f.optionsFetch!(vals)) || [] }; }
@@ -103,35 +119,65 @@ export default class PromptModalImpl extends LoomElement {
     this.opts = o;
     const v: Record<string, string> = {};
     const g: Record<string, Record<string, string>[]> = {};
-    for (const f of o.fields) {
+    // Seed ALL fields (every step) so cross-step dependencies + values exist up front.
+    const all = o.steps ? o.steps.flatMap((s) => s.fields) : o.fields;
+    for (const f of all) {
       if (f.type === "group") g[f.key] = [];
       else v[f.key] = f.value ?? (f.type === "select" && f.options?.length ? "" : "");
     }
     this.values = v;
     this.groups = g;
     this.liveOpts = {};
+    this.stepIdx = 0;
     this.err = "";
     this.resolved = null;
     this.resolveSeq++;
     this.open = true;
-    if (o.fields.some((f) => f.optionsFetch)) void this.fetchOpts(); // initial RPC options
-    if (o.resolve) this.runResolve(); // initial surface (honors any default field values)
+    if (all.some((f) => f.optionsFetch)) void this.fetchOpts(); // initial RPC options
+    if (this.curResolve()) this.runResolve(); // initial surface (honors any default field values)
     return new Promise((resolve) => (this.resolver = resolve));
   }
 
-  // Call the plugin's selector->surface resolver with the current values and render the
-  // result inline. Guarded by resolveSeq so a slow earlier response can't overwrite a
-  // newer selection.
+  // Call the current step's (or the flat) selector->surface resolver with the current
+  // values and render the result inline. Guarded by resolveSeq so a slow earlier response
+  // can't overwrite a newer selection.
   private runResolve() {
-    if (!this.opts.resolve) return;
+    const resolve = this.curResolve();
+    if (!resolve) return;
     const seq = ++this.resolveSeq;
     this.resolving = true;
     const vals = { ...this.values };
-    this.opts
-      .resolve(vals)
+    resolve(vals)
       .then((s) => { if (seq === this.resolveSeq) { this.resolved = s; this.resolving = false; } })
       .catch(() => { if (seq === this.resolveSeq) { this.resolved = null; this.resolving = false; } });
   }
+
+  // --- wizard navigation ---
+  private validateStep(): boolean {
+    for (const f of this.curFields()) {
+      if (!this.shown(f)) continue;
+      if (f.type === "group") {
+        if (!f.optional && (this.groups[f.key] || []).length === 0) { this.err = `${f.label} needs at least one`; return false; }
+      } else if (!f.optional && !(this.values[f.key] || "").trim()) { this.err = `${f.label} is required`; return false; }
+    }
+    this.err = "";
+    return true;
+  }
+  private next = () => {
+    if (!this.validateStep()) return;
+    if (this.stepIdx >= (this.opts.steps!.length - 1)) { this.submit(); return; }
+    this.stepIdx++;
+    this.resolved = null;
+    void this.fetchOpts();      // the new step's options may depend on earlier answers
+    if (this.curResolve()) this.runResolve();
+  };
+  private back = () => {
+    if (this.stepIdx <= 0) return;
+    this.stepIdx--;
+    this.err = "";
+    this.resolved = null;
+    if (this.curResolve()) this.runResolve();
+  };
 
   private settle(v: Record<string, string> | null) {
     if (!this.open) return;
@@ -146,23 +192,23 @@ export default class PromptModalImpl extends LoomElement {
   private onKey(e: KeyboardEvent) {
     if (!this.open) return;
     if (e.key === "Escape") this.settle(null);
-    if (e.key === "Enter") this.submit();
+    if (e.key === "Enter") { if (this.isWizard()) this.next(); else this.submit(); }
   }
 
   private set(key: string, val: string) {
     const next = { ...this.values, [key]: val };
     // Dependent fields recompute: prefill from defaultFrom, else clear so a stale
     // child value can't survive a parent change.
-    for (const f of this.opts.fields) {
+    for (const f of this.allFields()) {
       if (f.dependsOn === key) next[f.key] = f.defaultFrom ? f.defaultFrom(next) : "";
     }
     this.values = next;
     // Cascading: re-fetch options for any field that depends on the one that changed.
-    if (this.opts.fields.some((f) => f.optionsFetch && f.dependsOn === key)) void this.fetchOpts(key);
+    if (this.allFields().some((f) => f.optionsFetch && f.dependsOn === key)) void this.fetchOpts(key);
     // Re-resolve the inline surface on a DISCRETE change (select/toggle/kv) — not on
     // every text keystroke, which would storm the plugin with RPCs.
-    if (this.opts.resolve) {
-      const f = this.opts.fields.find((x) => x.key === key);
+    if (this.curResolve()) {
+      const f = this.allFields().find((x) => x.key === key);
       if (f && f.type !== "text" && f.type !== "textarea") this.runResolve();
     }
   }
@@ -199,7 +245,7 @@ export default class PromptModalImpl extends LoomElement {
 
   private submit = () => {
     const out = { ...this.values };
-    for (const f of this.opts.fields) {
+    for (const f of this.allFields()) {
       // A hidden (dependsOn unmet) field isn't required and doesn't submit a stale value.
       if (!this.shown(f)) { delete out[f.key]; continue; }
       if (f.type === "group") {
@@ -229,9 +275,19 @@ export default class PromptModalImpl extends LoomElement {
             <span class="grow"></span>
             <button class="x" onClick={() => this.settle(null)}><loom-icon name="x" size={15}></loom-icon></button>
           </div>
-          {o.message ? <p class="msg">{o.message}</p> : null}
+          {this.isWizard() ? (
+            <div class="steps">
+              {o.steps!.map((s, i) => (
+                <div class={"stepdot" + (i === this.stepIdx ? " on" : i < this.stepIdx ? " done" : "")}>
+                  <span class="sn">{i < this.stepIdx ? "✓" : String(i + 1)}</span>
+                  <span class="st">{s.title || "Step " + (i + 1)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {this.isWizard() && o.steps![this.stepIdx]?.hint ? <p class="msg">{o.steps![this.stepIdx].hint}</p> : o.message ? <p class="msg">{o.message}</p> : null}
           <div class="fields">
-            {o.fields.map((f) =>
+            {this.curFields().map((f) =>
               !this.shown(f) ? null :
               f.type === "group" ? (
                 <div class="field group">
@@ -263,7 +319,7 @@ export default class PromptModalImpl extends LoomElement {
               ),
             )}
           </div>
-          {o.resolve ? (
+          {this.curResolve() ? (
             <div class="resolved">
               {this.resolved ? (
                 <hope-plugin-surface surface={this.resolved}></hope-plugin-surface>
@@ -276,8 +332,20 @@ export default class PromptModalImpl extends LoomElement {
           ) : null}
           <div class="acts">
             {this.err ? <span class="err">{this.err}</span> : null}
-            <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
-            <hope-button tone="primary" solid onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
+            {this.isWizard() ? (
+              <>
+                <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
+                {this.stepIdx > 0 ? <hope-button onClick={this.back}>Back</hope-button> : null}
+                <hope-button tone="primary" solid onClick={this.next}>
+                  {this.stepIdx >= o.steps!.length - 1 ? (o.submitLabel || "Finish") : "Next"}
+                </hope-button>
+              </>
+            ) : (
+              <>
+                <hope-button onClick={() => this.settle(null)}>{o.cancelLabel || "Cancel"}</hope-button>
+                <hope-button tone="primary" solid onClick={this.submit}>{o.submitLabel || "Save"}</hope-button>
+              </>
+            )}
           </div>
         </div>
       </div>

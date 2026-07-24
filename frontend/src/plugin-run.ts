@@ -13,6 +13,9 @@ export interface PluginActionDesc {
   icon?: string;
   danger?: boolean;
   fields?: PromptField[];
+  // A wizard: stepped fields rendered one page at a time (Back/Next/Finish). Values
+  // accumulate across steps; the action still receives one merged value map.
+  steps?: { title?: string; hint?: string; fields: PromptField[] }[];
 }
 
 export interface RunDeps {
@@ -81,23 +84,30 @@ export async function runPluginAction(
   opts?: { quiet?: boolean }, // quiet: skip the SUCCESS toast (inline edits); errors always toast
 ): Promise<ActionOutcome | undefined> {
   let values: Record<string, any> | undefined;
-  if (a.fields && a.fields.length) {
+  // A resolver for a field-set: if any field names a resolve method, wire a call that
+  // renders the plugin's returned component surface inline (closes over the RPC so the
+  // generic prompt stays rpc-free). Shared by flat forms and per-wizard-step.
+  const mkResolve = (fields: PromptField[]) => {
+    const rm = fields.find((f) => f.resolveMethod)?.resolveMethod;
+    if (!rm) return undefined;
+    return async (vals: Record<string, string>) => {
+      try {
+        const comp = await deps.rpc.call<any>("Plugins", "call", [{ key: surfaceKey, method: rm, args: vals, audit: false }]);
+        return comp ? { key: surfaceKey, node: { kind: "component", comp }, schema: {} } : null;
+      } catch {
+        return null;
+      }
+    };
+  };
+  if (a.steps && a.steps.length) {
+    // Wizard: each step gets its fields wired (cascading options + per-step resolve).
+    const steps = a.steps.map((s) => ({ title: s.title, hint: s.hint, fields: attachFieldOptions(deps, surfaceKey, s.fields), resolve: mkResolve(s.fields) }));
+    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Finish", fields: [], steps });
+    if (!v) return undefined;
+    values = v;
+  } else if (a.fields && a.fields.length) {
     const fields = attachFieldOptions(deps, surfaceKey, a.fields);
-    // Selector->surface: if a field names a resolve method, wire a resolver that calls
-    // the plugin with the current values and returns a component surface for the modal
-    // to render inline. Closes over the RPC so the generic prompt stays rpc-free.
-    const resolveMethod = a.fields.find((f) => f.resolveMethod)?.resolveMethod;
-    const resolve = resolveMethod
-      ? async (vals: Record<string, string>) => {
-          try {
-            const comp = await deps.rpc.call<any>("Plugins", "call", [{ key: surfaceKey, method: resolveMethod, args: vals, audit: false }]);
-            return comp ? { key: surfaceKey, node: { kind: "component", comp }, schema: {} } : null;
-          } catch {
-            return null;
-          }
-        }
-      : undefined;
-    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields, resolve });
+    const v = await deps.prompt.ask({ title: a.label, submitLabel: "Run", fields, resolve: mkResolve(a.fields) });
     if (!v) return undefined;
     values = v;
   }
@@ -107,7 +117,7 @@ export async function runPluginAction(
   const merged = { ...(param || {}), ...(values || {}), ...(extra || {}) };
   // Group fields arrive as a JSON string (the modal serializes the rows); parse them
   // back into an array so the plugin action receives an array of objects, not a string.
-  for (const f of a.fields || []) {
+  for (const f of a.steps ? a.steps.flatMap((s) => s.fields) : a.fields || []) {
     if (f.type === "group" && typeof merged[f.key] === "string") {
       try { merged[f.key] = JSON.parse(merged[f.key] as string); } catch { merged[f.key] = []; }
     }
