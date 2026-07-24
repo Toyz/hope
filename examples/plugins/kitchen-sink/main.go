@@ -72,30 +72,35 @@ var (
 func gPortsFor(typ string) (in, out []plugin.Port) {
 	switch typ {
 	case "source":
-		out = []plugin.Port{plugin.GPort("out", "")}
+		out = []plugin.Port{plugin.GPort("out", "rows")}
 	case "sink":
-		in = []plugin.Port{plugin.GPort("in", "")}
+		in = []plugin.Port{plugin.GPort("in", "rows")}
+	case "filter":
+		in = []plugin.Port{plugin.GPort("in", "rows")}
+		out = []plugin.Port{plugin.GPort("out", "kept")}
 	default:
-		in = []plugin.Port{plugin.GPort("in", "")}
-		out = []plugin.Port{plugin.GPort("out", "")}
+		in = []plugin.Port{plugin.GPort("in", "rows")}
+		out = []plugin.Port{plugin.GPort("out", "rows")}
 	}
 	return
 }
 
-func gBody(typ string, data map[string]any) *plugin.Comp {
-	rows := []*plugin.Comp{plugin.KeyVal("type", typ)}
-	if m, _ := data["mode"].(string); m != "" {
-		rows = append(rows, plugin.KeyVal("mode", m))
+// gApplyMeta rebuilds a node's clean meta strip (type + any configured params) — so populated
+// params show on the node face without a hand-built body.
+func gApplyMeta(n *plugin.GraphNode) {
+	n.Meta = []plugin.NodeMeta{{Label: "type", Value: n.Type}}
+	if m, _ := n.Data["mode"].(string); m != "" {
+		n.Meta = append(n.Meta, plugin.NodeMeta{Label: "mode", Value: m, Tone: plugin.ToneInfo})
 	}
-	if p, _ := data["parallel"].(string); p != "" && p != "0" {
-		rows = append(rows, plugin.KeyVal("parallel", p))
+	if p, _ := n.Data["parallel"].(string); p != "" && p != "0" {
+		n.Meta = append(n.Meta, plugin.NodeMeta{Label: "parallel", Value: p + " workers"})
 	}
-	return plugin.Box(rows...)
 }
 
 func gMkNode(id, typ, title string, x, y float64) *plugin.GraphNode {
 	in, out := gPortsFor(typ)
-	n := plugin.GNode(id, title, gBody(typ, nil)).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
+	n := plugin.GNode(id, title).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
+	gApplyMeta(n)
 	// transform/filter nodes get a config form: a Mode dropdown populated from an
 	// OptionsMethod + a numeric worker count. Click the node (or right-click -> Configure).
 	if typ == "transform" || typ == "filter" {
@@ -603,8 +608,8 @@ func main() {
 		plugin.Section("Commanding", plugin.Buttons("connect", "issueCommand")),
 		// conditional row actions: Cancel shows only on queued orders.
 		plugin.Section("Orders", plugin.Leaf("orders")),
-		// the blueprint / DAG editor (hope ships no nodes; this plugin defines them).
-		plugin.Section("Pipeline", plugin.Leaf("pipeline").Filled()),
+		// (the blueprint / DAG editor has its own full-height "Pipeline" page in the rail —
+		// keeping it off the container panel avoids two live copies fighting over the active DAG.)
 		// the v0.5 collection/table/card/stream surfaces.
 		plugin.Grid(
 			plugin.Section("Wide table", plugin.Leaf("wide")),
@@ -1135,7 +1140,7 @@ func main() {
 		for _, k := range d.order {
 			nodes = append(nodes, d.nodes[k])
 		}
-		return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true}, nil
+		return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true, Active: id}, nil
 	},
 		plugin.GraphMove("gMove"), plugin.GraphConnect("gConn"), plugin.GraphDisconnect("gDisc"),
 		plugin.GraphDelete("gDel"), plugin.GraphAdd("gAdd"), plugin.GraphNodeFlyout("gNode"),
@@ -1249,7 +1254,7 @@ func main() {
 			return map[string]any{"ok": false, "message": "node gone"}, nil
 		}
 		n.Data = map[string]any{"mode": gRowStr(in, "mode"), "parallel": gRowStr(in, "parallel")}
-		n.Body = gBody(n.Type, n.Data)
+		gApplyMeta(n) // params show cleanly on the node face
 		return map[string]any{"message": "node configured"}, nil
 	})
 	// gMenu: extra right-click items (hope prepends built-in Configure/Delete/Disconnect).
@@ -1347,7 +1352,22 @@ func main() {
 		return map[string]any{"message": "created " + name}, nil
 	})
 	p.View("gBar", "toolbar", plugin.CompView, func(ctx context.Context) (any, error) {
-		return plugin.CRow(plugin.Heading("Pipeline editor", 4), plugin.KeyVal("hint", "drag ports to wire · Run to simulate")).Gapped(16), nil
+		var pr struct {
+			Graph string `json:"graph"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		gmu.Lock()
+		defer gmu.Unlock()
+		gSeed()
+		name := "—"
+		if d := dags[pr.Graph]; d != nil {
+			name = d.name
+		}
+		return plugin.CRow(
+			plugin.Heading("Pipeline", 4),
+			plugin.KeyVal("editing", plugin.Badge(name, plugin.ToneInfo)),
+			plugin.KeyVal("hint", "drag ports · Run to simulate"),
+		).Gapped(16), nil
 	})
 	// palette: the node-TYPE catalog to drag onto the canvas (hope reads the returned array).
 	p.View("gPalette", "palette", plugin.CompView, func(ctx context.Context) (any, error) {

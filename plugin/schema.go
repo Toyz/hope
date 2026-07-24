@@ -578,20 +578,28 @@ type GraphData struct {
 	Nodes    []*GraphNode `json:"nodes"`
 	Edges    []GraphEdge  `json:"edges,omitempty"`
 	Directed bool         `json:"directed,omitempty"`
+	// Active is the id of the DAG this data is for — set it so hope shows/highlights the
+	// active DAG (in the sidebar, toolbar) and threads it to the chrome regions and run.
+	Active string `json:"active,omitempty"`
 }
 
 // GraphNode is one node on the canvas. hope ships no node types — Type is the plugin's own
 // label for it (metadata hope never interprets); Body is an arbitrary Comp tree rendered in
 // the node card; In/Out are the connectable ports. Build with GNode.
 type GraphNode struct {
-	ID    string         `json:"id"`
-	Type  string         `json:"type,omitempty"`
-	X     float64        `json:"x"`
-	Y     float64        `json:"y"`
-	W     int            `json:"w,omitempty"` // node width px (0 => hope default ~190)
-	Title string         `json:"title,omitempty"`
-	Icon  string         `json:"icon,omitempty"` // built-in name OR a plugin Icons key
-	Tone  string         `json:"tone,omitempty"` // node accent
+	ID    string  `json:"id"`
+	Type  string  `json:"type,omitempty"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	W     int     `json:"w,omitempty"` // node width px (0 => hope default ~190)
+	Title string  `json:"title,omitempty"`
+	Icon  string  `json:"icon,omitempty"` // built-in name OR a plugin Icons key
+	Tone  string  `json:"tone,omitempty"` // node accent
+	// Meta is a clean, ordered key/value strip hope renders on the node face (its config /
+	// params) — set it from the node's settings so populated params show without hand-building
+	// a Body. Build with GNode(...).Meta(label, value). Body (below) is still available for
+	// fully custom node content.
+	Meta  []NodeMeta     `json:"meta,omitempty"`
 	Body  *Comp          `json:"body,omitempty"`
 	In    []Port         `json:"in,omitempty"`
 	Out   []Port         `json:"out,omitempty"`
@@ -603,6 +611,13 @@ type GraphNode struct {
 	// The form prefills from Data (matching keys); submitting calls the GraphConfig method
 	// with {id, ...values}. Build with GNode(...).Form(...).
 	Fields []Field `json:"fields,omitempty"`
+}
+
+// NodeMeta is one line in a node's clean key/value meta strip (its params/config).
+type NodeMeta struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Tone  string `json:"tone,omitempty"`
 }
 
 // Port is a connectable point on a node's edge (input on the left, output on the right).

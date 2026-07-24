@@ -120,6 +120,13 @@ func (n *GraphNode) Toned(tone string) *GraphNode { n.Tone = tone; return n }
 // Wide sets the node's width in px.
 func (n *GraphNode) Wide(px int) *GraphNode { n.W = px; return n }
 
+// WithMeta appends a key/value line to the node's clean meta strip (its params/config),
+// rendered on the node face. Chainable: n.WithMeta("mode", "dedupe").WithMeta("parallel", "4").
+func (n *GraphNode) WithMeta(label, value string) *GraphNode {
+	n.Meta = append(n.Meta, NodeMeta{Label: label, Value: value})
+	return n
+}
+
 // InPorts sets the node's input ports (rendered down the left edge).
 func (n *GraphNode) InPorts(ports ...Port) *GraphNode { n.In = ports; return n }
 

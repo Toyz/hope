@@ -54,7 +54,7 @@ interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
 // Graph (blueprint) view wire types — mirror plugin/schema.go GraphData/GraphNode/Port/GraphEdge.
 interface GPort { id: string; label?: string; kind?: string; tone?: string }
-interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any>; fields?: PromptField[] }
+interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; meta?: { label: string; value: string; tone?: string }[]; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any>; fields?: PromptField[] }
 interface GEdge { from: string; to: string; tone?: string; label?: string }
 interface GraphData { nodes?: GNode[]; edges?: GEdge[]; directed?: boolean }
 interface NodeType { type: string; label?: string; icon?: string; tone?: string; category?: string; desc?: string }
@@ -158,7 +158,9 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .graphwrap { display: flex; flex-direction: column; height: 80vh; min-height: 480px; }
   .gbar { flex: none; border-bottom: 1px solid var(--line); padding: 8px 12px; background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .gmain { flex: 1; display: flex; min-height: 0; }
-  .gside { flex: none; width: 210px; border-right: 1px solid var(--line); overflow: auto; padding: 10px; background: color-mix(in srgb, var(--ink) 40%, var(--panel)); }
+  .gside { position: relative; flex: none; width: 210px; border-right: 1px solid var(--line); overflow: auto; padding: 10px; background: color-mix(in srgb, var(--ink) 40%, var(--panel)); }
+  .gside-rz { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 2; }
+  .gside-rz:hover { background: color-mix(in srgb, var(--upd) 45%, transparent); }
   .gsact { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
   .gsactbtn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--ink); border: 1px dashed var(--line2);
     color: var(--mid); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -203,6 +205,13 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gport.bad .gpdot { border-color: var(--bad); background: var(--bad); } .gport.info .gpdot, .gport.upd .gpdot { border-color: var(--upd); }
   .gport.in .gplbl { color: var(--upd); } .gport.out .gplbl { color: var(--ok); }
   .gplbl { font: 10px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+  /* node meta strip: the node's params/config, clean key/value rows */
+  .gnmeta { padding: 8px 11px; display: flex; flex-direction: column; gap: 5px; }
+  .gnmrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .gnmk { flex: none; color: var(--dim); font: 600 9px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .gnmv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--txt); font-size: 11.5px; }
+  .gnmv.ok { color: var(--ok); } .gnmv.warn { color: var(--warn); } .gnmv.bad { color: var(--bad); } .gnmv.info, .gnmv.upd { color: var(--upd); }
+  .gnmeta + .gnbody { border-top: 1px solid var(--line); }
   .gnbody { padding: 9px 11px; border-top: 1px solid var(--line); }
   /* keyvals inside a node body: compact rows, value never char-wraps (min-width:0 + ellipsis) */
   .gnbody .pkvr { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
@@ -404,6 +413,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .trow .lb { color: var(--hi); display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
   .trow .lb.lk { color: var(--upd); cursor: pointer; }
   .trow .lb.lk:hover { text-decoration: underline; }
+  .trow .lb.cur { color: var(--upd); font-weight: 700; text-decoration: none; }
+  .trow .lb.cur::before { content: "▸ "; color: var(--upd); }
   .trow .tdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mid); }
   /* per-node hover actions (rename/delete/…) */
   .trow .tacts { margin-left: auto; display: inline-flex; gap: 2px; opacity: 0; transition: opacity .1s; flex: none; }
@@ -498,6 +509,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor graphActive: Record<string, string> = {};
   @reactive accessor graphPos: Record<string, Record<string, { x: number; y: number }>> = {}; // optimistic drag overrides
   @reactive accessor graphSel: string | null = null; // selected node id
+  @reactive accessor gsideW = 210; // resizable sidebar width
   @reactive accessor graphConnect: { method: string; from: string; d: string } | null = null; // live connect ghost (Part 3)
   @reactive accessor gmenu: { x: number; y: number; items: GMenuItem[]; row: Record<string, any>; view: ViewDesc } | null = null; // right-click menu
   private searchDeb = new Map<string, any>(); // per Search-view debounce timers
@@ -1230,16 +1242,21 @@ export class HopePluginSurface extends LoomElement {
     return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
   }
   // A plugin-controlled chrome region (sidebar/toolbar): a Comp fetched lazily into cells.
-  private gRegion(method?: string) {
+  private gRegion(method?: string, active?: string) {
     if (!method) return null;
     const c = this.cells[method];
-    if (!c) { void this.fetch(method); return <div class="gload">…</div>; }
+    if (!c) { void this.fetch(method, active ? { graph: active } : undefined); return <div class="gload">…</div>; }
     if (c.data == null) return c.loading ? <div class="gload">…</div> : null;
     return this.renderComponent(c.data?.comp ?? c.data, "greg." + method);
   }
 
   private renderGraph(v: ViewDesc, data: GraphData) {
     const m = v.method;
+    // Adopt the DAG's own reported active id on first load so the sidebar highlight, the
+    // chrome regions, mutations, and the run all agree on which pipeline is active.
+    const reported = (data as any)?.active as string | undefined;
+    if (reported && !this.graphActive[m]) this.graphActive = { ...this.graphActive, [m]: reported };
+    const active = this.graphActive[m] || reported || "";
     const gv = this.gview(m);
     // While a run stream is active, render its live GraphData frames (node States drive the
     // glow) instead of the fetched graph; on stop we re-fetch the authoritative graph.
@@ -1252,17 +1269,18 @@ export class HopePluginSurface extends LoomElement {
     const cn = this.graphConnect; // live connect ghost (Part 3)
     return (
       <div class="graphwrap">
-        {v.graph_toolbar ? <div class="gbar">{this.gRegion(v.graph_toolbar)}</div> : null}
+        {v.graph_toolbar ? <div class="gbar">{this.gRegion(v.graph_toolbar, active)}</div> : null}
         <div class="gmain">
           {v.graph_sidebar || v.graph_sidebar_actions?.length ? (
-            <div class="gside">
+            <div class="gside" style={`width:${this.gsideW}px`}>
+              <div class="gside-rz" onPointerDown={this.gSideResize}></div>
               {v.graph_sidebar_actions?.length ? (
                 <div class="gsact">{v.graph_sidebar_actions.map((mth) => {
                   const a = this.actions[mth];
                   return a ? <button class="gsactbtn" onClick={() => this.gSideAction(v, a)}>{a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}</button> : null;
                 })}</div>
               ) : null}
-              {v.graph_sidebar ? this.gRegion(v.graph_sidebar) : null}
+              {v.graph_sidebar ? this.gRegion(v.graph_sidebar, active) : null}
             </div>
           ) : null}
           <div class="gcanvas" onPointerDown={(e: any) => this.gPanStart(e, m)} onWheel={(e: any) => this.gWheel(e, m)}
@@ -1309,6 +1327,14 @@ export class HopePluginSurface extends LoomElement {
             <div class="gpcol out">{(n.out || []).map((p) => this.renderPort(v, n, p, "out"))}</div>
           </div>
         ) : null}
+        {n.meta?.length ? (
+          <div class="gnmeta">
+            {n.meta.map((mt) => {
+              const t = this.toneClass(mt.tone);
+              return <div class="gnmrow"><span class="gnmk">{mt.label}</span><span class={"gnmv" + (t ? " " + t : "")}>{mt.value}</span></div>;
+            })}
+          </div>
+        ) : null}
         {n.body ? <div class="gnbody">{this.renderComponent(n.body, "gn." + n.id)}</div> : null}
       </div>
     );
@@ -1323,6 +1349,18 @@ export class HopePluginSurface extends LoomElement {
     );
   }
 
+  // Drag the sidebar's right edge to resize it (window-pointer idiom, clamped).
+  private gSideResize = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const sx = e.clientX, w0 = this.gsideW;
+    document.body.style.userSelect = "none";
+    const move = (ev: PointerEvent) => { this.gsideW = Math.max(150, Math.min(460, w0 + (ev.clientX - sx))); };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.style.userSelect = ""; };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   // Pan the canvas by dragging the background (window-pointer idiom; transform lives in render).
   private gPanStart = (e: PointerEvent, m: string) => {
     if (e.button !== 0) return;
@@ -1425,6 +1463,8 @@ export class HopePluginSurface extends LoomElement {
     this.graphPos = { ...this.graphPos, [gv.method]: {} };
     this.graphSel = null;
     void this.fetch(gv.method);
+    if (gv.graph_sidebar) void this.fetch(gv.graph_sidebar, { graph: id });
+    if (gv.graph_toolbar) void this.fetch(gv.graph_toolbar, { graph: id });
   }
   // Palette drop / double-click background → create a node at the drop point.
   private gDrop = (e: DragEvent, v: ViewDesc) => {
@@ -1503,6 +1543,10 @@ export class HopePluginSurface extends LoomElement {
   // Run a graph mutation quietly, then re-fetch the canvas and drop optimistic overrides.
   private gMutate = async (v: ViewDesc, method: string, row: Record<string, any>) => {
     if (!method) return;
+    // Every mutation carries the active DAG id, so edits land on the pipeline you're viewing
+    // (not the server default). gCtx/gNodeClick pre-set it; drag/connect/delete rely on this.
+    const active = this.graphActive[v.method];
+    if (active && row.graph == null) row = { ...row, graph: active };
     const out = await runPluginAction(this.deps(), this.surface?.key || "", { method, label: "graph" }, { row }, this.surface?.param, { quiet: true });
     if (out && out.ok) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; }
   };
@@ -1535,8 +1579,10 @@ export class HopePluginSurface extends LoomElement {
   private gRefreshRegions() {
     for (const v of Object.values(this.views)) {
       if (v.kind !== "graph") continue;
-      if (v.graph_sidebar) void this.fetch(v.graph_sidebar);
-      if (v.graph_toolbar) void this.fetch(v.graph_toolbar);
+      const active = this.graphActive[v.method];
+      const arg = active ? { graph: active } : undefined;
+      if (v.graph_sidebar) void this.fetch(v.graph_sidebar, arg);
+      if (v.graph_toolbar) void this.fetch(v.graph_toolbar, arg);
       void this.fetch(v.method);
     }
   }
@@ -2142,6 +2188,9 @@ export class HopePluginSurface extends LoomElement {
 
   private renderTree(nodes: any[]): any {
     if (!nodes.length) return <div class="msg">empty</div>;
+    // Highlight the tree leaf for the active graph (its To is "graph:<activeId>").
+    const gvw = Object.values(this.views).find((x) => x.kind === "graph");
+    const activeTo = gvw && this.graphActive[gvw.method] ? "graph:" + this.graphActive[gvw.method] : "";
     const walk = (ns: any[], path: string): any => (
       <ul class="tree">
         {ns.map((n, i) => {
@@ -2151,7 +2200,7 @@ export class HopePluginSurface extends LoomElement {
           // The label: optional icon + tone dot + text; a `to` makes it a link. The
           // caret (for a group) toggles children; the label click navigates.
           const label = (
-            <span class={"lb" + (n.to ? " lk" : "")} onClick={n.to ? (e: any) => { e.stopPropagation(); this.navCell(n); } : undefined}>
+            <span class={"lb" + (n.to ? " lk" : "") + (n.to && n.to === activeTo ? " cur" : "")} onClick={n.to ? (e: any) => { e.stopPropagation(); this.navCell(n); } : undefined}>
               {n.icon ? this.leafIcon(n.icon) : null}
               {n.tone ? <i class={"tdot " + this.toneClass(n.tone)}></i> : null}
               {n.label}
