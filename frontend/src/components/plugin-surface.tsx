@@ -405,6 +405,13 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .trow .lb.lk { color: var(--upd); cursor: pointer; }
   .trow .lb.lk:hover { text-decoration: underline; }
   .trow .tdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mid); }
+  /* per-node hover actions (rename/delete/…) */
+  .trow .tacts { margin-left: auto; display: inline-flex; gap: 2px; opacity: 0; transition: opacity .1s; flex: none; }
+  .trow:hover .tacts { opacity: 1; }
+  .tact { display: inline-flex; align-items: center; padding: 3px 4px; background: transparent; border: 0; color: var(--dim); cursor: pointer; font: 600 9px/1 var(--mono); }
+  .tact:hover { color: var(--upd); }
+  .tact.bad:hover { color: var(--bad); }
+  .tact .tactl { text-transform: uppercase; letter-spacing: .06em; }
   .trow .tdot.ok { background: var(--ok); } .trow .tdot.warn { background: var(--warn); }
   .trow .tdot.bad { background: var(--bad); } .trow .tdot.info { background: var(--upd); }
 
@@ -1517,6 +1524,22 @@ export class HopePluginSurface extends LoomElement {
       await this.fetch(v.method);
     }
   };
+  // A tree-node action (rename/delete a pipeline, ...). Runs with the node's Args as {row},
+  // then refreshes trees + graph sidebars so the change shows.
+  private gTreeAction = async (a: any, node: any) => {
+    const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row: node.args || {} }, this.surface?.param);
+    if (out && out.ok) { this.handleDirective(out); this.gRefreshRegions(); this.refetchViews(); }
+  };
+  // Re-fetch every graph view's chrome regions + canvas (region methods aren't registered
+  // views, so refetchViews misses them).
+  private gRefreshRegions() {
+    for (const v of Object.values(this.views)) {
+      if (v.kind !== "graph") continue;
+      if (v.graph_sidebar) void this.fetch(v.graph_sidebar);
+      if (v.graph_toolbar) void this.fetch(v.graph_toolbar);
+      void this.fetch(v.method);
+    }
+  }
   private gDeleteNode = async (v: ViewDesc, id: string) => {
     if (!v.graph_delete) return;
     if (await this.confirm.ask({ title: "Delete node", message: `Delete node "${id}"?`, confirmLabel: "Delete", danger: true })) {
@@ -2135,14 +2158,26 @@ export class HopePluginSurface extends LoomElement {
             </span>
           );
           const labelled = n.tip ? <span class="tw" tip={{ text: n.tip.text, pos: n.tip.pos || "top" }}>{label}</span> : label;
+          // Per-node actions (icon buttons, revealed on hover) — rename/delete/etc, each run
+          // with the node's Args as the {row}. Reuses RowAction (so Icon/Danger/Fields work).
+          const acts = Array.isArray(n.actions) && n.actions.length ? (
+            <span class="tacts">
+              {n.actions.map((a: any) => (
+                <button class={"tact" + (a.danger ? " bad" : "")} tip={a.tip ? { text: a.tip.text, pos: a.tip.pos || "top-end" } : a.label}
+                  onClick={(e: any) => { e.stopPropagation(); void this.gTreeAction(a, n); }}>
+                  {a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={12}></hope-plugin-icon> : <span class="tactl">{a.label}</span>}
+                </button>
+              ))}
+            </span>
+          ) : null;
           return (
             <li>
               {kids.length ? (
                 <div class="trow" onClick={() => (this.treeOpen = { ...this.treeOpen, [id]: !open })}>
-                  <loom-icon class="tcaret" name={open ? "chevron-down" : "chevron-right"} size={11}></loom-icon>{labelled}
+                  <loom-icon class="tcaret" name={open ? "chevron-down" : "chevron-right"} size={11}></loom-icon>{labelled}{acts}
                 </div>
               ) : (
-                <div class="trow"><span class="tcgap"></span>{labelled}</div>
+                <div class="trow"><span class="tcgap"></span>{labelled}{acts}</div>
               )}
               {kids.length && open ? walk(kids, id) : null}
             </li>

@@ -1124,8 +1124,13 @@ func main() {
 		_ = plugin.Params(ctx, &pr)
 		gmu.Lock()
 		defer gmu.Unlock()
-		d := gPick(pr.Graph)
-		gCurrent = d.name // remember the active DAG so the (arg-less) run stream animates it
+		gSeed()
+		id := pr.Graph
+		if id == "" || dags[id] == nil {
+			id = "ingest"
+		}
+		gCurrent = id // the active DAG KEY, so the (arg-less) run stream animates the right one
+		d := dags[id]
 		nodes := make([]*plugin.GraphNode, 0, len(d.order))
 		for _, k := range d.order {
 			nodes = append(nodes, d.nodes[k])
@@ -1288,9 +1293,40 @@ func main() {
 		sort.Strings(names)
 		leaves := make([]plugin.TreeNode, 0, len(names))
 		for _, k := range names {
-			leaves = append(leaves, plugin.TreeNode{Label: dags[k].name, Icon: "beaker", To: "graph:" + k})
+			leaves = append(leaves, plugin.TreeNode{
+				Label: dags[k].name, Icon: "beaker", To: "graph:" + k,
+				Args: map[string]any{"id": k},
+				Actions: []plugin.RowAction{
+					{Method: "gRename", Label: "Rename", Icon: "beaker", Tip: plugin.Tip("rename", plugin.TipTopEnd),
+						Fields: []plugin.Field{{Key: "name", Label: "New name", Value: dags[k].name}}},
+					{Method: "gDelDag", Label: "Delete", Icon: "trash", Danger: true, Tip: plugin.Tip("delete pipeline", plugin.TipTopEnd)},
+				},
+			})
 		}
 		return plugin.CTree(plugin.TreeNode{Label: "pipelines", Icon: "box", Children: leaves}), nil
+	})
+	p.Action("gRename", "Rename pipeline", []plugin.Field{{Key: "name", Label: "New name"}}, func(ctx context.Context, in map[string]any) (any, error) {
+		id := gRowStr(in, "id")
+		name, _ := in["name"].(string)
+		name = strings.TrimSpace(name)
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := dags[id]
+		if d == nil || name == "" {
+			return map[string]any{"ok": false, "message": "bad rename"}, nil
+		}
+		d.name = name
+		return map[string]any{"message": "renamed to " + name}, nil
+	})
+	p.DangerAction("gDelDag", "Delete pipeline", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		id := gRowStr(in, "id")
+		gmu.Lock()
+		defer gmu.Unlock()
+		if id == "ingest" {
+			return map[string]any{"ok": false, "message": "can't delete the default pipeline"}, nil
+		}
+		delete(dags, id)
+		return map[string]any{"message": "deleted " + id}, nil
 	})
 	p.Action("gNew", "New pipeline", []plugin.Field{{Key: "name", Label: "Name", Placeholder: "my-pipeline"}}, func(ctx context.Context, in map[string]any) (any, error) {
 		name, _ := in["name"].(string)

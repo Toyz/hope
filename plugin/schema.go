@@ -157,6 +157,10 @@ type TreeNode struct {
 	Collapsed bool       `json:"collapsed,omitempty"`
 	Tip       *Tooltip   `json:"tip,omitempty"`
 	Children  []TreeNode `json:"children,omitempty"`
+	// Actions are per-node buttons (rename/delete/…), shown on hover — reuses RowAction, so
+	// Icon/Danger/Fields/Tip all work. Clicking one runs its Method with Args as the {row}.
+	Actions []RowAction    `json:"actions,omitempty"`
+	Args    map[string]any `json:"args,omitempty"` // the {row} context passed to this node's Actions
 }
 
 // TextData is what a Text view returns: a block of monospace text (logs, config,
