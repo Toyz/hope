@@ -35,8 +35,18 @@ func GraphDelete(method string) GraphOpt { return func(v *ViewDesc) { v.GraphDel
 func GraphAdd(method string) GraphOpt { return func(v *ViewDesc) { v.GraphAdd = method } }
 
 // GraphNodeFlyout names the method hope calls when a node is clicked: {id} -> a Comp body it
-// renders in the right-side drawer.
+// renders in the right-side drawer. (A node with a config Form opens that form instead.)
 func GraphNodeFlyout(method string) GraphOpt { return func(v *ViewDesc) { v.GraphNodeFlyout = method } }
+
+// GraphConfig names the method hope calls to persist a node's config Form: {id, ...values}.
+// Required for GNode(...).Form(...) node inputs to save.
+func GraphConfig(method string) GraphOpt { return func(v *ViewDesc) { v.GraphConfig = method } }
+
+// GraphMenu names the method hope calls on right-click to build a custom context menu. It
+// receives the target ({kind:"node"|"edge"|"canvas", id/from/to}) and returns []GraphMenuItem;
+// hope shows them under its own built-ins (Configure / Delete node / Disconnect). Each item's
+// Method is invoked with the target's row.
+func GraphMenu(method string) GraphOpt { return func(v *ViewDesc) { v.GraphMenu = method } }
 
 // GraphValidateConnect names an optional pre-connect gate: {from, to} -> a ConfirmResult-ish
 // {ok bool, reason string}. hope only commits the connection when ok.
@@ -56,6 +66,13 @@ func GraphSidebar(method string) GraphOpt { return func(v *ViewDesc) { v.GraphSi
 
 // GraphToolbar names a method returning a Comp for the strip above the canvas.
 func GraphToolbar(method string) GraphOpt { return func(v *ViewDesc) { v.GraphToolbar = method } }
+
+// GraphSidebarActions renders the given action methods as buttons atop the sidebar — the home
+// for "New pipeline" / "New folder" and the like. Each runs like any action (fields, confirm);
+// on success hope re-fetches the sidebar + the graph.
+func GraphSidebarActions(methods ...string) GraphOpt {
+	return func(v *ViewDesc) { v.GraphSidebarActions = methods }
+}
 
 // GraphSelect names the method hope calls when a sidebar entry is chosen: {id}. The canvas then
 // re-fetches with {graph: id} so selecting a DAG swaps the canvas in place.
@@ -114,6 +131,11 @@ func (n *GraphNode) Stated(s string) *GraphNode { n.State = s; return n }
 
 // With attaches opaque data echoed back to the mutation methods.
 func (n *GraphNode) With(data map[string]any) *GraphNode { n.Data = data; return n }
+
+// Form gives the node a config form — the same dynamic Fields as an action (a select with
+// OptionsMethod, number, multiselect, ...). Clicking the node opens it, prefilled from Data;
+// saving calls the view's GraphConfig method with {id, ...values}.
+func (n *GraphNode) Form(fields ...Field) *GraphNode { n.Fields = fields; return n }
 
 // GPort builds a port. Chain .Kinded (typing for connect-validation) / .Toned.
 func GPort(id, label string) Port { return Port{ID: id, Label: label} }

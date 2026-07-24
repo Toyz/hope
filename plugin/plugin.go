@@ -71,10 +71,10 @@ type Plugin struct {
 	maxBody int64
 
 	// Ordered method names preserve author declaration order in the manifest.
-	order     []string
-	views     map[string]viewEntry
-	actions   map[string]actionEntry
-	streams   map[string]streamEntry
+	order      []string
+	views      map[string]viewEntry
+	actions    map[string]actionEntry
+	streams    map[string]streamEntry
 	options    map[string]OptionsFunc  // RPC-populated select providers (dynamic forms)
 	resolvers  map[string]ResolveFunc  // selector->surface providers (dynamic forms)
 	fieldsets  map[string]FieldsFunc   // selection->sub-form providers (dynamic forms, #1)
@@ -247,7 +247,9 @@ func RowFlyoutWidth(width string) TableOpt { return func(v *ViewDesc) { v.RowFly
 // (a lifecycle Timeline, a progress view) follows along without the operator reopening it.
 // 0 = one-shot (today's behavior). Pair with RowFlyout. Feature-gated: hope advertises
 // "flyout-refresh" (check Caps(ctx).Supports); older hope ignores the option.
-func RowFlyoutRefresh(seconds int) TableOpt { return func(v *ViewDesc) { v.RowFlyoutRefresh = seconds } }
+func RowFlyoutRefresh(seconds int) TableOpt {
+	return func(v *ViewDesc) { v.RowFlyoutRefresh = seconds }
+}
 
 // HScroll lets a wide table VIEW scroll horizontally (columns keep their natural width and
 // a scrollbar appears) instead of cramming every column into the container. For an embedded

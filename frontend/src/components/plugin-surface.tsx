@@ -29,7 +29,7 @@ interface Node {
   comp?: Comp; // kind "component": an inline primitive tree (see renderComponent)
 }
 // Comp mirrors the SDK's plugin.Comp — one node of the "escape hatch" primitive tree.
-type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table" | "card" | "timeline" | "tstep";
+type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table" | "card" | "timeline" | "tstep" | "tree";
 interface Comp {
   kind: CompKind; // a newer hope may send an unknown kind; renderComponent's default skips it
   children?: Comp[];
@@ -44,6 +44,7 @@ interface Comp {
   gap?: number;
   size?: number;
   table?: any; // embedded TableData (kind "table")
+  tree?: any[]; // embedded tree nodes (kind "tree")
   tip?: Tip;   // hover help on a labeled node (heading / keyval key / card title)
   state?: string; // timeline step state: done | current | pending
 }
@@ -53,12 +54,13 @@ interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip; showWhenKey?: string; showWhenValue?: string; disableInsteadOfHide?: boolean }
 // Graph (blueprint) view wire types — mirror plugin/schema.go GraphData/GraphNode/Port/GraphEdge.
 interface GPort { id: string; label?: string; kind?: string; tone?: string }
-interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any> }
+interface GNode { id: string; type?: string; x: number; y: number; w?: number; title?: string; icon?: string; tone?: string; body?: Comp; in?: GPort[]; out?: GPort[]; state?: string; data?: Record<string, any>; fields?: PromptField[] }
 interface GEdge { from: string; to: string; tone?: string; label?: string }
 interface GraphData { nodes?: GNode[]; edges?: GEdge[]; directed?: boolean }
 interface NodeType { type: string; label?: string; icon?: string; tone?: string; category?: string; desc?: string }
+interface GMenuItem { label?: string; icon?: string; method?: string; danger?: boolean; divider?: boolean; builtin?: () => void }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean; graph_move?: string; graph_connect?: string; graph_disconnect?: string; graph_delete?: string; graph_add?: string; graph_node_flyout?: string; graph_validate_connect?: string; graph_run?: string; graph_sidebar?: string; graph_toolbar?: string; graph_select?: string; graph_palette?: string; palette?: NodeType[]; graph_directed?: boolean; graph_snap?: number }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean; graph_move?: string; graph_connect?: string; graph_disconnect?: string; graph_delete?: string; graph_add?: string; graph_node_flyout?: string; graph_config?: string; graph_menu?: string; graph_validate_connect?: string; graph_run?: string; graph_sidebar?: string; graph_sidebar_actions?: string[]; graph_toolbar?: string; graph_select?: string; graph_palette?: string; palette?: NodeType[]; graph_directed?: boolean; graph_snap?: number }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -153,10 +155,14 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .ctlval.info, .ctlval.upd { color: var(--upd); }
   .ctlbody { grid-column: 2 / -1; margin-top: 6px; }
   /* ── graph / blueprint canvas ── */
-  .graphwrap { display: flex; flex-direction: column; height: 100%; min-height: 420px; }
+  .graphwrap { display: flex; flex-direction: column; height: 80vh; min-height: 480px; }
   .gbar { flex: none; border-bottom: 1px solid var(--line); padding: 8px 12px; background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
   .gmain { flex: 1; display: flex; min-height: 0; }
   .gside { flex: none; width: 210px; border-right: 1px solid var(--line); overflow: auto; padding: 10px; background: color-mix(in srgb, var(--ink) 40%, var(--panel)); }
+  .gsact { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .gsactbtn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--ink); border: 1px dashed var(--line2);
+    color: var(--mid); cursor: pointer; font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  .gsactbtn:hover { color: var(--upd); border-color: var(--upd); }
   .gcanvas { position: relative; flex: 1; overflow: hidden; background:
     radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--line2) 60%, transparent) 1px, transparent 0) 0 0 / 22px 22px, var(--ink);
     cursor: grab; touch-action: none; }
@@ -187,12 +193,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gpcol.out { align-items: flex-end; }
   .gport { display: flex; align-items: center; gap: 7px; height: 20px; padding: 0 12px; cursor: crosshair; color: var(--mid); min-width: 0; max-width: 96px; }
   .gport.out { flex-direction: row-reverse; }
-  .gpdot { width: 11px; height: 11px; border-radius: 50%; background: var(--ink); border: 2px solid var(--line2); box-sizing: border-box; flex: none; transition: border-color .1s, background .1s; }
-  .gport.in .gpdot { margin-left: -17px; }
-  .gport.out .gpdot { margin-right: -17px; }
-  .gport:hover .gpdot { border-color: var(--upd); background: var(--upd); }
-  .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); } .gport.bad .gpdot { border-color: var(--bad); } .gport.info .gpdot, .gport.upd .gpdot { border-color: var(--upd); }
-  .gplbl { font: 10px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gpdot { width: 11px; height: 11px; border-radius: 50%; box-sizing: border-box; flex: none; transition: box-shadow .1s; }
+  /* input ports = hollow accent ring (receive); output ports = solid green (emit) */
+  .gport.in .gpdot { margin-left: -17px; background: var(--ink); border: 2px solid var(--upd); }
+  .gport.out .gpdot { margin-right: -17px; background: var(--ok); border: 2px solid var(--ok); }
+  .gport:hover .gpdot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--upd) 32%, transparent); }
+  /* an explicit port tone overrides the default in/out color */
+  .gport.ok .gpdot { border-color: var(--ok); } .gport.warn .gpdot { border-color: var(--warn); background: var(--warn); }
+  .gport.bad .gpdot { border-color: var(--bad); background: var(--bad); } .gport.info .gpdot, .gport.upd .gpdot { border-color: var(--upd); }
+  .gport.in .gplbl { color: var(--upd); } .gport.out .gplbl { color: var(--ok); }
+  .gplbl { font: 10px/1 var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
   .gnbody { padding: 9px 11px; border-top: 1px solid var(--line); }
   /* keyvals inside a node body: compact rows, value never char-wraps (min-width:0 + ellipsis) */
   .gnbody .pkvr { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
@@ -216,6 +226,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
     font: 600 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
   .grun:hover { color: var(--upd); border-color: var(--upd); }
   .grun.on { color: var(--on-accent); background: var(--upd); border-color: var(--upd); }
+  /* right-click context menu */
+  .gmenu-scrim { position: fixed; inset: 0; z-index: 60; }
+  .gmenu { position: fixed; z-index: 61; min-width: 168px; background: var(--panel); border: 1px solid var(--line2);
+    box-shadow: 0 8px 26px rgba(0,0,0,.5); padding: 4px; display: flex; flex-direction: column; }
+  .gmitem { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: transparent; border: 0; color: var(--mid);
+    cursor: pointer; font: 12px/1 var(--mono); text-align: left; }
+  .gmitem:hover { background: var(--raised); color: var(--hi); }
+  .gmitem.bad { color: var(--bad); } .gmitem.bad:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+  .gmitem loom-icon, .gmitem hope-plugin-icon { color: var(--dim); flex: none; }
+  .gmdiv { height: 1px; background: var(--line); margin: 4px 2px; }
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
@@ -472,6 +492,7 @@ export class HopePluginSurface extends LoomElement {
   @reactive accessor graphPos: Record<string, Record<string, { x: number; y: number }>> = {}; // optimistic drag overrides
   @reactive accessor graphSel: string | null = null; // selected node id
   @reactive accessor graphConnect: { method: string; from: string; d: string } | null = null; // live connect ghost (Part 3)
+  @reactive accessor gmenu: { x: number; y: number; items: GMenuItem[]; row: Record<string, any>; view: ViewDesc } | null = null; // right-click menu
   private searchDeb = new Map<string, any>(); // per Search-view debounce timers
 
   private views: Record<string, ViewDesc> = {};
@@ -495,6 +516,7 @@ export class HopePluginSurface extends LoomElement {
       if (gv) { e.preventDefault(); const id = this.graphSel; this.gDeleteNode(gv, id); }
       return;
     }
+    if (e.key === "Escape" && this.gmenu) { this.gmenu = null; return; }
     if (e.key === "Escape" && this.graphSel) { this.graphSel = null; return; }
     if (e.key !== "Escape") return;
     if (this.lightbox) { this.lightbox = null; e.stopPropagation(); return; }
@@ -1110,6 +1132,9 @@ export class HopePluginSurface extends LoomElement {
       case "table":
         // An embedded table — full renderer (headers, aligned cells, ellipsis, row detail).
         return c.table ? this.renderTable(c.table) : null;
+      case "tree":
+        // An embedded collapsible node tree (folders + navigable leaves).
+        return c.tree ? this.renderTree(c.tree) : null;
       case "timeline": {
         // A vertical timeline: each tstep child is a dot-and-connector row with a label,
         // optional detail, a right value, a done/current/pending state, and optional body.
@@ -1222,15 +1247,26 @@ export class HopePluginSurface extends LoomElement {
       <div class="graphwrap">
         {v.graph_toolbar ? <div class="gbar">{this.gRegion(v.graph_toolbar)}</div> : null}
         <div class="gmain">
-          {v.graph_sidebar ? <div class="gside">{this.gRegion(v.graph_sidebar)}</div> : null}
+          {v.graph_sidebar || v.graph_sidebar_actions?.length ? (
+            <div class="gside">
+              {v.graph_sidebar_actions?.length ? (
+                <div class="gsact">{v.graph_sidebar_actions.map((mth) => {
+                  const a = this.actions[mth];
+                  return a ? <button class="gsactbtn" onClick={() => this.gSideAction(v, a)}>{a.icon ? <hope-plugin-icon plugin={this.surface?.key} name={a.icon} size={11}></hope-plugin-icon> : null}{a.label}</button> : null;
+                })}</div>
+              ) : null}
+              {v.graph_sidebar ? this.gRegion(v.graph_sidebar) : null}
+            </div>
+          ) : null}
           <div class="gcanvas" onPointerDown={(e: any) => this.gPanStart(e, m)} onWheel={(e: any) => this.gWheel(e, m)}
-            onDblClick={(e: any) => this.gDblAdd(e, v)} onDrop={(e: any) => this.gDrop(e, v)} onDragOver={(e: any) => e.preventDefault()}>
+            onDblClick={(e: any) => this.gDblAdd(e, v)} onDrop={(e: any) => this.gDrop(e, v)} onDragOver={(e: any) => e.preventDefault()}
+            onContextMenu={(e: any) => this.gCtx(e, v, "canvas", null)}>
             <div class="gviewport" style={`transform:translate(${gv.panX}px,${gv.panY}px) scale(${gv.zoom})`}>
               <svg class="gedges" style={`width:${maxX}px;height:${maxY}px`}>
                 {edges.map((e) => {
                   const d = this.gEdgePath(e.from, e.to, nodes);
                   const t = this.toneClass(e.tone);
-                  return d ? <path d={d} class={"gedge" + (t ? " " + t : "")} onClick={(ev: any) => this.gEdgeClick(ev, v, e)}></path> : null;
+                  return d ? <path d={d} class={"gedge" + (t ? " " + t : "")} onClick={(ev: any) => this.gEdgeClick(ev, v, e)} onContextMenu={(ev: any) => this.gCtx(ev, v, "edge", e)}></path> : null;
                 })}
                 {cn && cn.method === m && cn.d ? <path d={cn.d} class="gedge ghost"></path> : null}
               </svg>
@@ -1246,6 +1282,7 @@ export class HopePluginSurface extends LoomElement {
             {!nodes.length ? <div class="gempty">{v.empty ? this.renderEmpty(v.empty) : "empty graph"}</div> : null}
           </div>
         </div>
+        {this.renderGraphMenu()}
       </div>
     );
   }
@@ -1256,7 +1293,8 @@ export class HopePluginSurface extends LoomElement {
     const bandH = Math.max((n.in || []).length, (n.out || []).length) * this.gGeom.ps;
     return (
       <div class={"gnode" + (tone ? " " + tone : "") + (n.state ? " gst-" + n.state : "") + (this.graphSel === n.id ? " sel" : "")}
-        style={`left:${n.x}px;top:${n.y}px;width:${W}px`} onPointerDown={(e: any) => this.gNodeDown(e, v, n)}>
+        style={`left:${n.x}px;top:${n.y}px;width:${W}px`} onPointerDown={(e: any) => this.gNodeDown(e, v, n)}
+        onContextMenu={(e: any) => this.gCtx(e, v, "node", n)}>
         <div class="gnhd">{n.icon ? this.leafIcon(n.icon) : null}<span class="gntt">{n.title || n.id}</span></div>
         {(n.in || []).length || (n.out || []).length ? (
           <div class="gpband" style={`min-height:${bandH}px`}>
@@ -1319,7 +1357,7 @@ export class HopePluginSurface extends LoomElement {
     };
     const up = () => {
       window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.style.userSelect = "";
-      if (!moved) { this.graphSel = n.id; void this.openGraphFlyout(v, n); return; }
+      if (!moved) { void this.gNodeClick(v, n); return; }
       const pos = this.graphPos[m]?.[n.id];
       if (v.graph_move && pos) void this.gMutate(v, v.graph_move, { id: n.id, x: pos.x, y: pos.y, type: n.type });
     };
@@ -1426,6 +1464,25 @@ export class HopePluginSurface extends LoomElement {
     );
   }
 
+  // Node click: if the node has a config Form (and the view has graph_config), open that
+  // form — real inputs (select from an OptionsMethod, number, multiselect, ...) prefilled
+  // from the node's data; saving persists via graph_config. Otherwise open the passive flyout.
+  private gNodeClick = async (v: ViewDesc, n: GNode) => {
+    this.graphSel = n.id;
+    if (n.fields?.length && v.graph_config) {
+      const row: Record<string, any> = { id: n.id };
+      const active = this.graphActive[v.method];
+      if (active) row.graph = active;
+      const out = await runPluginAction(
+        this.deps(), this.surface?.key || "",
+        { method: v.graph_config, label: n.title || "Configure", fields: n.fields, prefill: { ...(n.data || {}) } },
+        { row }, this.surface?.param,
+      );
+      if (out && out.ok) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; }
+      return;
+    }
+    void this.openGraphFlyout(v, n);
+  };
   private openGraphFlyout = async (v: ViewDesc, n: GNode) => {
     const s = this.surface;
     if (!s || !v.graph_node_flyout) return;
@@ -1450,6 +1507,16 @@ export class HopePluginSurface extends LoomElement {
     if (this.streamOn[rm]) { this.stopStream(rm); void this.fetch(v.method); }
     else this.startStream(rm);
   };
+  // A sidebar header action (New pipeline, ...). Runs like any action, then re-fetches the
+  // sidebar region + the canvas so a created/renamed DAG shows up.
+  private gSideAction = async (v: ViewDesc, a: any) => {
+    const out = await runPluginAction(this.deps(), this.surface?.key || "", a, undefined, this.surface?.param);
+    if (out && out.ok) {
+      this.handleDirective(out);
+      if (v.graph_sidebar) await this.fetch(v.graph_sidebar);
+      await this.fetch(v.method);
+    }
+  };
   private gDeleteNode = async (v: ViewDesc, id: string) => {
     if (!v.graph_delete) return;
     if (await this.confirm.ask({ title: "Delete node", message: `Delete node "${id}"?`, confirmLabel: "Delete", danger: true })) {
@@ -1457,6 +1524,61 @@ export class HopePluginSurface extends LoomElement {
       void this.gMutate(v, v.graph_delete, { id });
     }
   };
+
+  // Right-click → a context menu: hope's built-ins for the target (Configure / Delete /
+  // Disconnect, when the matching methods are wired) plus the plugin's own items (graph_menu).
+  private gCtx = async (e: MouseEvent, v: ViewDesc, kind: "node" | "edge" | "canvas", target: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const active = this.graphActive[v.method];
+    const row: Record<string, any> = { kind };
+    if (kind === "node") { row.id = target.id; if (target.data) Object.assign(row, target.data); }
+    else if (kind === "edge") { row.from = target.from; row.to = target.to; }
+    else { const w = this.gCanvasWorld(e, v.method); row.x = w.x; row.y = w.y; }
+    if (active) row.graph = active;
+    const items: GMenuItem[] = [];
+    if (kind === "node") {
+      if (target.fields?.length && v.graph_config) items.push({ label: "Configure", icon: "beaker", builtin: () => this.gNodeClick(v, target) });
+      if (v.graph_delete) items.push({ label: "Delete node", icon: "trash", danger: true, builtin: () => this.gDeleteNode(v, target.id) });
+    } else if (kind === "edge" && v.graph_disconnect) {
+      items.push({ label: "Disconnect", icon: "x", danger: true, builtin: () => void this.gEdgeClick(new Event("x"), v, target) });
+    }
+    if (v.graph_menu) {
+      try {
+        const raw = await this.rpc.call<any>("Plugins", "call", [{ key: this.surface?.key, method: v.graph_menu, args: this.callArgs({ row }), audit: false }]);
+        const plug: GMenuItem[] = (Array.isArray(raw) ? raw : []).map((m: any) => ({ label: m.label, icon: m.icon, method: m.method, danger: m.danger, divider: m.divider }));
+        if (plug.length) { if (items.length) items.push({ divider: true }); items.push(...plug); }
+      } catch { /* no plugin menu */ }
+    }
+    if (!items.length) return;
+    this.gmenu = { x: e.clientX, y: e.clientY, items, row, view: v };
+  };
+  private gMenuRun = async (it: GMenuItem) => {
+    const g = this.gmenu;
+    this.gmenu = null;
+    if (!g || it.divider) return;
+    if (it.builtin) { it.builtin(); return; }
+    if (!it.method) return;
+    if (it.danger && !(await this.confirm.ask({ title: it.label || "Confirm", message: `Run "${it.label}"?`, danger: true, confirmLabel: it.label || "Run" }))) return;
+    const out = await runPluginAction(this.deps(), this.surface?.key || "", { method: it.method, label: it.label || "menu" }, { row: g.row }, this.surface?.param, { quiet: true });
+    if (out && out.ok) { await this.fetch(g.view.method); this.graphPos = { ...this.graphPos, [g.view.method]: {} }; }
+  };
+  private renderGraphMenu() {
+    const g = this.gmenu;
+    if (!g) return null;
+    return (
+      <>
+        <div class="gmenu-scrim" onClick={() => (this.gmenu = null)} onContextMenu={(e: any) => { e.preventDefault(); this.gmenu = null; }}></div>
+        <div class="gmenu" style={`left:${g.x}px;top:${g.y}px`}>
+          {g.items.map((it) => it.divider
+            ? <div class="gmdiv"></div>
+            : <button class={"gmitem" + (it.danger ? " bad" : "")} onClick={() => this.gMenuRun(it)}>
+                {it.icon ? <hope-plugin-icon plugin={this.surface?.key} name={it.icon} size={12}></hope-plugin-icon> : null}{it.label}
+              </button>)}
+        </div>
+      </>
+    );
+  }
 
   // queryDefault fills the view's Default template with the page param, e.g.
   // "select * from {table}" -> "select * from table_00" on that table's page.

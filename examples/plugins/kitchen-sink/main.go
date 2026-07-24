@@ -61,38 +61,50 @@ type dag struct {
 }
 
 var (
-	gmu   sync.Mutex
-	dags  map[string]*dag
-	gseq  int
-	gicon = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
-	gtone = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
+	gmu      sync.Mutex
+	dags     map[string]*dag
+	gseq     int
+	gCurrent string // the DAG id last viewed (so the run stream, which gets no args, knows which)
+	gicon    = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
+	gtone    = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
 )
 
 func gPortsFor(typ string) (in, out []plugin.Port) {
 	switch typ {
 	case "source":
-		out = []plugin.Port{plugin.GPort("out", "rows")}
+		out = []plugin.Port{plugin.GPort("out", "")}
 	case "sink":
-		in = []plugin.Port{plugin.GPort("in", "rows")}
+		in = []plugin.Port{plugin.GPort("in", "")}
 	default:
-		in = []plugin.Port{plugin.GPort("in", "rows")}
-		out = []plugin.Port{plugin.GPort("out", "rows")}
+		in = []plugin.Port{plugin.GPort("in", "")}
+		out = []plugin.Port{plugin.GPort("out", "")}
 	}
 	return
 }
 
-func gBody(typ, state string) *plugin.Comp {
-	st := state
-	if st == "" {
-		st = "idle"
+func gBody(typ string, data map[string]any) *plugin.Comp {
+	rows := []*plugin.Comp{plugin.KeyVal("type", typ)}
+	if m, _ := data["mode"].(string); m != "" {
+		rows = append(rows, plugin.KeyVal("mode", m))
 	}
-	tone := map[string]string{"idle": plugin.ToneInfo, "running": plugin.ToneWarn, "done": plugin.ToneOK, "error": plugin.ToneBad}[st]
-	return plugin.Box(plugin.KeyVal("type", typ), plugin.KeyVal("status", plugin.Badge(st, tone)))
+	if p, _ := data["parallel"].(string); p != "" && p != "0" {
+		rows = append(rows, plugin.KeyVal("parallel", p))
+	}
+	return plugin.Box(rows...)
 }
 
 func gMkNode(id, typ, title string, x, y float64) *plugin.GraphNode {
 	in, out := gPortsFor(typ)
-	return plugin.GNode(id, title, gBody(typ, "")).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
+	n := plugin.GNode(id, title, gBody(typ, nil)).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
+	// transform/filter nodes get a config form: a Mode dropdown populated from an
+	// OptionsMethod + a numeric worker count. Click the node (or right-click -> Configure).
+	if typ == "transform" || typ == "filter" {
+		n = n.Form(
+			plugin.Field{Key: "mode", Label: "Mode", Type: plugin.FieldSelect, OptionsMethod: "xfModes", Help: "how this stage processes rows"},
+			plugin.Field{Key: "parallel", Label: "Parallel", Type: plugin.FieldNumber, Min: 1, Max: 16, Unit: "workers", Optional: true},
+		)
+	}
+	return n
 }
 
 func gSeed() {
@@ -1113,6 +1125,7 @@ func main() {
 		gmu.Lock()
 		defer gmu.Unlock()
 		d := gPick(pr.Graph)
+		gCurrent = d.name // remember the active DAG so the (arg-less) run stream animates it
 		nodes := make([]*plugin.GraphNode, 0, len(d.order))
 		for _, k := range d.order {
 			nodes = append(nodes, d.nodes[k])
@@ -1121,7 +1134,8 @@ func main() {
 	},
 		plugin.GraphMove("gMove"), plugin.GraphConnect("gConn"), plugin.GraphDisconnect("gDisc"),
 		plugin.GraphDelete("gDel"), plugin.GraphAdd("gAdd"), plugin.GraphNodeFlyout("gNode"),
-		plugin.GraphSidebar("gList"), plugin.GraphToolbar("gBar"), plugin.GraphPalette("gPalette"),
+		plugin.GraphConfig("gConfig"), plugin.GraphMenu("gMenu"),
+		plugin.GraphSidebar("gList"), plugin.GraphSidebarActions("gNew"), plugin.GraphToolbar("gBar"), plugin.GraphPalette("gPalette"),
 		plugin.GraphRun("gRun"), plugin.GraphDirected(), plugin.GraphSnap(10))
 
 	// mutations — each gets {row:{..., graph:<activeId>}}; hope re-fetches the canvas on success.
@@ -1214,16 +1228,87 @@ func main() {
 			plugin.KeyVal("out", fmt.Sprintf("%d", len(n.Out))),
 		), nil
 	})
-	// sidebar: the DAG browser — each a Link cell "graph:<id>" hope selects in place.
+	// node config: the "mode" dropdown is populated from this Options provider (a list).
+	p.Options("xfModes", func(ctx context.Context) ([]plugin.Option, error) {
+		return []plugin.Option{
+			{Label: "Passthrough", Value: "passthrough"}, {Label: "Dedupe", Value: "dedupe"},
+			{Label: "Aggregate", Value: "aggregate"}, {Label: "Enrich", Value: "enrich"},
+		}, nil
+	})
+	// gConfig persists a node's config form (click a transform/filter node) -> its body updates.
+	p.Action("gConfig", "configure node", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		n := gPick(gRowStr(in, "graph")).nodes[gRowStr(in, "id")]
+		if n == nil {
+			return map[string]any{"ok": false, "message": "node gone"}, nil
+		}
+		n.Data = map[string]any{"mode": gRowStr(in, "mode"), "parallel": gRowStr(in, "parallel")}
+		n.Body = gBody(n.Type, n.Data)
+		return map[string]any{"message": "node configured"}, nil
+	})
+	// gMenu: extra right-click items (hope prepends built-in Configure/Delete/Disconnect).
+	p.View("gMenu", "menu", plugin.CompView, func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		if k, _ := pr.Row["kind"].(string); k == "node" {
+			return []plugin.GraphMenuItem{{Label: "Duplicate", Icon: "plus", Method: "gDup"}}, nil
+		}
+		return []plugin.GraphMenuItem{}, nil
+	})
+	p.Action("gDup", "duplicate node", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(gRowStr(in, "graph"))
+		src := d.nodes[gRowStr(in, "id")]
+		if src == nil {
+			return map[string]any{"ok": false}, nil
+		}
+		gseq++
+		id := fmt.Sprintf("%s-%d", src.Type, gseq)
+		cp := *src
+		cp.ID, cp.X, cp.Y = id, src.X+40, src.Y+40
+		d.nodes[id] = &cp
+		d.order = append(d.order, id)
+		return map[string]any{"message": "duplicated " + src.ID}, nil
+	})
+
+	// sidebar: the DAG browser — a folder TREE (the plugin controls this fully). Tree leaves
+	// with To:"graph:<id>" select a DAG in place; the "New pipeline" button is a sidebar action.
 	p.View("gList", "pipelines", plugin.CompView, func(ctx context.Context) (any, error) {
 		gmu.Lock()
 		defer gmu.Unlock()
 		gSeed()
-		items := []*plugin.Comp{plugin.Heading("Pipelines", 4)}
-		for _, id := range []string{"ingest", "nightly-report"} {
-			items = append(items, plugin.CCell(plugin.Link(dags[id].name, "graph:"+id)))
+		names := make([]string, 0, len(dags))
+		for k := range dags {
+			names = append(names, k)
 		}
-		return plugin.Box(items...).Gapped(8), nil
+		sort.Strings(names)
+		leaves := make([]plugin.TreeNode, 0, len(names))
+		for _, k := range names {
+			leaves = append(leaves, plugin.TreeNode{Label: dags[k].name, Icon: "beaker", To: "graph:" + k})
+		}
+		return plugin.CTree(plugin.TreeNode{Label: "pipelines", Icon: "box", Children: leaves}), nil
+	})
+	p.Action("gNew", "New pipeline", []plugin.Field{{Key: "name", Label: "Name", Placeholder: "my-pipeline"}}, func(ctx context.Context, in map[string]any) (any, error) {
+		name, _ := in["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return map[string]any{"ok": false, "message": "name required"}, nil
+		}
+		gmu.Lock()
+		defer gmu.Unlock()
+		gSeed()
+		if dags[name] != nil {
+			return map[string]any{"ok": false, "message": "already exists"}, nil
+		}
+		d := &dag{name: name, nodes: map[string]*plugin.GraphNode{}}
+		d.nodes["src"] = gMkNode("src", "source", "Source", 60, 80)
+		d.order = []string{"src"}
+		dags[name] = d
+		return map[string]any{"message": "created " + name}, nil
 	})
 	p.View("gBar", "toolbar", plugin.CompView, func(ctx context.Context) (any, error) {
 		return plugin.CRow(plugin.Heading("Pipeline editor", 4), plugin.KeyVal("hint", "drag ports to wire · Run to simulate")).Gapped(16), nil
@@ -1237,23 +1322,22 @@ func main() {
 			{Type: "sink", Label: "Sink", Icon: "check", Tone: plugin.ToneOK, Desc: "an output"},
 		}, nil
 	})
-	// run: walk the ingest DAG, advancing each node idle -> running -> done ~1s apart, emitting
-	// a GraphData frame each step so the open canvas lights up live.
+	// run: walk the ACTIVE DAG (gCurrent, set when a pipeline is viewed), advancing each node
+	// idle -> running -> done ~1s apart and emitting a GraphData frame so the canvas lights up.
 	p.Stream("gRun", "Run", plugin.StreamComponent, func(ctx context.Context, emit plugin.EmitFunc) error {
 		gmu.Lock()
-		gSeed()
-		order := append([]string{}, dags["ingest"].order...)
+		d0 := gPick(gCurrent)
+		order := append([]string{}, d0.order...)
 		gmu.Unlock()
 		states := map[string]string{}
 		frame := func() *plugin.GraphData {
 			gmu.Lock()
 			defer gmu.Unlock()
-			d := dags["ingest"]
+			d := gPick(gCurrent)
 			nodes := make([]*plugin.GraphNode, 0, len(d.order))
 			for _, k := range d.order {
 				c := *d.nodes[k]
 				c.State = states[k]
-				c.Body = gBody(c.Type, states[k])
 				nodes = append(nodes, &c)
 			}
 			return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true}

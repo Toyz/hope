@@ -553,9 +553,12 @@ type ViewDesc struct {
 	GraphDelete          string     `json:"graph_delete,omitempty"`           // delete a node {id}
 	GraphAdd             string     `json:"graph_add,omitempty"`              // create a node {type,x,y} (palette drop / dbl-click)
 	GraphNodeFlyout      string     `json:"graph_node_flyout,omitempty"`      // node click -> a Comp body in the drawer {id}
+	GraphConfig          string     `json:"graph_config,omitempty"`           // persist a node's config form: {id, ...field values}
+	GraphMenu            string     `json:"graph_menu,omitempty"`             // right-click -> []GraphMenuItem for {kind, id/from/to}
 	GraphValidateConnect string     `json:"graph_validate_connect,omitempty"` // optional pre-connect gate {from,to} -> {ok,reason}
 	GraphRun             string     `json:"graph_run,omitempty"`              // a StreamComponent-kind stream emitting GraphData frames (run highlight)
 	GraphSidebar         string     `json:"graph_sidebar,omitempty"`          // left rail: a Comp (browse the plugin's DAGs) {}
+	GraphSidebarActions  []string   `json:"graph_sidebar_actions,omitempty"`  // action-method refs rendered as buttons atop the sidebar (New, ...)
 	GraphToolbar         string     `json:"graph_toolbar,omitempty"`          // top strip: a Comp (title/run/filters) {}
 	GraphSelect          string     `json:"graph_select,omitempty"`           // sidebar row click -> set active graph {id}; canvas refetches with {graph:id}
 	GraphPalette         string     `json:"graph_palette,omitempty"`          // the node-TYPE catalog: returns []NodeType
@@ -590,6 +593,12 @@ type GraphNode struct {
 	Out   []Port         `json:"out,omitempty"`
 	State string         `json:"state,omitempty"` // run overlay: idle|running|done|error (drives the node glow)
 	Data  map[string]any `json:"data,omitempty"`  // opaque; echoed back to mutation methods
+	// Fields is an optional per-node config form. When set (and the view has GraphConfig),
+	// clicking the node opens these Fields — the SAME dynamic form as an action, so a node
+	// gets real inputs: a select populated from an OptionsMethod, number, multiselect, etc.
+	// The form prefills from Data (matching keys); submitting calls the GraphConfig method
+	// with {id, ...values}. Build with GNode(...).Form(...).
+	Fields []Field `json:"fields,omitempty"`
 }
 
 // Port is a connectable point on a node's edge (input on the left, output on the right).
@@ -607,6 +616,18 @@ type GraphEdge struct {
 	To    string `json:"to"`
 	Tone  string `json:"tone,omitempty"`
 	Label string `json:"label,omitempty"`
+}
+
+// GraphMenuItem is one entry in the canvas right-click menu, returned by the GraphMenu method
+// for the right-clicked target ({kind:"node"|"edge"|"canvas", id/from/to}). Clicking it calls
+// Method with the target's row ({id}/{from,to}/{x,y}, plus the active graph). hope prepends its
+// own built-ins (Configure / Delete node / Disconnect) when the matching methods are wired.
+type GraphMenuItem struct {
+	Label   string `json:"label,omitempty"`
+	Icon    string `json:"icon,omitempty"`
+	Method  string `json:"method,omitempty"`
+	Danger  bool   `json:"danger,omitempty"`
+	Divider bool   `json:"divider,omitempty"` // a separator (Label ignored)
 }
 
 // NodeType is one entry in the palette — a kind of node the plugin offers to place. Dragging
