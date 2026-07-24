@@ -18,7 +18,7 @@ p.Publish(ctx, plugin.Event{
     Data: json.RawMessage(`{"sev":"crit","msg":"replication lag 42s"}`),
 })
 
-// SUBSCRIBE — react to bus events, including other plugins' (needs events:subscribe).
+// SUBSCRIBE — react to bus events.
 p.OnEvent(func(ctx context.Context, e plugin.Event) error {
     // e.Kind == "plugin.<publisher-identity>.alert", e.Source == "plugin.<publisher>"
     // e.Data == the raw payload the publisher sent
@@ -26,9 +26,19 @@ p.OnEvent(func(ctx context.Context, e plugin.Event) error {
 })
 ```
 
-Registering `OnEvent` auto-declares `events:subscribe`; call `RequirePermission(
-plugin.ScopeEventsPublish, "reason")` to declare publish. Both are consented by the
-operator at enable — deny-by-default (see the permission model in the event-bus plan).
+**Subscribe is scoped — core fleet events and cross-plugin events are separate consents:**
+
+- `OnEvent` alone auto-declares `events:subscribe` → hope's CORE fleet events (deploys,
+  container state, image updates, agents, tunnels). It does NOT include other plugins' events.
+- `p.SubscribePlugins("reason")` → `events:subscribe:plugins`: receive events from ANY other
+  plugin (the cross-plugin firehose). Distinct grant, so "snoop other plugins' data" is its
+  own decision.
+- `p.SubscribePlugin("hope-postgres", "reason")` → `events:subscribe:plugin:hope-postgres`:
+  receive events only from plugins *named* that (finer than the firehose).
+
+Publish declares `RequirePermission(plugin.ScopeEventsPublish, "reason")`, and
+`p.PublicEvent("alert", "what it is")` advertises a published kind for discovery. All are
+consented by the operator at enable — deny-by-default.
 
 ## What hope does in the middle (the trust boundary)
 
@@ -45,10 +55,11 @@ hope (`internal/pluginhost/ingress.go`):
 - Then `bus.Publish(event)`.
 
 Fan-out (`internal/pluginhost/fanout.go`): the bus reader pushes each event to every
-**enabled** plugin holding `events:subscribe`, as a unary `hope.event` call, on a
-bounded worker pool (drop-oldest, 2s per push — a slow subscriber never backs up the
-bus). `fanoutKind` forwards everything except `ping`/`resync`/`permission.requested`,
-so plugin-published `plugin.*` kinds are delivered like core kinds.
+**enabled + authorized** plugin, as a unary `hope.event` call, on a bounded worker pool
+(drop-oldest, 2s per push — a slow subscriber never backs up the bus). Authorization is
+per-event: a **core** kind needs `events:subscribe`; a **cross-plugin** kind (`plugin.<pub>.…`)
+needs `events:subscribe:plugins` (any publisher) or `events:subscribe:plugin:<publisher-name>`
+(that publisher only). Never the event's own publisher (no self-echo).
 
 ## Flow
 

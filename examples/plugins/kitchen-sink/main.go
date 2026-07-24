@@ -714,6 +714,12 @@ func main() {
 	p.RequirePermission(plugin.ScopeEventsPublish, "raise alerts you can see in hope")
 	p.RequirePermission(plugin.ScopeStorage, "remember how many events it has seen")
 	p.RequirePermission(plugin.ScopeSpecLabel, "tag its own stack's services on request")
+	// Cross-plugin: OnEvent alone gets CORE fleet events; to also receive OTHER plugins'
+	// events (a distinct consent) declare it. Use SubscribePlugin("<name>", ...) for one
+	// publisher instead of the firehose.
+	p.SubscribePlugins("observe alerts/events other plugins publish")
+	// Declare what THIS plugin publishes, for discovery on the consent screen + other authors.
+	p.PublicEvent("alert", "an alert this plugin raises (severity, title, detail, dedupeKey)")
 
 	// OnEvent: log every fleet event, count them in hope-persisted storage, and raise a
 	// demo alert every 5th event (deduped by key so it doesn't spam).

@@ -97,8 +97,9 @@ type Plugin struct {
 	// onEvent, if set, handles hope events pushed via hope.event (requires the
 	// events:subscribe grant). perms are the reverse-capability requests declared
 	// via RequirePermission, surfaced in hope.schema for operator consent.
-	onEvent func(ctx context.Context, e Event) error
-	perms   []Permission
+	onEvent      func(ctx context.Context, e Event) error
+	perms        []Permission
+	publicEvents []PublicEvent // event kinds this plugin declares it publishes (discovery)
 
 	// onStatus, if set, returns the plugin's ADVISORY self-reported health when hope
 	// calls the reserved hope.status method (see OnStatus). Pull-only, no grant.
@@ -695,6 +696,35 @@ func (p *Plugin) RequirePermission(scope, reason string) *Plugin {
 	return p
 }
 
+// SubscribePlugins declares that the plugin wants to receive events from ANY OTHER plugin
+// (the cross-plugin firehose) — distinct from OnEvent's core-fleet subscription. The operator
+// consents to this separately. Pair with OnEvent to actually handle them.
+func (p *Plugin) SubscribePlugins(reason string) *Plugin {
+	return p.RequirePermission(ScopeEventsSubscribePlugins, reason)
+}
+
+// SubscribePlugin declares that the plugin wants events only from plugins NAMED `name` — a
+// finer grant than SubscribePlugins. e.g. p.SubscribePlugin("hope-postgres", "react to alerts").
+func (p *Plugin) SubscribePlugin(name, reason string) *Plugin {
+	return p.RequirePermission(ScopeSubscribePlugin(name), reason)
+}
+
+// PublicEvent declares an event kind this plugin publishes, for discovery — it shows on the
+// operator's consent screen and lets other plugin authors see what to subscribe to. Purely
+// informational; Publish works without it. `kind` is the suffix you pass to Publish.
+func (p *Plugin) PublicEvent(kind, desc string) *Plugin {
+	for i := range p.publicEvents {
+		if p.publicEvents[i].Kind == kind {
+			if desc != "" {
+				p.publicEvents[i].Desc = desc
+			}
+			return p
+		}
+	}
+	p.publicEvents = append(p.publicEvents, PublicEvent{Kind: kind, Desc: desc})
+	return p
+}
+
 // Setting declares an operator-managed configuration field. hope renders these in
 // the plugin inspector, persists the values (encrypted), and pushes them to the
 // plugin; read a value in any handler with SettingValue. Settings are config the
@@ -887,6 +917,7 @@ func (p *Plugin) schema() Schema {
 	}
 	s.Settings = p.settings
 	s.Permissions = p.perms
+	s.PublicEvents = p.publicEvents
 	for _, m := range p.order {
 		switch {
 		case p.views[m].fn != nil:

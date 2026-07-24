@@ -345,8 +345,9 @@ type Schema struct {
 	Actions         []ActionDesc      `json:"actions"`
 	Views           []ViewDesc        `json:"views"`
 	Streams         []StreamDesc      `json:"streams"`
-	Settings        []Setting         `json:"settings,omitempty"`    // operator-managed config (see Setting)
-	Permissions     []Permission      `json:"permissions,omitempty"` // reverse-capability requests (see Permission)
+	Settings        []Setting         `json:"settings,omitempty"`      // operator-managed config (see Setting)
+	Permissions     []Permission      `json:"permissions,omitempty"`   // reverse-capability requests (see Permission)
+	PublicEvents    []PublicEvent     `json:"public_events,omitempty"` // event kinds this plugin publishes (discovery)
 }
 
 // Permission is a reverse capability the plugin REQUESTS from hope. Least privilege:
@@ -364,11 +365,29 @@ type Permission struct {
 // interoperate — an unknown scope is simply never granted. Additive: publish/storage/
 // action scopes land with their phases.
 const (
-	ScopeEventsSubscribe = "events:subscribe" // receive hope events via OnEvent
+	ScopeEventsSubscribe = "events:subscribe" // receive hope's CORE fleet events via OnEvent
 	ScopeEventsPublish   = "events:publish"   // publish events onto hope's bus
 	ScopeStorage         = "storage"          // durable per-install KV (p.Storage)
 	ScopeSpecLabel       = "spec:label"       // add/update a service label in the plugin's own stack (p.Hope().AddServiceLabel)
+	// ScopeEventsSubscribePlugins receives events from ANY OTHER plugin (the cross-plugin
+	// firehose). Distinct from ScopeEventsSubscribe (core fleet events) so consenting to
+	// snoop other plugins' data is its own explicit decision. For finer control, request a
+	// per-publisher scope with ScopeSubscribePlugin.
+	ScopeEventsSubscribePlugins = "events:subscribe:plugins"
 )
+
+// ScopeSubscribePlugin is the scope to receive events only from plugins NAMED `name` — finer
+// than ScopeEventsSubscribePlugins. Declare it with p.SubscribePlugin(name, reason).
+func ScopeSubscribePlugin(name string) string { return "events:subscribe:plugin:" + name }
+
+// PublicEvent is an event kind a plugin PUBLISHES, declared for discovery so operators (on the
+// consent screen) and other plugin authors can see what it emits. Informational only — hope
+// doesn't require a declaration to publish. Kind is the suffix passed to Publish (hope
+// namespaces it to plugin.<key>.<kind>).
+type PublicEvent struct {
+	Kind string `json:"kind"`
+	Desc string `json:"desc,omitempty"`
+}
 
 // Event is one hope event delivered to an OnEvent handler. Mirrors hope's wire
 // event; Data is kind-specific JSON (may be empty). Delivered only when the plugin

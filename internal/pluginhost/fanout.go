@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/toyz/hope/internal/events"
@@ -11,10 +12,12 @@ import (
 // Permission scopes (mirror the SDK's Scope* constants in plugin/schema.go). Kept as
 // local literals so hope's main module doesn't import the plugin module.
 const (
-	scopeEventsSubscribe = "events:subscribe"
-	scopeEventsPublish   = "events:publish"
-	scopeStorage         = "storage"
-	scopeSpecLabel       = "spec:label"
+	scopeEventsSubscribe        = "events:subscribe"         // core hope fleet events
+	scopeEventsSubscribePlugins = "events:subscribe:plugins" // any other plugin's events (firehose)
+	scopeSubscribePluginPrefix  = "events:subscribe:plugin:" // + <name>: events from plugins named <name>
+	scopeEventsPublish          = "events:publish"
+	scopeStorage                = "storage"
+	scopeSpecLabel              = "spec:label"
 )
 
 const (
@@ -65,8 +68,19 @@ func (r *PluginsRouter) dispatchEvent(ctx context.Context, e events.Event, sem c
 	if err != nil {
 		return
 	}
+	// For a plugin-published event, resolve the publisher's declared NAME (from its record)
+	// so per-publisher subscribe grants (events:subscribe:plugin:<name>) can match.
+	pubName := ""
+	if strings.HasPrefix(string(e.Kind), "plugin.") {
+		for _, rec := range recs {
+			if e.Source == "plugin."+rec.Key {
+				pubName = rec.Name
+				break
+			}
+		}
+	}
 	for _, rec := range recs {
-		if !shouldDeliver(rec, e) {
+		if !shouldDeliver(rec, e, pubName) {
 			continue
 		}
 		select {
@@ -81,20 +95,28 @@ func (r *PluginsRouter) dispatchEvent(ctx context.Context, e events.Event, sem c
 	}
 }
 
-// shouldDeliver reports whether an event should be pushed to a given plugin: it must
-// be enabled, hold the events:subscribe grant, be on the event's host (a host-less
-// event is fleet-wide), and not be the event's own publisher (no self-echo).
-func shouldDeliver(rec store.PluginRecord, e events.Event) bool {
-	if !rec.Enabled || !rec.HasGrant(scopeEventsSubscribe) {
+// shouldDeliver reports whether an event should be pushed to a given plugin. The plugin must
+// be enabled, on the event's host (a host-less event is fleet-wide), not the event's own
+// publisher (no self-echo), AND authorized for the event by a matching grant:
+//   - a CORE hope event needs events:subscribe;
+//   - a CROSS-PLUGIN event (kind "plugin.<pub>.…") needs events:subscribe:plugins (any) OR
+//     events:subscribe:plugin:<publisher-name> (that publisher only).
+//
+// This keeps "watch fleet events" and "snoop another plugin's data" as separate consents.
+func shouldDeliver(rec store.PluginRecord, e events.Event, pubName string) bool {
+	if !rec.Enabled {
 		return false
 	}
 	if e.Host != "" && rec.Host != "" && e.Host != rec.Host {
 		return false
 	}
 	if e.Source == "plugin."+rec.Key {
-		return false
+		return false // no self-echo
 	}
-	return true
+	if strings.HasPrefix(string(e.Kind), "plugin.") {
+		return rec.HasGrant(scopeEventsSubscribePlugins) || (pubName != "" && rec.HasGrant(scopeSubscribePluginPrefix+pubName))
+	}
+	return rec.HasGrant(scopeEventsSubscribe)
 }
 
 // fanoutKind reports whether a kind is delivered to plugins. Control frames and
