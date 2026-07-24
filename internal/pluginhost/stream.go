@@ -91,11 +91,23 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		return h.serveReconfigure(ctx, req)
 	}
 
-	args, err := stringArgs(req.Body)
-	if err != nil || len(args) < 2 {
+	// Args: [key, method] plus an OPTIONAL 3rd element — the plugin-call params (a JSON
+	// object) forwarded to the stream method so it can read Params(ctx) (e.g. a graph run
+	// receiving {graph:<id>}). Parsed raw (not stringArgs) so the 3rd arg can be an object.
+	var argEnv struct {
+		Args []json.RawMessage `json:"args"`
+	}
+	if err := json.Unmarshal(req.Body, &argEnv); err != nil || len(argEnv.Args) < 2 {
 		return errResp(http.StatusBadRequest, "key and method are required")
 	}
-	key, method := args[0], args[1]
+	var key, method string
+	if json.Unmarshal(argEnv.Args[0], &key) != nil || json.Unmarshal(argEnv.Args[1], &method) != nil || key == "" || method == "" {
+		return errResp(http.StatusBadRequest, "key and method are required")
+	}
+	var streamParams any // nil interface => dialer sends no params (see endpoint.stream)
+	if len(argEnv.Args) >= 3 && len(argEnv.Args[2]) > 0 {
+		streamParams = argEnv.Args[2]
+	}
 	if strings.HasPrefix(method, "hope.") {
 		return errResp(http.StatusBadRequest, "hope.* methods are reserved")
 	}
@@ -146,7 +158,7 @@ func (h *StreamHandler) ServeRoute(ctx context.Context, req *gateway.Request) *g
 		frames := make(chan json.RawMessage, 16)
 		done := make(chan error, 1)
 		go func() {
-			done <- ep.stream(sctx, method, nil, func(fr json.RawMessage) error {
+			done <- ep.stream(sctx, method, streamParams, func(fr json.RawMessage) error {
 				// Drop oversize or too-fast frames — a plugin must not flood the UI /
 				// control plane. Dropping (not erroring) keeps a bursty-but-benign
 				// stream alive while starving an abusive one.

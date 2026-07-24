@@ -61,12 +61,11 @@ type dag struct {
 }
 
 var (
-	gmu      sync.Mutex
-	dags     map[string]*dag
-	gseq     int
-	gCurrent string // the DAG id last viewed (so the run stream, which gets no args, knows which)
-	gicon    = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
-	gtone    = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
+	gmu   sync.Mutex
+	dags  map[string]*dag
+	gseq  int
+	gicon = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
+	gtone = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
 )
 
 func gPortsFor(typ string) (in, out []plugin.Port) {
@@ -1134,7 +1133,6 @@ func main() {
 		if id == "" || dags[id] == nil {
 			id = "ingest"
 		}
-		gCurrent = id // the active DAG KEY, so the (arg-less) run stream animates the right one
 		d := dags[id]
 		nodes := make([]*plugin.GraphNode, 0, len(d.order))
 		for _, k := range d.order {
@@ -1378,25 +1376,29 @@ func main() {
 			{Type: "sink", Label: "Sink", Icon: "check", Tone: plugin.ToneOK, Desc: "an output"},
 		}, nil
 	})
-	// run: walk the ACTIVE DAG (gCurrent, set when a pipeline is viewed), advancing each node
-	// idle -> running -> done ~1s apart and emitting a GraphData frame so the canvas lights up.
+	// run: hope streams the run with {graph:<id>} (the active DAG), so the server runs the
+	// right pipeline with no shared global — walk it, advancing each node idle -> running ->
+	// done ~1s apart and emitting a GraphData frame so the canvas lights up.
 	p.Stream("gRun", "Run", plugin.StreamComponent, func(ctx context.Context, emit plugin.EmitFunc) error {
+		var pr struct {
+			Graph string `json:"graph"`
+		}
+		_ = plugin.Params(ctx, &pr)
 		gmu.Lock()
-		d0 := gPick(gCurrent)
-		order := append([]string{}, d0.order...)
+		order := append([]string{}, gPick(pr.Graph).order...)
 		gmu.Unlock()
 		states := map[string]string{}
 		frame := func() *plugin.GraphData {
 			gmu.Lock()
 			defer gmu.Unlock()
-			d := gPick(gCurrent)
+			d := gPick(pr.Graph)
 			nodes := make([]*plugin.GraphNode, 0, len(d.order))
 			for _, k := range d.order {
 				c := *d.nodes[k]
 				c.State = states[k]
 				nodes = append(nodes, &c)
 			}
-			return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true}
+			return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true, Active: pr.Graph}
 		}
 		for _, k := range order {
 			select {

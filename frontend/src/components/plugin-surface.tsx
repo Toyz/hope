@@ -678,7 +678,7 @@ export class HopePluginSurface extends LoomElement {
   // startStream opens a live subscription for one stream method (explicit user
   // action). Each frame updates the value; the per-stream AbortController tears it
   // down on stop / surface change / unmount, and hope cancels the plugin stream.
-  private startStream = async (method: string) => {
+  private startStream = async (method: string, params?: any) => {
     const s = this.surface;
     if (!s || this.streamAborts.has(method)) return;
     const ctrl = new AbortController();
@@ -687,8 +687,11 @@ export class HopePluginSurface extends LoomElement {
     this.streamOn = { ...this.streamOn, [method]: true };
     this.streamHist = { ...this.streamHist, [method]: [] }; // fresh numeric history per live session
     this.streamLog = { ...this.streamLog, [method]: [] }; // fresh line history per live session
+    // Optional 3rd stream arg = the plugin-call params (the stream fn reads Params(ctx)) —
+    // e.g. a graph run receiving {graph:<id>} so the server runs the right DAG.
+    const args = params != null ? [s.key, method, params] : [s.key, method];
     try {
-      for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", [s.key, method], ctrl.signal)) {
+      for await (const frame of this.rpc.streamWithSignal<any>("Stream", "pluginStream", args, ctrl.signal)) {
         if (frame?.type === "data") {
           this.streamData = { ...this.streamData, [method]: frame.data };
           // A Log stream is append-only: keep a rolling buffer of the last 200 lines so
@@ -1556,7 +1559,7 @@ export class HopePluginSurface extends LoomElement {
     const rm = v.graph_run;
     if (!rm) return;
     if (this.streamOn[rm]) { this.stopStream(rm); void this.fetch(v.method); }
-    else this.startStream(rm);
+    else { const active = this.graphActive[v.method]; void this.startStream(rm, active ? { graph: active } : undefined); }
   };
   // A sidebar header action (New pipeline, ...). Runs like any action, then re-fetches the
   // sidebar region + the canvas so a created/renamed DAG shows up.
