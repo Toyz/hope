@@ -52,6 +52,103 @@ func rowIdent(in map[string]any) (table string, id int, ok bool) {
 	return table, id, true
 }
 
+// ── graph (blueprint) demo state — a few in-memory DAGs the canvas edits ──
+type dag struct {
+	name  string
+	nodes map[string]*plugin.GraphNode
+	order []string
+	edges []plugin.GraphEdge
+}
+
+var (
+	gmu   sync.Mutex
+	dags  map[string]*dag
+	gseq  int
+	gicon = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
+	gtone = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
+)
+
+func gPortsFor(typ string) (in, out []plugin.Port) {
+	switch typ {
+	case "source":
+		out = []plugin.Port{plugin.GPort("out", "rows")}
+	case "sink":
+		in = []plugin.Port{plugin.GPort("in", "rows")}
+	default:
+		in = []plugin.Port{plugin.GPort("in", "rows")}
+		out = []plugin.Port{plugin.GPort("out", "rows")}
+	}
+	return
+}
+
+func gBody(typ, state string) *plugin.Comp {
+	st := state
+	if st == "" {
+		st = "idle"
+	}
+	tone := map[string]string{"idle": plugin.ToneInfo, "running": plugin.ToneWarn, "done": plugin.ToneOK, "error": plugin.ToneBad}[st]
+	return plugin.Box(plugin.KeyVal("type", typ), plugin.KeyVal("status", plugin.Badge(st, tone)))
+}
+
+func gMkNode(id, typ, title string, x, y float64) *plugin.GraphNode {
+	in, out := gPortsFor(typ)
+	return plugin.GNode(id, title, gBody(typ, "")).At(x, y).Typed(typ).Ico(gicon[typ]).Toned(gtone[typ]).InPorts(in...).OutPorts(out...)
+}
+
+func gSeed() {
+	if dags != nil {
+		return
+	}
+	dags = map[string]*dag{}
+	mk := func(name string, nodes []*plugin.GraphNode, edges ...plugin.GraphEdge) *dag {
+		d := &dag{name: name, nodes: map[string]*plugin.GraphNode{}}
+		for _, n := range nodes {
+			d.nodes[n.ID] = n
+			d.order = append(d.order, n.ID)
+		}
+		d.edges = edges
+		return d
+	}
+	dags["ingest"] = mk("ingest",
+		[]*plugin.GraphNode{gMkNode("src", "source", "API source", 40, 70), gMkNode("xf", "transform", "Normalize", 300, 70), gMkNode("snk", "sink", "Warehouse", 560, 70)},
+		plugin.GEdge("src:out", "xf:in"), plugin.GEdge("xf:out", "snk:in"))
+	dags["nightly-report"] = mk("nightly-report",
+		[]*plugin.GraphNode{gMkNode("q", "source", "Query", 40, 70), gMkNode("f", "filter", "Filter", 300, 70), gMkNode("m", "sink", "Email", 560, 70)},
+		plugin.GEdge("q:out", "f:in"), plugin.GEdge("f:out", "m:in"))
+}
+
+// gPick resolves the active DAG from a mutation/view's {graph} arg (default "ingest").
+func gPick(id string) *dag {
+	gSeed()
+	if id == "" || dags[id] == nil {
+		return dags["ingest"]
+	}
+	return dags[id]
+}
+
+func gRowStr(in map[string]any, key string) string {
+	row, _ := in["row"].(map[string]any)
+	if row == nil {
+		return ""
+	}
+	s, _ := row[key].(string)
+	return s
+}
+
+func gRowF(in map[string]any, key string) float64 {
+	row, _ := in["row"].(map[string]any)
+	if row == nil {
+		return 0
+	}
+	switch v := row[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	}
+	return 0
+}
+
 func main() {
 	p := plugin.New("kitchen-sink", "1.5.0").
 		Description("Every hope plugin surface, kind, and primitive — plus load").
@@ -494,6 +591,8 @@ func main() {
 		plugin.Section("Commanding", plugin.Buttons("connect", "issueCommand")),
 		// conditional row actions: Cancel shows only on queued orders.
 		plugin.Section("Orders", plugin.Leaf("orders")),
+		// the blueprint / DAG editor (hope ships no nodes; this plugin defines them).
+		plugin.Section("Pipeline", plugin.Leaf("pipeline").Filled()),
 		// the v0.5 collection/table/card/stream surfaces.
 		plugin.Grid(
 			plugin.Section("Wide table", plugin.Leaf("wide")),
@@ -994,6 +1093,183 @@ func main() {
 			return map[string]any{"ok": false, "message": "order already committed"}, nil
 		}
 		return map[string]any{"message": fmt.Sprintf("cancelled %v", row["id"])}, nil
+	})
+
+	// ── GRAPH (blueprint) surface: hope ships no node types — this plugin defines the nodes,
+	// owns the in-memory DAGs, and hope is the editor. Drag nodes, drag out->in ports to
+	// connect, click an edge to disconnect, drag a palette type onto the canvas to add, select
+	// a DAG in the sidebar, and Run to watch node states advance live. ──
+	p.GraphView("pipeline", "Pipeline", func(ctx context.Context) (any, error) {
+		var pr struct {
+			Graph string `json:"graph"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(pr.Graph)
+		nodes := make([]*plugin.GraphNode, 0, len(d.order))
+		for _, k := range d.order {
+			nodes = append(nodes, d.nodes[k])
+		}
+		return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true}, nil
+	},
+		plugin.GraphMove("gMove"), plugin.GraphConnect("gConn"), plugin.GraphDisconnect("gDisc"),
+		plugin.GraphDelete("gDel"), plugin.GraphAdd("gAdd"), plugin.GraphNodeFlyout("gNode"),
+		plugin.GraphSidebar("gList"), plugin.GraphToolbar("gBar"), plugin.GraphPalette("gPalette"),
+		plugin.GraphRun("gRun"), plugin.GraphDirected(), plugin.GraphSnap(10))
+
+	// mutations — each gets {row:{..., graph:<activeId>}}; hope re-fetches the canvas on success.
+	p.Action("gMove", "move node", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		if n := gPick(gRowStr(in, "graph")).nodes[gRowStr(in, "id")]; n != nil {
+			n.X, n.Y = gRowF(in, "x"), gRowF(in, "y")
+		}
+		return map[string]any{"refetch": true}, nil
+	})
+	p.Action("gConn", "connect", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(gRowStr(in, "graph"))
+		d.edges = append(d.edges, plugin.GEdge(gRowStr(in, "from"), gRowStr(in, "to")))
+		return map[string]any{"refetch": true}, nil
+	})
+	p.Action("gDisc", "disconnect", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(gRowStr(in, "graph"))
+		from, to := gRowStr(in, "from"), gRowStr(in, "to")
+		kept := d.edges[:0:0]
+		for _, e := range d.edges {
+			if e.From != from || e.To != to {
+				kept = append(kept, e)
+			}
+		}
+		d.edges = kept
+		return map[string]any{"refetch": true}, nil
+	})
+	p.DangerAction("gDel", "delete node", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(gRowStr(in, "graph"))
+		id := gRowStr(in, "id")
+		delete(d.nodes, id)
+		order := d.order[:0:0]
+		for _, k := range d.order {
+			if k != id {
+				order = append(order, k)
+			}
+		}
+		d.order = order
+		edges := d.edges[:0:0]
+		for _, e := range d.edges {
+			if !strings.HasPrefix(e.From, id+":") && !strings.HasPrefix(e.To, id+":") {
+				edges = append(edges, e)
+			}
+		}
+		d.edges = edges
+		return map[string]any{"refetch": true}, nil
+	})
+	p.Action("gAdd", "add node", nil, func(ctx context.Context, in map[string]any) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		d := gPick(gRowStr(in, "graph"))
+		typ := gRowStr(in, "type")
+		if typ == "" {
+			typ = "transform"
+		}
+		gseq++
+		id := fmt.Sprintf("%s-%d", typ, gseq)
+		title := strings.ToUpper(typ[:1]) + typ[1:]
+		n := gMkNode(id, typ, title, gRowF(in, "x"), gRowF(in, "y"))
+		d.nodes[id] = n
+		d.order = append(d.order, id)
+		return map[string]any{"refetch": true}, nil
+	})
+	p.View("gNode", "node detail", plugin.CompView, func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		id, _ := pr.Row["id"].(string)
+		gmu.Lock()
+		defer gmu.Unlock()
+		n := gPick("").nodes[id]
+		if n == nil {
+			return plugin.Box(plugin.CText("gone")), nil
+		}
+		return plugin.Box(
+			plugin.Heading(n.Title, 3),
+			plugin.KeyVal("id", n.ID),
+			plugin.KeyVal("type", n.Type),
+			plugin.KeyVal("position", fmt.Sprintf("%.0f, %.0f", n.X, n.Y)),
+			plugin.Heading("Ports", 4),
+			plugin.KeyVal("in", fmt.Sprintf("%d", len(n.In))),
+			plugin.KeyVal("out", fmt.Sprintf("%d", len(n.Out))),
+		), nil
+	})
+	// sidebar: the DAG browser — each a Link cell "graph:<id>" hope selects in place.
+	p.View("gList", "pipelines", plugin.CompView, func(ctx context.Context) (any, error) {
+		gmu.Lock()
+		defer gmu.Unlock()
+		gSeed()
+		items := []*plugin.Comp{plugin.Heading("Pipelines", 4)}
+		for _, id := range []string{"ingest", "nightly-report"} {
+			items = append(items, plugin.CCell(plugin.Link(dags[id].name, "graph:"+id)))
+		}
+		return plugin.Box(items...).Gapped(8), nil
+	})
+	p.View("gBar", "toolbar", plugin.CompView, func(ctx context.Context) (any, error) {
+		return plugin.CRow(plugin.Heading("Pipeline editor", 4), plugin.KeyVal("hint", "drag ports to wire · Run to simulate")).Gapped(16), nil
+	})
+	// palette: the node-TYPE catalog to drag onto the canvas (hope reads the returned array).
+	p.View("gPalette", "palette", plugin.CompView, func(ctx context.Context) (any, error) {
+		return []plugin.NodeType{
+			{Type: "source", Label: "Source", Icon: "box", Tone: plugin.ToneOK, Desc: "an input feed"},
+			{Type: "transform", Label: "Transform", Icon: "beaker", Tone: plugin.ToneInfo, Desc: "map / normalize"},
+			{Type: "filter", Label: "Filter", Icon: "search", Tone: plugin.ToneWarn, Desc: "drop rows"},
+			{Type: "sink", Label: "Sink", Icon: "check", Tone: plugin.ToneOK, Desc: "an output"},
+		}, nil
+	})
+	// run: walk the ingest DAG, advancing each node idle -> running -> done ~1s apart, emitting
+	// a GraphData frame each step so the open canvas lights up live.
+	p.Stream("gRun", "Run", plugin.StreamComponent, func(ctx context.Context, emit plugin.EmitFunc) error {
+		gmu.Lock()
+		gSeed()
+		order := append([]string{}, dags["ingest"].order...)
+		gmu.Unlock()
+		states := map[string]string{}
+		frame := func() *plugin.GraphData {
+			gmu.Lock()
+			defer gmu.Unlock()
+			d := dags["ingest"]
+			nodes := make([]*plugin.GraphNode, 0, len(d.order))
+			for _, k := range d.order {
+				c := *d.nodes[k]
+				c.State = states[k]
+				c.Body = gBody(c.Type, states[k])
+				nodes = append(nodes, &c)
+			}
+			return &plugin.GraphData{Nodes: nodes, Edges: d.edges, Directed: true}
+		}
+		for _, k := range order {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+			states[k] = "running"
+			emit(frame())
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Second):
+			}
+			states[k] = "done"
+			emit(frame())
+		}
+		emit(frame())
+		return nil
 	})
 
 	// Advisory self-status: hope owns liveness; kitchen-sink reports its own health —
