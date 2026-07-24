@@ -246,7 +246,7 @@ type Option struct {
 type Field struct {
 	Key         string   `json:"key"`
 	Label       string   `json:"label"`
-	Type        string   `json:"type,omitempty"` // text|textarea|select|toggle|kv|number|multiselect (default text)
+	Type        string   `json:"type,omitempty"` // text|textarea|select|toggle|kv|number|multiselect|chips|combobox (default text)
 	Placeholder string   `json:"placeholder,omitempty"`
 	Hint        string   `json:"hint,omitempty"`
 	Value       string   `json:"value,omitempty"`
@@ -257,6 +257,10 @@ type Field struct {
 	Max  float64 `json:"max,omitempty"`
 	Step float64 `json:"step,omitempty"`
 	Unit string  `json:"unit,omitempty"`
+	// AllowCustom, on a Type:"combobox" field, lets the operator commit a typed value that
+	// isn't in Options — a freeform entry with suggestions. Without it a combobox is a
+	// type-ahead select restricted to the list. Ignored by other field types.
+	AllowCustom bool `json:"allowCustom,omitempty"`
 	// OptionsMethod names an Options provider (registered with Plugin.Options); when
 	// set, hope fetches this select's choices from that method live as it renders the
 	// form, instead of using the static Options above. The JSON key is camelCase to

@@ -9,13 +9,16 @@ export type PromptOption = Option;
 export type PromptField = {
   key: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "toggle" | "kv" | "group" | "number" | "multiselect";
+  type?: "text" | "textarea" | "select" | "toggle" | "kv" | "group" | "number" | "multiselect" | "chips" | "combobox";
   placeholder?: string;
-  // number field bounds/step/unit (#5). multiselect uses `options` and stores a JSON array.
+  // number field bounds/step/unit (#5). multiselect + chips store a JSON array; multiselect
+  // is a checkbox dropdown, chips are inline toggle pills. combobox is a single type-ahead.
   min?: number;
   max?: number;
   step?: number;
   unit?: string;
+  // combobox only: allow committing a typed value not in `options` (freeform + suggestions).
+  allowCustom?: boolean;
   // #1 dynamic sub-form: on this field's change, fetch a NEW set of fields to render inline
   // below it (runPluginAction wires this from a Field.FieldsMethod). Returns the sub-fields.
   fieldsFetch?: (values: Record<string, string>) => Promise<PromptField[]>;

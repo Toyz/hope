@@ -827,7 +827,8 @@ func main() {
 		case "downlink":
 			return []plugin.Field{
 				{Key: "bandwidth", Label: "Bandwidth", Type: "number", Min: 1, Max: 500, Step: 5, Unit: "Mbps", Value: "50"},
-				{Key: "bands", Label: "Bands", Type: "multiselect", Options: []plugin.Option{
+				// chips: the inline toggle-pill multi-select (vs the dropdown multiselect above).
+				{Key: "bands", Label: "Bands", Type: "chips", Options: []plugin.Option{
 					{Label: "S-band", Value: "s"}, {Label: "X-band", Value: "x"}, {Label: "Ka-band", Value: "ka"}}},
 			}, nil
 		}
@@ -888,6 +889,9 @@ func main() {
 			{Label: "Downlink", Value: "downlink"},
 			{Label: "Enter safe mode", Value: "enter-safe-mode"}}},
 		{Key: "priority", Label: "Priority", Type: "number", Min: 1, Max: 9, Step: 1, Unit: "prio"},
+		// combobox with AllowCustom: pick a known ground station OR type a new one.
+		{Key: "station", Label: "Ground station", Type: "combobox", AllowCustom: true, Placeholder: "pick or type a station", Options: []plugin.Option{
+			{Label: "Svalbard", Value: "svalbard"}, {Label: "Punta Arenas", Value: "punta"}, {Label: "Fairbanks", Value: "fairbanks"}}},
 	}, func(ctx context.Context, in map[string]any) (any, error) {
 		cmd, _ := in["command"].(string)
 		targets, _ := in["targets"].([]any) // parsed from the multiselect
@@ -901,6 +905,7 @@ func main() {
 				plugin.KeyVal("command", cmd),
 				plugin.KeyVal("satellites", fmt.Sprintf("%d", len(targets))),
 				plugin.KeyVal("priority", fmt.Sprintf("%v", in["priority"])),
+				plugin.KeyVal("station", fmt.Sprintf("%v", in["station"])),
 				plugin.KeyVal("state", plugin.Badge("queued", "info")),
 			),
 		}, nil

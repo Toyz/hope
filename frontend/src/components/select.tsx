@@ -26,6 +26,9 @@ export type SelectOption = Option;
   .trigger.open { border-color: var(--line2); }
   .trigger .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .trigger .lbl.ph { color: var(--dim); }
+  .trigger .cbin { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--hi); font: 13px/1 var(--mono); padding: 0; }
+  .trigger .cbin:focus { outline: none; }
+  .trigger .cbin::placeholder { color: var(--dim); }
   .trigger loom-icon { color: var(--dim); flex: none; transition: transform .12s ease; }
   .trigger.open loom-icon { transform: rotate(180deg); }
   /* The menu is a popover: it renders in the browser's top layer, so it escapes the
@@ -52,6 +55,8 @@ export class HopeSelect extends LoomElement {
   @reactive accessor value = "";
   @reactive accessor placeholder = "—";
   @reactive accessor multiple = false;
+  @reactive accessor combobox = false;   // editable type-ahead trigger (single value)
+  @reactive accessor allowCustom = false; // combobox: commit a typed value not in options
   @reactive accessor open = false;
   @reactive accessor query = "";
   @query(".msearch") accessor searchEl!: HTMLInputElement | null;
@@ -135,8 +140,55 @@ export class HopeSelect extends LoomElement {
       return;
     }
     this.value = v;
+    this.query = "";
     this.close();
     this.dispatchEvent(new CustomEvent("select", { detail: v, bubbles: true, composed: true }));
+  };
+
+  private emitSel(detail: string) { this.dispatchEvent(new CustomEvent("select", { detail, bubbles: true, composed: true })); }
+
+  // The label shown in a closed combobox: the option matching the current value, else the
+  // raw value (a custom entry), else empty.
+  private displayLabel(): string {
+    const m = this.options.find((o) => o.value === this.value);
+    return m ? m.label : this.value;
+  }
+
+  // --- combobox (editable single type-ahead) ---
+  private cbFocus = () => {
+    if (this.open) return;
+    this.query = this.displayLabel(); // seed the filter with the current text so it's editable
+    this.open = true;
+    requestAnimationFrame(() => (this.menuEl as any)?.showPopover?.());
+  };
+  private cbInput = (e: any) => {
+    this.query = e.target.value;
+    if (!this.open) { this.open = true; requestAnimationFrame(() => (this.menuEl as any)?.showPopover?.()); }
+    // With custom entry, the typed text IS the value live; otherwise it's just a filter.
+    if (this.allowCustom) { this.value = this.query; this.emitSel(this.value); }
+  };
+  private cbKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { this.close(); return; }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const q = this.query.trim().toLowerCase();
+    const exact = this.options.find((o) => o.label.toLowerCase() === q);
+    const contains = this.options.filter((o) => o.label.toLowerCase().includes(q));
+    const match = exact || (contains.length === 1 ? contains[0] : undefined);
+    if (match) this.pick(match.value, e);
+    else if (this.allowCustom && this.query.trim()) { this.value = this.query.trim(); this.close(); this.emitSel(this.value); }
+  };
+  private cbBlur = () => {
+    // Defer so a click on an option (which commits via pick) wins over the blur.
+    setTimeout(() => {
+      if (!this.open) return;
+      if (!this.allowCustom) {
+        // List-restricted: commit only if the typed text names an option; else keep prior value.
+        const m = this.options.find((o) => o.label.toLowerCase() === this.query.trim().toLowerCase());
+        if (m && m.value !== this.value) { this.value = m.value; this.emitSel(this.value); }
+      }
+      this.close();
+    }, 130);
   };
 
   update() {
@@ -153,13 +205,21 @@ export class HopeSelect extends LoomElement {
     })();
     return (
       <div>
-        <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle} onKeyDown={this.onKey}>
-          <span class={"lbl" + (sel.length ? "" : " ph")}>{lbl}</span>
-          <loom-icon name="chevron-down" size={13}></loom-icon>
-        </button>
+        {this.combobox ? (
+          <div class={"trigger" + (this.open ? " open" : "")}>
+            <input class="cbin" type="text" placeholder={this.placeholder} value={this.open ? this.query : this.displayLabel()}
+              onFocus={this.cbFocus} onInput={this.cbInput} onKeyDown={this.cbKey} onBlur={this.cbBlur} />
+            <loom-icon name="chevron-down" size={13}></loom-icon>
+          </div>
+        ) : (
+          <button type="button" class={"trigger" + (this.open ? " open" : "")} onClick={this.toggle} onKeyDown={this.onKey}>
+            <span class={"lbl" + (sel.length ? "" : " ph")}>{lbl}</span>
+            <loom-icon name="chevron-down" size={13}></loom-icon>
+          </button>
+        )}
         {this.open ? (
           <div class="menu" style={menuStyle} {...({ popover: "manual" } as any)} onClick={(e: Event) => e.stopPropagation()}>
-            {this.options.length > 6 ? (
+            {!this.combobox && this.options.length > 6 ? (
               <input class="msearch" type="text" placeholder="filter…" value={this.query} onInput={(e: any) => (this.query = e.target.value)} />
             ) : null}
             {shown.length === 0 ? <div class="empty">{this.options.length === 0 ? "nothing to pick" : "no match"}</div> : null}

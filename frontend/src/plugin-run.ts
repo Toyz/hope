@@ -183,7 +183,7 @@ export async function runPluginAction(
   // array, not a string. (Dynamic sub-form fields aren't listed here, so a multiselect
   // returned by a FieldsMethod stays a JSON string for the plugin to decode.)
   for (const f of a.steps ? a.steps.flatMap((s) => s.fields) : a.fields || []) {
-    if ((f.type === "group" || f.type === "multiselect") && typeof merged[f.key] === "string") {
+    if ((f.type === "group" || f.type === "multiselect" || f.type === "chips") && typeof merged[f.key] === "string") {
       try { merged[f.key] = JSON.parse(merged[f.key] as string); } catch { merged[f.key] = []; }
     }
   }

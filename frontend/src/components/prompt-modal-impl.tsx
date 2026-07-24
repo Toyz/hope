@@ -50,7 +50,14 @@ import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../
   .numf input { flex: 1; }
   .numf .unit { display: flex; align-items: center; padding: 0 12px; background: var(--ink); border: 1px solid var(--line); border-left: none;
     font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
-  /* #5 multiselect renders as <hope-select multiple> (a dropdown), no extra chrome here */
+  /* #5 multiselect -> <hope-select multiple> (dropdown); combobox -> <hope-select combobox>.
+     chips is the inline toggle-pill variant (value is a JSON array), below. */
+  .msel { display: flex; flex-wrap: wrap; gap: 7px; }
+  .msel .mchip { padding: 6px 12px; border: 1px solid var(--line2); background: var(--ink); color: var(--mid); cursor: pointer;
+    font: 600 11px/1 var(--mono); letter-spacing: .04em; user-select: none; transition: color .12s, border-color .12s, background .12s; }
+  .msel .mchip:hover { color: var(--txt); border-color: var(--line2); }
+  .msel .mchip.on { color: var(--upd); border-color: color-mix(in srgb, var(--upd) 55%, var(--line2)); background: color-mix(in srgb, var(--upd) 12%, var(--ink)); }
+  .msel .mempty { font: 11px/1.4 var(--mono); color: var(--dim); }
   /* repeatable group (forms-builder): rows of a sub-form, add/remove */
   .rows { display: flex; flex-direction: column; gap: 8px; }
   .rowitem { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line); background: var(--ink); padding: 10px 12px; }
@@ -118,6 +125,9 @@ export default class PromptModalImpl extends LoomElement {
 
   // #1: a field's fieldsFetch returns a dynamic sub-form; fetch it with the current values
   // and seed the new sub-fields' initial values.
+  private parseMulti(v: string): string[] { try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a : []; } catch { return []; } }
+  private toggleMulti(sel: string[], val: string): string[] { return sel.includes(val) ? sel.filter((x) => x !== val) : [...sel, val]; }
+
   private async fetchDynFields(f: PromptField) {
     if (!f.fieldsFetch) return;
     try {
@@ -322,6 +332,22 @@ export default class PromptModalImpl extends LoomElement {
     if (f.type === "multiselect") {
       const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
       return <hope-select multiple={true} options={opts} value={val || "[]"} placeholder={f.placeholder || "select…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
+    }
+    if (f.type === "chips") {
+      const sel = this.parseMulti(val);
+      const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
+      return (
+        <div class="msel">
+          {opts.map((o) => (
+            <span class={"mchip" + (sel.includes(o.value) ? " on" : "")} onClick={() => onSet(JSON.stringify(this.toggleMulti(sel, o.value)))}>{o.label}</span>
+          ))}
+          {opts.length === 0 ? <span class="mempty">no options</span> : null}
+        </div>
+      );
+    }
+    if (f.type === "combobox") {
+      const opts = this.liveOpts[f.key] ?? (f.optionsFrom ? f.optionsFrom(scope) : f.options || []);
+      return <hope-select combobox={true} allowCustom={!!f.allowCustom} options={opts} value={val} placeholder={f.placeholder || "type or pick…"} onSelect={(e: any) => onSet(e.detail)}></hope-select>;
     }
     return <input type="text" placeholder={f.placeholder || ""} value={val} onInput={(e: any) => onSet(e.target.value)} />;
   }
