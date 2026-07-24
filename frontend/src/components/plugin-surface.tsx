@@ -60,7 +60,7 @@ interface GraphData { nodes?: GNode[]; edges?: GEdge[]; directed?: boolean }
 interface NodeType { type: string; label?: string; icon?: string; tone?: string; category?: string; desc?: string }
 interface GMenuItem { label?: string; icon?: string; method?: string; danger?: boolean; divider?: boolean; builtin?: () => void }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean; graph_move?: string; graph_connect?: string; graph_disconnect?: string; graph_delete?: string; graph_add?: string; graph_node_flyout?: string; graph_config?: string; graph_menu?: string; graph_validate_connect?: string; graph_run?: string; graph_sidebar?: string; graph_sidebar_actions?: string[]; graph_toolbar?: string; graph_select?: string; graph_palette?: string; palette?: NodeType[]; graph_directed?: boolean; graph_snap?: number }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_flyout_refresh?: number; row_detail_button?: boolean; scroll?: boolean; layout?: string; infinite?: boolean; item_templates?: Record<string, any>; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean; graph_move?: string; graph_connect?: string; graph_disconnect?: string; graph_delete?: string; graph_add?: string; graph_node_flyout?: string; graph_config?: string; graph_menu?: string; graph_validate_connect?: string; graph_run?: string; graph_sidebar?: string; graph_sidebar_actions?: string[]; graph_toolbar?: string; graph_select?: string; graph_palette?: string; graph_type_info?: string; palette?: NodeType[]; graph_directed?: boolean; graph_snap?: number }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -235,6 +235,8 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gpchip:active { cursor: grabbing; }
   .gpchip.ok { border-left: 2px solid var(--ok); } .gpchip.warn { border-left: 2px solid var(--warn); }
   .gpchip.bad { border-left: 2px solid var(--bad); } .gpchip.info, .gpchip.upd { border-left: 2px solid var(--upd); }
+  .gpchip .gpinfo { display: inline-flex; align-items: center; padding: 0 0 0 5px; margin-left: 2px; background: transparent; border: 0; color: var(--line2); cursor: pointer; }
+  .gpchip .gpinfo:hover { color: var(--upd); }
   /* run toggle */
   .grun { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
     background: var(--panel); border: 1px solid var(--line2); color: var(--mid); cursor: pointer;
@@ -1370,6 +1372,16 @@ export class HopePluginSurface extends LoomElement {
     const out = await runPluginAction(this.deps(), this.surface?.key || "", a, { row }, this.surface?.param);
     if (out && out.ok) { this.handleDirective(out); if (out.refetch) { await this.fetch(v.method); this.graphPos = { ...this.graphPos, [v.method]: {} }; } }
   };
+  // Palette info: open a node TYPE's docs in the drawer — read what a node does before adding it.
+  private gTypeInfo = async (v: ViewDesc, nt: NodeType) => {
+    if (!v.graph_type_info) return;
+    try {
+      const comp = await this.rpc.call<any>("Plugins", "call", [{ key: this.surface?.key, method: v.graph_type_info, args: this.callArgs({ row: { type: nt.type } }) }]);
+      this.flyout = { title: nt.label || nt.type, comp };
+    } catch (e: any) {
+      this.toast.error(`info — ${e?.message ?? "failed"}`);
+    }
+  };
   private renderPort(v: ViewDesc, n: GNode, p: GPort, side: "in" | "out") {
     const t = this.toneClass(p.tone);
     return (
@@ -1535,6 +1547,7 @@ export class HopePluginSurface extends LoomElement {
             <span class={"gpchip" + (t ? " " + t : "")} draggable={true} tip={nt.desc || nt.label || nt.type}
               onDragStart={(e: any) => e.dataTransfer.setData("text/hope-node", nt.type)}>
               {nt.icon ? this.leafIcon(nt.icon) : null}<span class="gpchtx">{nt.label || nt.type}</span>
+              {v.graph_type_info ? <button class="gpinfo" tip="what this does" onClick={(e: any) => { e.stopPropagation(); void this.gTypeInfo(v, nt); }}><hope-plugin-icon plugin={this.surface?.key} name="info" size={11}></hope-plugin-icon></button> : null}
             </span>
           );
         })}
@@ -1647,6 +1660,8 @@ export class HopePluginSurface extends LoomElement {
     const items: GMenuItem[] = [];
     if (kind === "node") {
       if (target.fields?.length && v.graph_config) items.push({ label: "Configure", icon: "beaker", builtin: () => this.gNodeClick(v, target) });
+      // the node's own bottom-bar Actions (Info / Logs / …) are right-clickable too.
+      for (const a of (target.actions as RowAction[] | undefined) || []) items.push({ label: a.label, icon: a.icon, danger: a.danger, builtin: () => void this.gNodeAction(v, target, a) });
       if (v.graph_delete) items.push({ label: "Delete node", icon: "trash", danger: true, builtin: () => this.gDeleteNode(v, target.id) });
     } else if (kind === "edge" && v.graph_disconnect) {
       items.push({ label: "Disconnect", icon: "x", danger: true, builtin: () => void this.gEdgeClick(new Event("x"), v, target) });

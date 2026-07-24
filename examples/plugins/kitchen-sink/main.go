@@ -66,6 +66,12 @@ var (
 	gseq  int
 	gicon = map[string]string{"source": "box", "transform": "beaker", "filter": "search", "sink": "check"}
 	gtone = map[string]string{"source": plugin.ToneOK, "transform": plugin.ToneInfo, "filter": plugin.ToneWarn, "sink": plugin.ToneOK}
+	gdocs = map[string]string{
+		"source":    "Emits rows from an upstream feed into the pipeline.",
+		"transform": "Maps / normalizes each row per its configured mode.",
+		"filter":    "Drops rows that fail its predicate; passes the kept ones.",
+		"sink":      "Writes the incoming rows to a destination.",
+	}
 )
 
 func gPortsFor(typ string) (in, out []plugin.Port) {
@@ -1146,7 +1152,8 @@ func main() {
 		plugin.GraphMove("gMove"), plugin.GraphConnect("gConn"), plugin.GraphDisconnect("gDisc"),
 		plugin.GraphDelete("gDel"), plugin.GraphAdd("gAdd"), plugin.GraphNodeFlyout("gNode"),
 		plugin.GraphConfig("gConfig"), plugin.GraphMenu("gMenu"),
-		plugin.GraphSidebar("gList"), plugin.GraphSidebarActions("gNew"), plugin.GraphToolbar("gBar"), plugin.GraphPalette("gPalette"),
+		plugin.GraphSidebar("gList"), plugin.GraphSidebarActions("gNew"), plugin.GraphToolbar("gBar"),
+		plugin.GraphPalette("gPalette"), plugin.GraphTypeInfo("gTypeInfo"),
 		plugin.GraphRun("gRun"), plugin.GraphDirected(), plugin.GraphSnap(10))
 
 	// mutations — each gets {row:{..., graph:<activeId>}}; hope re-fetches the canvas on success.
@@ -1269,12 +1276,6 @@ func main() {
 		if n == nil {
 			return map[string]any{"ok": false, "message": "gone"}, nil
 		}
-		docs := map[string]string{
-			"source":    "Emits rows from an upstream feed into the pipeline.",
-			"transform": "Maps / normalizes each row per its configured mode.",
-			"filter":    "Drops rows that fail its predicate; passes the kept ones.",
-			"sink":      "Writes the incoming rows to a destination.",
-		}[n.Type]
 		return map[string]any{
 			"refetch":     false,
 			"flyoutTitle": n.Title,
@@ -1283,9 +1284,28 @@ func main() {
 				plugin.KeyVal("id", n.ID),
 				plugin.KeyVal("type", plugin.Badge(n.Type, gtone[n.Type])),
 				plugin.Divider(),
-				plugin.CText(docs),
+				plugin.CText(gdocs[n.Type]),
 			),
 		}, nil
+	})
+	// gTypeInfo: palette info button -> what a node TYPE does, WITHOUT adding it to the canvas.
+	p.View("gTypeInfo", "type info", plugin.CompView, func(ctx context.Context) (any, error) {
+		var pr struct {
+			Row map[string]any `json:"row"`
+		}
+		_ = plugin.Params(ctx, &pr)
+		typ, _ := pr.Row["type"].(string)
+		title := typ
+		if typ != "" {
+			title = strings.ToUpper(typ[:1]) + typ[1:]
+		}
+		return plugin.Box(
+			plugin.Heading(title+" node", 3),
+			plugin.KeyVal("type", plugin.Badge(typ, gtone[typ])),
+			plugin.Divider(),
+			plugin.CText(gdocs[typ]),
+			plugin.CText("Drag it onto the canvas to add one."),
+		), nil
 	})
 	// gMenu: extra right-click items (hope prepends built-in Configure/Delete/Disconnect).
 	p.View("gMenu", "menu", plugin.CompView, func(ctx context.Context) (any, error) {

@@ -85,6 +85,11 @@ func GraphPalette(method string) GraphOpt { return func(v *ViewDesc) { v.GraphPa
 // StaticPalette sets a fixed node-type catalog on the view (alternative to GraphPalette).
 func StaticPalette(types ...NodeType) GraphOpt { return func(v *ViewDesc) { v.Palette = types } }
 
+// GraphTypeInfo names a method that returns a Comp describing a node TYPE ({type}). hope shows
+// an info button on each palette entry that opens it in the drawer — so an operator can read
+// what a node does before dragging it onto the canvas.
+func GraphTypeInfo(method string) GraphOpt { return func(v *ViewDesc) { v.GraphTypeInfo = method } }
+
 // GraphDirected draws arrowheads on edges (a directed graph).
 func GraphDirected() GraphOpt { return func(v *ViewDesc) { v.GraphDirected = true } }
 

@@ -566,6 +566,7 @@ type ViewDesc struct {
 	GraphToolbar         string     `json:"graph_toolbar,omitempty"`          // top strip: a Comp (title/run/filters) {}
 	GraphSelect          string     `json:"graph_select,omitempty"`           // sidebar row click -> set active graph {id}; canvas refetches with {graph:id}
 	GraphPalette         string     `json:"graph_palette,omitempty"`          // the node-TYPE catalog: returns []NodeType
+	GraphTypeInfo        string     `json:"graph_type_info,omitempty"`        // palette info button -> a Comp about a node TYPE {type} (view before adding)
 	Palette              []NodeType `json:"palette,omitempty"`                // a STATIC node-type catalog (alternative to GraphPalette)
 	GraphDirected        bool       `json:"graph_directed,omitempty"`         // draw arrowheads on edges
 	GraphSnap            int        `json:"graph_snap,omitempty"`             // snap dragged nodes to an N-px grid (0 = free)
