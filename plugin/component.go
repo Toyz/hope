@@ -46,8 +46,9 @@ const (
 	CompKeyval    CompKind = "keyval"    // a Label + Value line (value may be a rich Cell)
 	CompIcon      CompKind = "icon"      // a single icon (built-in name or an Icons key)
 	CompSparkline CompKind = "sparkline" // a tiny inline line chart from Values
-	CompCell      CompKind = "cell"      // any rich Cell (Badge/Link/Number/Time/Progress/Code/Image)
+	CompCell      CompKind = "cell"      // any rich Cell (Badge/Link/Number/Time/Progress/Image)
 	CompTable     CompKind = "table"     // an embedded table (rich cells, alignment, ellipsis)
+	CompCard      CompKind = "card"      // a bordered card: header (icon/title/subtitle/tone stripe) + body children
 )
 
 // Comp is one node in a Component tree. Build nodes with the constructors below
@@ -121,6 +122,17 @@ func CTable(data *TableData) *Comp { return &Comp{Kind: CompTable, Table: data} 
 // Toned sets a semantic accent (ToneOK/Warn/Bad/Info) on a node — a colored heading,
 // a tinted box border, a status-colored keyval.
 func (c *Comp) Toned(tone string) *Comp { c.Tone = tone; return c }
+
+// CCard builds a bordered card: a header (icon/title/subtitle + a tone stripe) over a body
+// of child components — the good default "item" to render in a grid or a paged collection.
+// C-prefixed (Card is already the data-card type). Chain .Ico/.Sub/.Toned for the header.
+func CCard(title string, body ...*Comp) *Comp { return &Comp{Kind: CompCard, Text: title, Children: body} }
+
+// Ico sets a card's (or any node's) leading icon — a hope built-in name or an Icons key.
+func (c *Comp) Ico(name string) *Comp { c.Icon = name; return c }
+
+// Sub sets a card's subtitle (the smaller line under its title).
+func (c *Comp) Sub(text string) *Comp { c.Label = text; return c }
 
 // Gapped sets the gap (px) between a container's children.
 func (c *Comp) Gapped(px int) *Comp { c.Gap = px; return c }

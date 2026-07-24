@@ -29,7 +29,7 @@ interface Node {
   comp?: Comp; // kind "component": an inline primitive tree (see renderComponent)
 }
 // Comp mirrors the SDK's plugin.Comp — one node of the "escape hatch" primitive tree.
-type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table";
+type CompKind = "box" | "stack" | "row" | "grid" | "text" | "heading" | "divider" | "spacer" | "keyval" | "icon" | "sparkline" | "cell" | "table" | "card";
 interface Comp {
   kind: CompKind; // a newer hope may send an unknown kind; renderComponent's default skips it
   children?: Comp[];
@@ -50,7 +50,7 @@ interface EmptyState { icon?: string; title?: string; text?: string; comp?: Comp
 interface Tip { text: string; pos?: string }
 interface RowAction { method: string; label: string; icon?: string; danger?: boolean; fields?: PromptField[]; tip?: Tip }
 interface Facet { key: string; label: string; options: { label: string; value: string }[] }
-interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
+interface ViewDesc { method: string; label: string; kind: string; icon?: string; empty?: EmptyState; lang?: string; default?: string; row_method?: string; row_flyout?: string; row_flyout_width?: string; row_detail_button?: boolean; scroll?: boolean; row_actions?: RowAction[]; page_size?: number; edit_method?: string; edit_columns?: string[]; server?: boolean; refresh?: boolean; refresh_interval?: number; static?: boolean; facets?: Facet[]; default_sort?: { column: string; dir: string }; no_filter?: boolean; no_sort?: boolean }
 interface ActionDesc { method: string; label: string; icon?: string; fields?: PromptField[]; danger?: boolean; tip?: Tip }
 interface StreamDesc { method: string; label: string; kind: string; icon?: string }
 interface Schema { views?: ViewDesc[]; actions?: ActionDesc[]; streams?: StreamDesc[]; icons?: Record<string, string> }
@@ -117,6 +117,16 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .chead.h1 { font-size: 17px; } .chead.h2 { font-size: 14px; } .chead.h3 { font-size: 12px; }
   .chead.h4 { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
   .ctext { color: var(--mid); font-size: 12px; line-height: 1.55; }
+  /* card primitive: header (icon/title/subtitle + tone stripe) over body children */
+  .ccard { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .ccard.ok { border-left: 2px solid var(--ok); } .ccard.warn { border-left: 2px solid var(--warn); }
+  .ccard.bad { border-left: 2px solid var(--bad); } .ccard.info { border-left: 2px solid var(--upd); }
+  .ccard .cchd { display: flex; align-items: center; gap: 9px; padding: 10px 13px; border-bottom: 1px solid var(--line); }
+  .ccard .cchd loom-icon { color: var(--dim); flex: none; }
+  .ccard .cchtx { min-width: 0; }
+  .ccard .ccttl { color: var(--hi); font: 600 12.5px/1.3 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ccard .ccsub { color: var(--dim); font: 11px/1.4 var(--mono); }
+  .ccard .ccbd { padding: 12px 13px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .cdiv { height: 1px; background: var(--line); margin: 4px 0; }
   .chead.ok, .ctext.ok, .pkvv.ok { color: var(--ok); }
   .chead.warn, .ctext.warn, .pkvv.warn { color: var(--warn); }
@@ -175,6 +185,12 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .gwrap { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
   /* Flush/embedded (TableData.Flush): no height cap or inner scroll — the panel/flyout scrolls. */
   .gwrap.embed { max-height: none; overflow: visible; border: 0; }
+  /* Horizontal scroll (Scroll): columns keep natural width; a wide table scrolls sideways
+     instead of cramming. Needs a scrollable wrapper even when embedded (which is overflow:visible). */
+  .gwrap.scroll { overflow-x: auto; }
+  .gwrap.embed.scroll { overflow-x: auto; overflow-y: visible; }
+  table.g.scroll { width: max-content; min-width: 100%; }
+  table.g.scroll td, table.g.scroll th { white-space: nowrap; }
   /* With overflow:visible the sticky header would latch onto the flyout's scroll and float over
      the content above the table — so in a flush table the header scrolls with its rows. */
   .gwrap.embed table.g th { position: static; }
@@ -869,6 +885,24 @@ export class HopePluginSurface extends LoomElement {
       case "table":
         // An embedded table — full renderer (headers, aligned cells, ellipsis, row detail).
         return c.table ? this.renderTable(c.table) : null;
+      case "card": {
+        // A bordered card: header (icon/title/subtitle + tone stripe) over body children.
+        const hasHead = c.text || c.icon || c.label;
+        return (
+          <div class={"ccard" + (tone ? " " + tone : "")}>
+            {hasHead ? (
+              <div class="cchd">
+                {c.icon ? this.leafIcon(c.icon) : null}
+                <div class="cchtx">
+                  {c.text ? <div class="ccttl">{c.text}</div> : null}
+                  {c.label ? <div class="ccsub">{c.label}</div> : null}
+                </div>
+              </div>
+            ) : null}
+            <div class="ccbd">{(c.children || []).map((k, i) => this.renderComponent(k, idKey + ".c" + i, depth + 1))}</div>
+          </div>
+        );
+      }
       default:
         return null;
     }
@@ -949,6 +983,10 @@ export class HopePluginSurface extends LoomElement {
     // so it flows inside a panel/flyout and the CONTAINER scrolls — instead of a capped, nested
     // scroll box. Used for embedded CTable lists (e.g. the badges on a canvas).
     const embedded = !!data?.flush;
+    // Horizontal scroll: a wide table (many columns) keeps each column's natural width and
+    // scrolls sideways instead of cramming everything into the container (TableData.Scroll
+    // / the Scroll view option). Cells stop wrapping; the wrapper gets an x-scrollbar.
+    const scroll = !!(data?.scroll ?? v?.scroll);
     const cols: string[] = Array.isArray(data?.columns) ? data.columns : [];
     // `data` is untrusted plugin output. Normalize rows to a real array-of-arrays up
     // front (a non-array `rows`, or null/non-array row elements, would otherwise throw
@@ -1052,8 +1090,8 @@ export class HopePluginSurface extends LoomElement {
             {v?.refresh ? <span class="trfr">{this.refreshBtn(key)}</span> : null}
           </div>
         ) : null}
-        <div class={"gwrap" + (embedded ? " embed" : "")}>
-          <table class="g">
+        <div class={"gwrap" + (embedded ? " embed" : "") + (scroll ? " scroll" : "")}>
+          <table class={"g" + (scroll ? " scroll" : "")}>
             <thead><tr>
               {cols.map((c, ci) => {
                 if (hidden.has(c)) return null; // hidden column: not rendered, kept in the row

@@ -96,6 +96,10 @@ type TableData struct {
 	// box — it flows and the containing panel/flyout scrolls instead. Meant for an embedded
 	// CTable showing a bounded list (e.g. the badges on a canvas), not a big paged view.
 	Flush bool `json:"flush,omitempty"`
+	// Scroll lets a WIDE table (many columns) scroll HORIZONTALLY — each column keeps its
+	// natural width and a scrollbar appears — instead of cramming every column into the
+	// container so nothing feels squeezed. Set with HScroll.
+	Scroll bool `json:"scroll,omitempty"`
 }
 
 // KVData is what a KV view returns: a flat map of label -> value. A value may be a
@@ -389,6 +393,10 @@ type ViewDesc struct {
 	// RowFlyoutWidth sizes the drawer: a preset ("small" | "large" | "xlarge") or an
 	// explicit px value ("680"). Empty = the default (~460px).
 	RowFlyoutWidth string `json:"row_flyout_width,omitempty"`
+	// Scroll lets a WIDE table view (many columns) scroll HORIZONTALLY — columns keep their
+	// natural width and a scrollbar appears — instead of cramming them into the container.
+	// Set with HScroll.
+	Scroll bool `json:"scroll,omitempty"`
 	// RowDetailButton triggers RowMethod from a dedicated per-row button instead of a
 	// whole-row click. Use when the row body is otherwise interactive (e.g. inline-
 	// editable cells) so the two don't fight.
