@@ -404,20 +404,20 @@ const TABLE_PAGE = 100; // default rows per page when a view doesn't declare pag
   .rmfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); }
   .flyacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 
-  ul.tree { list-style: none; margin: 0; padding: 0 0 0 4px; font: 12px/1.5 var(--mono); user-select: none; }
-  ul.tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px solid var(--line); }
+  ul.tree { list-style: none; margin: 0; padding: 0; font: 12px/1.35 var(--mono); user-select: none; }
+  ul.tree ul { list-style: none; margin: 0 0 0 8px; padding-left: 8px; border-left: 1px solid var(--line); }
   ul.tree li { color: var(--mid); }
-  .trow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  /* the whole row is the hit/hover/active target — a tight full-width pill, no per-label block */
+  .trow { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; padding: 3px 6px; border-radius: 3px; }
+  .trow:hover { background: var(--raised); }
+  .trow:has(.lb.cur) { background: color-mix(in srgb, var(--upd) 15%, transparent); }
   .trow .tcaret { flex: none; color: var(--dim); cursor: pointer; }
-  .trow .tcgap { flex: none; width: 11px; } /* align leaves under grouped rows */
-  .trow { overflow: hidden; }
+  .trow .tcgap { flex: none; width: 3px; }
   .trow .lb { color: var(--hi); display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
   .trow .lb .tlbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .trow .lb.lk { color: var(--upd); cursor: pointer; }
   .trow .lb.lk:hover .tlbl { text-decoration: underline; }
-  /* active pipeline: a clean accent pill, not a selection block */
-  .trow .lb.cur { color: var(--upd); font-weight: 600; background: color-mix(in srgb, var(--upd) 15%, transparent);
-    padding: 2px 7px; margin: -2px -1px; border-radius: 3px; }
+  .trow .lb.cur { color: var(--upd); font-weight: 600; }
   .trow .lb.cur:hover .tlbl { text-decoration: none; }
   .trow .tdot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--mid); }
   /* per-node hover actions (rename/delete/…) */
