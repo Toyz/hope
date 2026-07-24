@@ -39,6 +39,8 @@ import type { PromptOpts, ResolvedSurface, PromptField, PromptOption } from "../
   .field label, .rifield label { display: inline-flex; align-items: center; gap: 6px; }
   label .fhelp { color: var(--line2); cursor: help; transition: color .12s; }
   label .fhelp:hover { color: var(--upd); }
+  /* optional tag: a dim, non-uppercase marker so required fields read as the default */
+  label .fopt { font: 400 9px/1 var(--mono); letter-spacing: .04em; text-transform: none; color: var(--line2); }
   .field input, .field select, .field textarea { width: 100%; box-sizing: border-box; background: var(--ink); border: 1px solid var(--line);
     color: var(--hi); font: 13px/1 var(--mono); padding: 10px 12px; border-radius: 0; }
   .field textarea { line-height: 1.6; resize: vertical; min-height: 62px; }
@@ -333,6 +335,7 @@ export default class PromptModalImpl extends LoomElement {
     return (
       <label>
         {f.label}
+        {f.optional ? <span class="fopt">optional</span> : null}
         {f.help ? <loom-icon class="fhelp" name="info" size={12} tip={f.help}></loom-icon> : null}
       </label>
     );
