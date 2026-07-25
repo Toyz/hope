@@ -44,6 +44,7 @@ const (
 	pathRedeploy      = "/rpc/Stream/redeploy"      // args: [container id, pull?, force?]
 	pathRedeployStack = "/rpc/Stream/redeployStack" // args: [project, pull?, force?]
 	pathPull          = "/rpc/Stream/pull"          // args: [container id, ...] (pull their images, no recreate)
+	pathPullImage     = "/rpc/Stream/pullImage"     // args: [ref]             (pull an arbitrary image ref)
 	pathPruneImages   = "/rpc/Stream/pruneImages"   // args: ["true"|"false"]  (all unused vs dangling)
 	pathApplyStack    = "/rpc/Stream/applyStack"    // args: [json StackSpec]  (build/deploy/edit a stack)
 	pathDeployCont    = "/rpc/Stream/deployContainer" // args: [json ContainerSpec] (one-off container)
@@ -58,6 +59,7 @@ var streamWrites = map[string]bool{
 	pathRedeploy:      true,
 	pathRedeployStack: true,
 	pathPull:          true,
+	pathPullImage:     true,
 	pathPruneImages:   true,
 	pathApplyStack:    true,
 	pathDeployCont:    true,
@@ -104,7 +106,7 @@ func (p *Plugin) Doc() string {
 
 // RoutePatterns claims the exact stream paths.
 func (p *Plugin) RoutePatterns() []string {
-	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPruneImages, pathApplyStack, pathDeployCont, pathDestroyStack, pathEditContainer}
+	return []string{pathLogs, pathStats, pathStackLogs, pathServiceLogs, pathRedeploy, pathRedeployStack, pathPull, pathPullImage, pathPruneImages, pathApplyStack, pathDeployCont, pathDestroyStack, pathEditContainer}
 }
 
 // ServeRoute validates auth + the target container, then returns an NDJSON
@@ -213,6 +215,23 @@ func (p *Plugin) ServeRoute(ctx context.Context, req *gateway.Request) *gateway.
 			err := p.dock(ctx).PullContainers(ctx, ids, emit)
 			if err == nil {
 				p.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: p.hosts.ActiveIDFor(ctx), IDs: ids})
+			}
+			return err
+		})
+
+	case pathPullImage:
+		// Pull an image by REF, with no container attached — the "I just want this
+		// image on this host" case (pre-staging before a deploy, warming a cache,
+		// pulling a base image on an air-gapped-adjacent host). pathPull above only
+		// pulls images already referenced by existing containers.
+		if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+			return errResp(http.StatusBadRequest, "image ref required")
+		}
+		ref := strings.TrimSpace(args[0])
+		return p.streamOp(ctx, p.opAudit(ctx, subject, audit.CatImage, "pull", ref, "", "", false), func(ctx context.Context, emit func(string)) error {
+			err := p.dock(ctx).PullImageStream(ctx, ref, emit)
+			if err == nil {
+				p.bus.Publish(events.Event{Kind: events.KindImageCurrent, Host: p.hosts.ActiveIDFor(ctx)})
 			}
 			return err
 		})

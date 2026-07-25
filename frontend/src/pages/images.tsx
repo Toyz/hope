@@ -10,6 +10,7 @@ import type { ApiState } from "@toyz/loom/query";
 import { ResourcePage } from "./resource-page";
 import { HopeTransport } from "../transport";
 import { consumeOpStream } from "../stream-op";
+import type { PromptField } from "../prompt";
 import { ImageInspector } from "../image-inspector";
 import { ImageInspectorTarget } from "../events";
 import { System } from "../contracts";
@@ -253,6 +254,31 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     } catch (err: any) {
       this.toast.error(`remove ${label} — ${err?.message ?? "failed"}`);
     }
+  };
+
+  // Pull an image by ref with no container attached — pre-staging an image on a
+  // host before deploying, warming a base image, or grabbing a tag to inspect.
+  // Every other pull path here is container-derived; this is the only way to ask
+  // for an arbitrary ref. In fleet mode the operator picks the target host.
+  private pullImage = async () => {
+    const fleet = this.fleetMode;
+    const fields: PromptField[] = [
+      { key: "ref", label: "image", placeholder: "nginx:1.27-alpine", hint: "repo:tag or repo@sha256:… — private registries use the creds in registries" },
+    ];
+    if (fleet) {
+      const hosts = ((await this.rpc.call<{ id: string; connected: boolean }[]>("System", "hosts", [])) || []).filter((h) => h.connected);
+      if (!hosts.length) return this.toast.error("no connected hosts");
+      fields.push({ key: "host", label: "host", type: "select", value: hosts[0].id, options: hosts.map((h) => ({ value: h.id, label: h.id })) });
+    }
+    const v = await this.prompt.ask({ title: "pull image", icon: "download", submitLabel: "Pull", fields });
+    if (!v) return;
+    const ref = (v.ref || "").trim();
+    if (!ref) return;
+    const host = fleet ? v.host : undefined;
+    await this.proc.run("pulling " + ref, async (emit, signal) =>
+      consumeOpStream(this.rpc.streamWithSignal<OpFrame>("Stream", "pullImage", [ref], signal, host), emit),
+    );
+    this.refresh();
   };
 
   private prune = async (all: boolean) => {
@@ -526,6 +552,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     return (
       <div>
         <hope-phead heading="Images" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker images" : fleet ? "aggregated across the fleet" : `${items.length} image${items.length === 1 ? "" : "s"} on this daemon`}>
+          <hope-button slot="actions" icon="download" disabled={busy} onClick={this.pullImage}>pull</hope-button>
           <hope-button slot="actions" icon="plus" onClick={this.openRegs}>registries</hope-button>
           {sel > 0 ? (
             <>

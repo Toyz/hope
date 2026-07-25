@@ -39,6 +39,7 @@ type mockDock struct {
 	redeployContainer func(ctx context.Context, id string, pull, force bool, emit func(string)) error
 	redeployProject   func(ctx context.Context, project string, pull, force bool, emit func(string)) error
 	pullContainers    func(ctx context.Context, ids []string, emit func(string)) error
+	pullImageStream   func(ctx context.Context, ref string, emit func(string)) error
 	pruneImagesStream func(ctx context.Context, all bool, emit func(string)) error
 	recreateFromSpec  func(ctx context.Context, id string, spec stackspec.ContainerSpec, pull bool, emit func(string)) error
 }
@@ -80,6 +81,10 @@ func (m *mockDock) PullContainers(ctx context.Context, ids []string, emit func(s
 
 func (m *mockDock) PruneImagesStream(ctx context.Context, all bool, emit func(string)) error {
 	return m.pruneImagesStream(ctx, all, emit)
+}
+
+func (m *mockDock) PullImageStream(ctx context.Context, ref string, emit func(string)) error {
+	return m.pullImageStream(ctx, ref, emit)
 }
 
 func (m *mockDock) RecreateFromSpec(ctx context.Context, id string, spec stackspec.ContainerSpec, pull bool, emit func(string)) error {
@@ -591,6 +596,50 @@ func TestServeRoute_PruneImages(t *testing.T) {
 			t.Fatalf("args %v -> all=%v, want %v", tc.args, gotAll, tc.wantAll)
 		}
 	}
+}
+
+func TestServeRoute_PullImage(t *testing.T) {
+	tm := newTM(t)
+
+	t.Run("needs a ref", func(t *testing.T) {
+		for _, args := range [][]string{nil, {""}, {"   "}} {
+			p := pluginWith(&mockDock{}, tm, nil, nil)
+			resp := p.ServeRoute(context.Background(), post(t, tm, pathPullImage, args, hosts.LocalID))
+			if resp.Status != http.StatusBadRequest {
+				t.Fatalf("args %v -> status %d, want 400", args, resp.Status)
+			}
+		}
+	})
+
+	t.Run("pulls the ref and trims it", func(t *testing.T) {
+		var got string
+		dock := &mockDock{pullImageStream: func(_ context.Context, ref string, emit func(string)) error {
+			got = ref
+			emit("pulled " + ref)
+			return nil
+		}}
+		p := pluginWith(dock, tm, nil, events.New())
+		resp := p.ServeRoute(context.Background(), post(t, tm, pathPullImage, []string{"  nginx:1.27  "}, hosts.LocalID))
+		frames := decodeNDJSON[opFrame](t, readStream(t, resp))
+		if !frames[len(frames)-1].OK {
+			t.Fatalf("frames %+v", frames)
+		}
+		if got != "nginx:1.27" {
+			t.Fatalf("ref = %q, want %q", got, "nginx:1.27")
+		}
+	})
+
+	t.Run("surfaces a registry error", func(t *testing.T) {
+		dock := &mockDock{pullImageStream: func(_ context.Context, _ string, _ func(string)) error {
+			return errors.New("unauthorized")
+		}}
+		p := pluginWith(dock, tm, nil, events.New())
+		resp := p.ServeRoute(context.Background(), post(t, tm, pathPullImage, []string{"private/img:1"}, hosts.LocalID))
+		frames := decodeNDJSON[opFrame](t, readStream(t, resp))
+		if frames[len(frames)-1].OK {
+			t.Fatalf("expected failure, frames %+v", frames)
+		}
+	})
 }
 
 func TestServeRoute_EditContainer(t *testing.T) {
@@ -1213,8 +1262,8 @@ func TestConstantsAndMetadata(t *testing.T) {
 		t.Fatal("Doc empty")
 	}
 	patterns := p.RoutePatterns()
-	if len(patterns) != 12 {
-		t.Fatalf("RoutePatterns len = %d, want 12", len(patterns))
+	if len(patterns) != 13 {
+		t.Fatalf("RoutePatterns len = %d, want 13", len(patterns))
 	}
 	// every declared write path must be present in the route patterns.
 	set := map[string]bool{}
