@@ -552,7 +552,7 @@ export class ImagesPage extends ResourcePage<ImageInfo> {
     return (
       <div>
         <hope-phead heading="Images" scope={fleet ? "fleet" : this.hostCtx.token || "local"} meta={first ? "docker images" : fleet ? "aggregated across the fleet" : `${items.length} image${items.length === 1 ? "" : "s"} on this daemon`}>
-          <hope-button slot="actions" icon="download" disabled={busy} onClick={this.pullImage}>pull</hope-button>
+          <hope-button slot="actions" icon="download" onClick={this.pullImage}>pull</hope-button>
           <hope-button slot="actions" icon="plus" onClick={this.openRegs}>registries</hope-button>
           {sel > 0 ? (
             <>
