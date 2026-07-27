@@ -2,14 +2,19 @@
 // the <hope-confirm> stub (see confirm-modal.tsx) the first time a confirm is
 // shown. Exposes show(opts): Promise<boolean>; loom's @lazy queues calls made
 // before this chunk finishes loading and replays them here.
-import { LoomElement, styles, css, reactive, on, watch, unmount } from "@toyz/loom";
+import { LoomElement, styles, css, reactive, on, unmount, dialog } from "@toyz/loom";
 import { theme } from "../styles";
 import { signalModal } from "../modal";
 import type { ConfirmOpts } from "../confirm";
 
 @styles(theme, css`
-  .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px;
-    background: var(--scrim); backdrop-filter: blur(3px); animation: fade .12s ease both; }
+  /* A real <dialog> opened with showModal(): the browser puts it in the TOP LAYER, so it
+     paints above everything with no z-index, makes the rest of the page inert, traps and
+     restores focus, and paints ::backdrop for us. All of that used to be a fixed-position
+     scrim div plus a window keydown listener, and the inert/focus half was simply missing. */
+  dialog { border: 0; padding: 20px; margin: auto; max-width: 100%; max-height: 100%;
+    background: transparent; color: inherit; overflow: visible; }
+  dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); animation: fade .12s ease both; }
   .box { width: 460px; max-width: 100%; background: var(--panel); border: 1px solid var(--line2);
     border-top: 2px solid var(--line2); animation: pop .14s cubic-bezier(.2, .8, .3, 1) both; }
   .box.danger { border-top-color: var(--bad); }
@@ -31,43 +36,73 @@ import type { ConfirmOpts } from "../confirm";
     background: color-mix(in srgb, var(--ink) 55%, var(--panel)); }
 `)
 export default class ConfirmModalImpl extends LoomElement {
-  @reactive accessor open = false;
+  // @dialog drives the <dialog> in the shadow root: setting this true calls showModal(),
+  // false calls close(). The DOM is the truth and writes back — Escape closes natively and
+  // sets this to false without going through settle(), which is why the promise is resolved
+  // from the element's `close` event rather than from the button handlers.
+  @dialog accessor open = false;
   @reactive accessor opts: ConfirmOpts = { message: "" };
   private resolver: ((v: boolean) => void) | null = null;
+  private choice = false; // what the user picked; a dismiss leaves it false
 
-  @watch("open") private lockBody() { signalModal(this, this.open); }
+  // Every close path converges on the <dialog>'s native `close` event — a button, Escape,
+  // or a backdrop click — so the promise resolves exactly once however the dialog went
+  // away. Deliberately NOT a @watch on `open`: @dialog wraps the raw accessor and schedules
+  // its own update rather than routing through @reactive, so a watch would miss the
+  // write-back that Escape performs, and the caller would await forever.
+  // `close` does not bubble and is not in loom's JSX event allowlist, so bind it on the
+  // element itself. Guarded like loom's own __loomOverlayBound so repeated renders don't
+  // stack listeners and resolve the promise more than once.
+  private bindClose(el: HTMLElement) {
+    const marked = el as HTMLElement & { __hopeCloseBound?: boolean };
+    if (marked.__hopeCloseBound) return;
+    marked.__hopeCloseBound = true;
+    el.addEventListener("close", () => this.onClosed());
+  }
+
+  private onClosed() {
+    signalModal(this, false);
+    const r = this.resolver;
+    this.resolver = null;
+    r?.(this.choice);
+  }
+
   @unmount private releaseBody() { signalModal(this, false); }
 
   // Called via the lazy stub. Returns a promise that settles on the user's choice.
   show(o: ConfirmOpts): Promise<boolean> {
     this.opts = o;
+    this.choice = false;
     this.open = true;
+    signalModal(this, true); // showModal() makes the page inert but does not lock scroll
     return new Promise<boolean>((resolve) => (this.resolver = resolve));
   }
 
   private settle(v: boolean) {
     if (!this.open) return;
-    this.open = false;
-    const r = this.resolver;
-    this.resolver = null;
-    r?.(v);
+    this.choice = v;
+    this.open = false; // -> close() -> native close event -> onClosed()
   }
 
-  // Bound once (auto-unbinds on disconnect); inert unless a dialog is open.
+  // Escape is native to <dialog> now; Enter-to-confirm is not, so it stays.
   @on(window, "keydown")
   private onKey(e: KeyboardEvent) {
-    if (!this.open) return;
-    if (e.key === "Escape") this.settle(false);
-    if (e.key === "Enter") this.settle(true);
+    if (this.open && e.key === "Enter") this.settle(true);
   }
 
   update() {
-    if (!this.open) return document.createComment("");
+    // The <dialog> is ALWAYS rendered — @dialog needs it present in the shadow root to call
+    // showModal()/close() on. It is invisible until opened, so there is nothing to guard.
     const o = this.opts;
     const tone = o.danger ? "danger" : "warn";
     return (
-      <div class="modal" onClick={() => this.settle(false)}>
-        <div class={"box " + tone} onClick={(e: Event) => e.stopPropagation()}>
+      // showModal() has no light dismiss, so keep it: a click that lands on the dialog
+      // itself (the ::backdrop area) rather than the box means "outside".
+      <dialog
+        ref={(el) => this.bindClose(el)}
+        onClick={(e: Event) => { if (e.target === e.currentTarget) this.settle(false); }}
+      >
+        <div class={"box " + tone}>
           <div class={"head " + tone}>
             <loom-icon name="alert" size={16} color={o.danger ? "var(--bad)" : "var(--warn)"}></loom-icon>
             <span>{o.title || "Confirm"}</span>
@@ -87,7 +122,7 @@ export default class ConfirmModalImpl extends LoomElement {
             </hope-button>
           </div>
         </div>
-      </div>
+      </dialog>
     );
   }
 }
