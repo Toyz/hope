@@ -454,45 +454,23 @@ export class StackPage extends LoomElement {
     return this.hostCtx.fleet;
   }
 
-  // Open the kebab anchored under its trigger. A top-layer popover is out of normal flow,
-  // so `position: absolute` against .more no longer places it — measure and pin instead.
-  private toggleMenu(e: Event) {
-    e.stopPropagation();
-    const el = this.menuEl;
+  // OPENING and CLOSING is the browser's job, via popoverTarget on the trigger. Doing it
+  // by hand cannot work: light dismiss closes the popover on pointerdown, so by the time a
+  // click handler runs the popover is already shut and any toggle — flag-based or reading
+  // :popover-open — sees "closed" and reopens it. The declarative invoker is specified to
+  // coordinate with light dismiss, so clicking an open menu's own kebab closes it and stays
+  // closed. These handlers only PREPARE: pin the panel to the trigger, and for rows record
+  // which one was clicked. Both run before the popover's activation behaviour.
+  private placeMenu(e: Event, el: HTMLElement | null) {
     if (!el) return;
-    // Ask the DOM, not our flag: light dismiss closes the popover on pointerdown, before
-    // this click lands, so a flag-based toggle would immediately reopen what was dismissed.
-    if (el.matches(":popover-open")) {
-      this.menuOpen = false;
-      return;
-    }
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     el.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
     el.style.top = `${r.bottom + 4}px`;
-    this.menuOpen = true;
   }
 
-  // Same dance for the shared row menu, plus capturing which row was clicked.
   private openRowMenu(e: Event, target: { kind: "c"; c: ContainerSummary } | { kind: "g"; g: Group }) {
-    e.stopPropagation();
-    const el = this.rowMenuEl;
-    if (!el) return;
-    const same =
-      this.rowMenu?.kind === target.kind &&
-      (target.kind === "c"
-        ? (this.rowMenu as { c: ContainerSummary }).c.id === target.c.id
-        : (this.rowMenu as { g: Group }).g.service === target.g.service);
-    // Clicking the same kebab that is already open closes it (light dismiss may have
-    // beaten us to it, so :popover-open is the truth); a different one just re-targets.
-    if (el.matches(":popover-open") && same) {
-      this.rowMenuOpen = false;
-      return;
-    }
     this.rowMenu = target;
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    el.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
-    el.style.top = `${r.bottom + 4}px`;
-    this.rowMenuOpen = true;
+    this.placeMenu(e, this.rowMenuEl);
   }
 
   // Common actions stay visible as icons; only kill hides in the kebab menu.
@@ -511,7 +489,7 @@ export class StackPage extends LoomElement {
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
-          <button class="kbtn" aria-label="more" onClick={(e: Event) => this.openRowMenu(e, { kind: "c", c })}>···</button>
+          <button class="kbtn" aria-label="more" popoverTarget="rowmenu" onClick={(e: Event) => this.openRowMenu(e, { kind: "c", c })}>···</button>
         </div>
       </div>
     );
@@ -559,7 +537,7 @@ export class StackPage extends LoomElement {
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
-          <button class="kbtn" aria-label="more" onClick={(e: Event) => this.openRowMenu(e, { kind: "g", g })}>···</button>
+          <button class="kbtn" aria-label="more" popoverTarget="rowmenu" onClick={(e: Event) => this.openRowMenu(e, { kind: "g", g })}>···</button>
         </div>
       </div>
     );
@@ -1426,7 +1404,7 @@ export class StackPage extends LoomElement {
                     <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
                     <hope-button slot="actions" icon="edit" onClick={() => this.editStack()}>edit</hope-button>
                     <div slot="actions" class="more">
-                      <button class="tbtn" aria-label="more" onClick={(e: Event) => this.toggleMenu(e)}>···</button>
+                      <button class="tbtn" aria-label="more" popoverTarget="stackmenu" onClick={(e: Event) => this.placeMenu(e, this.menuEl)}>···</button>
                       {(
                         <div class="menu" id="stackmenu" popover="auto">
                           <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
