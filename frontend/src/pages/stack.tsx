@@ -1,6 +1,6 @@
 // Stack detail — control surface. One project's containers, stack lifecycle,
 // and (when readable) the compose file. Terminal-instrument styling.
-import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app, bus } from "@toyz/loom";
+import { LoomElement, component, styles, css, reactive, prop, watch, mount, unmount, interval, on, query, app, bus, popover } from "@toyz/loom";
 import { inject } from "@toyz/loom/di";
 import { signalModal } from "../modal";
 import { route, LoomRouter } from "@toyz/loom/router";
@@ -100,6 +100,11 @@ function aggMark(items: ContainerSummary[]): string {
   .more .tbtn { padding: 8px 11px; letter-spacing: .24em; }
   .menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 184px;
     background: var(--panel); border: 1px solid var(--line2); }
+  /* The kebab menu is a top-layer popover, so it is pinned to the viewport at coordinates
+     openMenu() measures off the trigger — absolute-against-.more does not apply up there.
+     The id beats .menu on specificity, leaving the row menus (still absolute) untouched. */
+  #stackmenu[popover] { position: fixed; inset: auto; margin: 0; padding: 0; border: 1px solid var(--line2);
+    background: var(--panel); min-width: 184px; }
   .mitem { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 11px 14px;
     background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--mid);
     font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
@@ -367,7 +372,12 @@ export class StackPage extends LoomElement {
   @reactive accessor statsBusy = false;
   @reactive accessor updates: Record<string, ImageUpdate> = {};
   @reactive accessor updatesBusy = false;
-  @reactive accessor menuOpen = false;
+  // The ··· kebab is a native popover: top layer, so it can never be clipped by an
+  // ancestor's overflow or lose a z-index fight, with light dismiss and Escape free.
+  // Top layer also means it leaves normal flow — it is positioned against the trigger
+  // in openMenu() rather than by `position: absolute` on .more.
+  @popover({ target: "#stackmenu" }) accessor menuOpen = false;
+  @query("#stackmenu") private accessor menuEl!: HTMLElement | null;
   @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
   @reactive accessor tunnelModalSvc = ""; // service whose public-routes modal is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
@@ -436,12 +446,29 @@ export class StackPage extends LoomElement {
     return this.hostCtx.fleet;
   }
 
-  // Any document click outside the open menus (their triggers stopPropagation)
-  // closes them. Auto-unbinds on disconnect.
+  // Row menus are still plain absolute-positioned divs, so they need the click-outside
+  // close. The kebab does not — its popover light-dismisses itself.
   @on(document, "click")
   private closeMenu() {
-    this.menuOpen = false;
     this.openRow = "";
+  }
+
+  // Open the kebab anchored under its trigger. A top-layer popover is out of normal flow,
+  // so `position: absolute` against .more no longer places it — measure and pin instead.
+  private toggleMenu(e: Event) {
+    e.stopPropagation();
+    const el = this.menuEl;
+    if (!el) return;
+    // Ask the DOM, not our flag: light dismiss closes the popover on pointerdown, before
+    // this click lands, so a flag-based toggle would immediately reopen what was dismissed.
+    if (el.matches(":popover-open")) {
+      this.menuOpen = false;
+      return;
+    }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    el.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    el.style.top = `${r.bottom + 4}px`;
+    this.menuOpen = true;
   }
 
   // Common actions stay visible as icons; only kill hides in the kebab menu.
@@ -1361,9 +1388,9 @@ export class StackPage extends LoomElement {
                     <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>
                     <hope-button slot="actions" icon="edit" onClick={() => this.editStack()}>edit</hope-button>
                     <div slot="actions" class="more">
-                      <button class="tbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.menuOpen = !this.menuOpen; }}>···</button>
-                      {this.menuOpen ? (
-                        <div class="menu">
+                      <button class="tbtn" aria-label="more" onClick={(e: Event) => this.toggleMenu(e)}>···</button>
+                      {(
+                        <div class="menu" id="stackmenu" popover="auto">
                           <button class="mitem" disabled={this.updatesBusy} onClick={this.checkUpdates}><loom-icon name="search" size={13}></loom-icon><span>{this.updatesBusy ? "checking…" : "check updates"}</span></button>
                           <button class="mitem" disabled={!!this.busy} onClick={() => this.stackOp("start")}><loom-icon name="play" size={13}></loom-icon><span>start stack</span></button>
                           {this.isUngrouped ? null : <button class="mitem" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.addServiceToStack(); }}><loom-icon name="plus" size={13}></loom-icon><span>add service</span></button>}
@@ -1373,7 +1400,7 @@ export class StackPage extends LoomElement {
                           {this.isUngrouped ? null : <button class="mitem" onClick={this.openClone}><loom-icon name="copy" size={13}></loom-icon><span>clone to host…</span></button>}
                           {this.isUngrouped ? null : <button class="mitem danger" disabled={!!this.busy} onClick={() => { this.menuOpen = false; this.deleteStack(); }}><loom-icon name="trash" size={13}></loom-icon><span>delete stack</span></button>}
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   </>
                 )}
