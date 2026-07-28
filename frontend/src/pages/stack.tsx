@@ -103,8 +103,8 @@ function aggMark(items: ContainerSummary[]): string {
   /* The kebab menu is a top-layer popover, so it is pinned to the viewport at coordinates
      openMenu() measures off the trigger — absolute-against-.more does not apply up there.
      The id beats .menu on specificity, leaving the row menus (still absolute) untouched. */
-  #stackmenu[popover] { position: fixed; inset: auto; margin: 0; padding: 0; border: 1px solid var(--line2);
-    background: var(--panel); min-width: 184px; }
+  #stackmenu[popover], #rowmenu[popover] { position: fixed; inset: auto; margin: 0; padding: 0;
+    border: 1px solid var(--line2); background: var(--panel); min-width: 184px; width: max-content; }
   .mitem { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 11px 14px;
     background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--mid);
     font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
@@ -378,7 +378,15 @@ export class StackPage extends LoomElement {
   // in openMenu() rather than by `position: absolute` on .more.
   @popover({ target: "#stackmenu" }) accessor menuOpen = false;
   @query("#stackmenu") private accessor menuEl!: HTMLElement | null;
-  @reactive accessor openRow = ""; // container id (or "grp:<service>") whose action menu is open
+
+  // Row kebabs share ONE popover. Rendering a menu per row is what put them behind the
+  // next row's toolbar — an absolute menu is still inside the table's stacking context,
+  // so no z-index wins. One top-layer element can't be covered by anything.
+  // The clicked row's object is captured here rather than looked up by id later: it is
+  // already in scope at click time, and a stale id after a refetch would render nothing.
+  @popover({ target: "#rowmenu" }) accessor rowMenuOpen = false;
+  @query("#rowmenu") private accessor rowMenuEl!: HTMLElement | null;
+  @reactive accessor rowMenu: { kind: "c"; c: ContainerSummary } | { kind: "g"; g: Group } | null = null;
   @reactive accessor tunnelModalSvc = ""; // service whose public-routes modal is open
   @reactive accessor rdOpen = false; // advanced redeploy dialog
   @reactive accessor rdExcluded: string[] = []; // services excluded from the redeploy
@@ -446,13 +454,6 @@ export class StackPage extends LoomElement {
     return this.hostCtx.fleet;
   }
 
-  // Row menus are still plain absolute-positioned divs, so they need the click-outside
-  // close. The kebab does not — its popover light-dismisses itself.
-  @on(document, "click")
-  private closeMenu() {
-    this.openRow = "";
-  }
-
   // Open the kebab anchored under its trigger. A top-layer popover is out of normal flow,
   // so `position: absolute` against .more no longer places it — measure and pin instead.
   private toggleMenu(e: Event) {
@@ -471,9 +472,31 @@ export class StackPage extends LoomElement {
     this.menuOpen = true;
   }
 
+  // Same dance for the shared row menu, plus capturing which row was clicked.
+  private openRowMenu(e: Event, target: { kind: "c"; c: ContainerSummary } | { kind: "g"; g: Group }) {
+    e.stopPropagation();
+    const el = this.rowMenuEl;
+    if (!el) return;
+    const same =
+      this.rowMenu?.kind === target.kind &&
+      (target.kind === "c"
+        ? (this.rowMenu as { c: ContainerSummary }).c.id === target.c.id
+        : (this.rowMenu as { g: Group }).g.service === target.g.service);
+    // Clicking the same kebab that is already open closes it (light dismiss may have
+    // beaten us to it, so :popover-open is the truth); a different one just re-targets.
+    if (el.matches(":popover-open") && same) {
+      this.rowMenuOpen = false;
+      return;
+    }
+    this.rowMenu = target;
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    el.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    el.style.top = `${r.bottom + 4}px`;
+    this.rowMenuOpen = true;
+  }
+
   // Common actions stay visible as icons; only kill hides in the kebab menu.
   private rowActions(c: ContainerSummary) {
-    const open = this.openRow === c.id;
     const ico = (op: ContainerOp, icon: string, danger = false) => (
       <button class={"ibtn" + (danger ? " danger" : "")} tip={op} disabled={!!this.busy || !actionEnabled(c.state, op)}
         onClick={(e: Event) => { e.stopPropagation(); this.containerOp(c.id, op, c.service || c.name); }}>
@@ -488,36 +511,41 @@ export class StackPage extends LoomElement {
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
-          <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : c.id; }}>···</button>
-          {open ? (
-            <div class="menu">
-              {this.tunnelsOn ? (
-                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(c.service || c.name, c.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
-              ) : null}
-              <button class="mitem" disabled={!!this.busy}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "pull", c.service || c.name); }}><loom-icon name="download" size={13}></loom-icon><span>pull</span></button>
-              <button class="mitem" disabled={!!this.busy}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "redeploy", c.service || c.name); }}><loom-icon name="redeploy" size={13}></loom-icon><span>redeploy</span></button>
-              <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "stop")}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "stop", c.service || c.name); }}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
-              <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "kill")}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.containerOp(c.id, "kill", c.service || c.name); }}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
-              {this.isUngrouped ? (
-                <button class="mitem danger" disabled={!!this.busy}
-                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeContainer(c.id, c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove</span></button>
-              ) : (
-                <button class="mitem danger" disabled={!!this.busy}
-                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeServiceFromStack(c.service || c.name); }}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
-              )}
-            </div>
-          ) : null}
+          <button class="kbtn" aria-label="more" onClick={(e: Event) => this.openRowMenu(e, { kind: "c", c })}>···</button>
         </div>
       </div>
     );
   }
 
+  // The row menu body, rendered ONCE into the shared popover from whatever the kebab
+  // captured. Kept as its own method so the two shapes stay readable side by side.
+  private containerMenu(c: ContainerSummary) {
+    const pick = (fn: () => void) => (e: Event) => { e.stopPropagation(); this.rowMenuOpen = false; fn(); };
+    return (
+      <>
+        {this.tunnelsOn ? (
+          <button class="mitem" onClick={pick(() => this.addTunnel(c.service || c.name, c.ports || []))}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+        ) : null}
+        <button class="mitem" disabled={!!this.busy}
+          onClick={pick(() => this.containerOp(c.id, "pull", c.service || c.name))}><loom-icon name="download" size={13}></loom-icon><span>pull</span></button>
+        <button class="mitem" disabled={!!this.busy}
+          onClick={pick(() => this.containerOp(c.id, "redeploy", c.service || c.name))}><loom-icon name="redeploy" size={13}></loom-icon><span>redeploy</span></button>
+        <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "stop")}
+          onClick={pick(() => this.containerOp(c.id, "stop", c.service || c.name))}><loom-icon name="stop" size={13}></loom-icon><span>stop</span></button>
+        <button class="mitem danger" disabled={!!this.busy || !actionEnabled(c.state, "kill")}
+          onClick={pick(() => this.containerOp(c.id, "kill", c.service || c.name))}><loom-icon name="x" size={13}></loom-icon><span>kill</span></button>
+        {this.isUngrouped ? (
+          <button class="mitem danger" disabled={!!this.busy}
+            onClick={pick(() => this.removeContainer(c.id, c.service || c.name))}><loom-icon name="trash" size={13}></loom-icon><span>remove</span></button>
+        ) : (
+          <button class="mitem danger" disabled={!!this.busy}
+            onClick={pick(() => this.removeServiceFromStack(c.service || c.name))}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
+        )}
+      </>
+    );
+  }
+
   private groupActions(project: string, g: Group) {
-    const open = this.openRow === "grp:" + g.service;
     const ico = (op: ContainerOp, icon: string, danger = false) => (
       <button class={"ibtn" + (danger ? " danger" : "")} title={op} disabled={!!this.busy || !groupActionEnabled(g.items, op)}
         onClick={(e: Event) => { e.stopPropagation(); this.groupOp(g, op, e); }}>
@@ -531,24 +559,28 @@ export class StackPage extends LoomElement {
         {ico("start", "play")}
         {ico("restart", "rotate")}
         <div class="rmore">
-          <button class="kbtn" aria-label="more" onClick={(e: Event) => { e.stopPropagation(); this.openRow = open ? "" : "grp:" + g.service; }}>···</button>
-          {open ? (
-            <div class="menu">
-              {this.tunnelsOn ? (
-                <button class="mitem" onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.addTunnel(g.service, g.items[0]?.ports || []); }}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
-              ) : null}
-              <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "stop")}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "stop"); }}><loom-icon name="stop" size={13}></loom-icon><span>stop all</span></button>
-              <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "kill")}
-                onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.groupOp(g, "kill"); }}><loom-icon name="x" size={13}></loom-icon><span>kill all</span></button>
-              {this.isUngrouped ? null : (
-                <button class="mitem danger" disabled={!!this.busy}
-                  onClick={(e: Event) => { e.stopPropagation(); this.openRow = ""; this.removeServiceFromStack(g.service); }}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
-              )}
-            </div>
-          ) : null}
+          <button class="kbtn" aria-label="more" onClick={(e: Event) => this.openRowMenu(e, { kind: "g", g })}>···</button>
         </div>
       </div>
+    );
+  }
+
+  private groupMenu(g: Group) {
+    const pick = (fn: () => void) => (e: Event) => { e.stopPropagation(); this.rowMenuOpen = false; fn(); };
+    return (
+      <>
+        {this.tunnelsOn ? (
+          <button class="mitem" onClick={pick(() => this.addTunnel(g.service, g.items[0]?.ports || []))}><loom-icon name="link" size={13}></loom-icon><span>add tunnel</span></button>
+        ) : null}
+        <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "stop")}
+          onClick={pick(() => this.groupOp(g, "stop"))}><loom-icon name="stop" size={13}></loom-icon><span>stop all</span></button>
+        <button class="mitem danger" disabled={!!this.busy || !groupActionEnabled(g.items, "kill")}
+          onClick={pick(() => this.groupOp(g, "kill"))}><loom-icon name="x" size={13}></loom-icon><span>kill all</span></button>
+        {this.isUngrouped ? null : (
+          <button class="mitem danger" disabled={!!this.busy}
+            onClick={pick(() => this.removeServiceFromStack(g.service))}><loom-icon name="trash" size={13}></loom-icon><span>remove from stack</span></button>
+        )}
+      </>
     );
   }
 
@@ -1336,8 +1368,14 @@ export class StackPage extends LoomElement {
         : sev === "warn" ? "warn" : "bad"
       : "";
     const first = !s && !this.error && this.stacksQ.loading; // first load, nothing yet
+    const rm = this.rowMenu;
     return (
       <div>
+        {/* One shared row menu for every kebab in the table. Always present so @popover has
+            something to drive; the top layer means its position in the tree is irrelevant. */}
+        <div class="menu" id="rowmenu" popover="auto">
+          {rm ? (rm.kind === "c" ? this.containerMenu(rm.c) : this.groupMenu(rm.g)) : null}
+        </div>
         <main>
           {this.error ? <div class="err">{this.error}</div> : null}
           {first ? (
