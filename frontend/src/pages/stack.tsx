@@ -234,7 +234,7 @@ function aggMark(items: ContainerSummary[]): string {
   .ibtn:hover { color: var(--hi); border-color: var(--line2); background: var(--raised); }
   .ibtn:hover loom-icon { color: var(--hi); }
   .ibtn:disabled { opacity: .25; cursor: not-allowed; }
-  .ibtn.fav { font: 16px/1 system-ui, "Segoe UI Symbol", sans-serif; color: var(--dim); }
+  .ibtn.fav { color: var(--dim); }
   .ibtn.fav:hover { color: var(--warn); }
   .ibtn.fav.on { color: var(--warn); }
   .ibtn:disabled:hover { border-color: transparent; background: transparent; }
@@ -484,7 +484,7 @@ export class StackPage extends LoomElement {
     const svc = c.service || c.name;
     return (
       <div class="racts">
-        <button class={"ibtn fav" + (this.isFav(svc) ? " on" : "")} tip={this.isFav(svc) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(svc, svc, "container", e)}>{this.isFav(svc) ? "★" : "☆"}</button>
+        <button class={"ibtn fav" + (this.isFav(svc) ? " on" : "")} tip={this.isFav(svc) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(svc, svc, "container", e)}><loom-icon name="star" size={14} fill={this.isFav(svc) ? "currentColor" : "none"}></loom-icon></button>
         <button class="ibtn" tip="logs" onClick={(e: Event) => { e.stopPropagation(); this.openContainer(c.id, c.service || c.name, "logs"); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}
@@ -532,7 +532,7 @@ export class StackPage extends LoomElement {
     );
     return (
       <div class="racts">
-        <button class={"ibtn fav" + (this.isFav(g.service) ? " on" : "")} tip={this.isFav(g.service) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(g.service, g.service, "container", e)}>{this.isFav(g.service) ? "★" : "☆"}</button>
+        <button class={"ibtn fav" + (this.isFav(g.service) ? " on" : "")} tip={this.isFav(g.service) ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar(g.service, g.service, "container", e)}><loom-icon name="star" size={14} fill={this.isFav(g.service) ? "currentColor" : "none"}></loom-icon></button>
         <button class="ibtn" tip="logs" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${project}/${g.service}`, "serviceLogs", [project, g.service]); }}><loom-icon name="terminal" size={14}></loom-icon></button>
         {ico("start", "play")}
         {ico("restart", "rotate")}
@@ -1398,7 +1398,7 @@ export class StackPage extends LoomElement {
                   <hope-button slot="actions" tone="danger" disabled={!!this.busy} onClick={() => { this.stopExcluded = []; this.stopRemove = false; this.stopOpen = true; }}>stop…</hope-button>
                 ) : (
                   <>
-                    <hope-button slot="actions" tooltip={this.isFav() ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar("", s.project, "stack", e)}>{this.isFav() ? "★ favorited" : "☆ favorite"}</hope-button>
+                    <hope-button slot="actions" tooltip={this.isFav() ? "unfavorite" : "favorite"} onClick={(e: Event) => this.favStar("", s.project, "stack", e)}><loom-icon name="star" size={13} fill={this.isFav() ? "currentColor" : "none"}></loom-icon>{this.isFav() ? " favorited" : " favorite"}</hope-button>
                     <hope-button slot="actions" icon="terminal" onClick={(e: Event) => { e.stopPropagation(); this.logPanel.open(this.hostCtx.token, `${s.project} · all logs`, "stackLogs", [s.project]); }}>logs</hope-button>
                     <hope-button slot="actions" icon="rotate" disabled={!!this.busy} onClick={() => this.stackOp("restart")}>{this.busy === "stack:restart" ? "restart…" : "restart"}</hope-button>
                     <hope-button slot="actions" icon="redeploy" disabled={!!this.busy} onClick={() => this.stackOp("redeploy")}>{this.busy === "stack:redeploy" ? "redeploy…" : "redeploy"}</hope-button>

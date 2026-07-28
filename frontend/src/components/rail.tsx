@@ -87,7 +87,7 @@ function toneFromCounts(running: number, total: number, restarting: boolean, has
   /* favorite star: always visible — a dim hollow star to add, solid accent when
      favorited. flex:none so it sits at the far right whether or not the node has a meta. */
   .star { flex: none; display: inline-flex; align-items: center; margin-left: 4px; padding: 0 2px;
-    color: var(--dim); font: 13px/1 system-ui, "Segoe UI Symbol", sans-serif; cursor: pointer; transition: color .1s ease; }
+    color: var(--dim); cursor: pointer; transition: color .1s ease; }
   .star:hover { color: var(--warn); }
   .star.on { color: var(--warn); }
   /* favorites section rows — same tree node language, showing stack + host context */
@@ -224,7 +224,11 @@ export class HopeRail extends LoomElement {
   // Star glyph: a SOLID unicode star when favorited, a hollow one otherwise. A plain
   // char sizes + colors reliably (loom-icon can only stroke, and inline SVG doesn't get
   // the SVG namespace through loom's JSX).
-  private starIcon(on: boolean) { return on ? "★" : "☆"; }
+  // A real icon rather than a ★/☆ glyph: loom-icon gained `fill` in 0.23, so the same
+  // path renders hollow or solid and finally matches the rest of the icon set's metrics.
+  private starIcon(on: boolean) {
+    return <loom-icon name="star" size={13} fill={on ? "currentColor" : "none"}></loom-icon>;
+  }
 
   // Favorites as a mini topology tree: a stack node per favorited (host, project), with
   // any favorited services nested under it (so "postgres" always shows its stack). Live
